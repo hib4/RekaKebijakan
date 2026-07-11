@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { navigation } from "./data/content";
+import { navigation } from "../data/content";
 
 const scrollTo = (id: string) => {
   const element = document.getElementById(id);

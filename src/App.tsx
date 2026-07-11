@@ -3,10 +3,10 @@ import type { FormEvent } from "react";
 import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
-import Dashboard from "./Dashboard";
-import ProjectsPage from "./ProjectsPage";
-import Header, { Brand } from "./Header";
-import { PlaceholderPage } from "./AppShell";
+import Dashboard from "./pages/Dashboard";
+import ProjectsPage from "./pages/ProjectsPage";
+import Header, { Brand } from "./components/Header";
+import { PlaceholderPage } from "./components/AppShell";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -288,6 +288,11 @@ function App() {
     return () => window.removeEventListener("popstate", updatePath);
   }, []);
   useEffect(() => {
+    if (path !== "/") {
+      setCaraKerjaVisible(false);
+      setActiveStep(0);
+      return;
+    }
     const element = document.getElementById("cara-kerja");
     if (!element) return;
     const observer = new IntersectionObserver(
@@ -300,7 +305,7 @@ function App() {
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [path]);
   useEffect(
     () => () => {
       if (simulationTimer.current)
