@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { AppShell } from "./AppShell";
 import {
   pageSizeOptions,
   policyProjects,
@@ -318,13 +319,12 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="dashboard-page project-list-page">
-      <header className="header"><div className="shell nav-wrap"><a className="brand" href="/" onClick={(event) => { event.preventDefault(); goTo("/"); }}><span aria-hidden="true">RK</span><b>RekaKebijakan</b></a><nav className="desktop-nav dashboard-nav" aria-label="Navigasi proyek"><a href="/dashboard" onClick={(event) => { event.preventDefault(); goTo("/dashboard"); }}>Dashboard</a><a className="active" href="/projects" onClick={(event) => event.preventDefault()}>Proyek</a></nav></div></header>
-      <main className="dashboard-main shell">
-        <section className="dashboard-hero project-list-hero" aria-labelledby="projects-title">
-          <div><p className="eyebrow">RUANG KERJA KEBIJAKAN</p><h1 id="projects-title">Proyek Kebijakan</h1><p>Kelola rancangan kebijakan, skenario, dan hasil simulasi dalam satu ruang kerja.</p></div>
-          <div className="actions"><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary import-button" disabled>Impor Proyek <span>Prototipe</span></button></div>
-        </section>
+    <AppShell
+      title="Proyek Kebijakan"
+      subtitle="Kelola rancangan kebijakan, skenario, dan hasil simulasi dalam satu ruang kerja."
+      eyebrow="Ruang kerja kebijakan"
+      actions={<><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary import-button" disabled>Impor Proyek <span>Prototipe</span></button></>}
+    >
         <section className="metrics-grid" aria-label="Ringkasan proyek">{projectSummary.map((metric) => <article className="metric-card" key={metric[0]}><p>{metric[0]}</p><strong>{metric[1]}</strong><span>{metric[2]}</span></article>)}</section>
         <section className="dashboard-panel project-list-panel" aria-labelledby="project-table-title">
           <div className="panel-heading"><div><h2 id="project-table-title">Daftar Proyek</h2><p>Tampilan tersimpan: Semua proyek aktif</p></div>{selected.length > 0 && <span className="bulk-note">{selected.length} proyek dipilih · Aksi massal belum aktif</span>}</div>
@@ -340,10 +340,9 @@ export default function ProjectsPage() {
             </>
           )}
         </section>
-      </main>
       {dialogOpen && <CreateProjectDialog onClose={() => setDialogOpen(false)} />}
       {archiveProject && <ArchiveProjectModal project={archiveProject} onCancel={() => setArchiveProject(null)} onConfirm={confirmArchive} />}
       <ToastRegion toast={toast} />
-    </div>
+    </AppShell>
   );
 }

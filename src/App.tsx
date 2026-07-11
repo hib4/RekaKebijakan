@@ -6,6 +6,7 @@ import { scenarios } from "./data/scenarios";
 import Dashboard from "./Dashboard";
 import ProjectsPage from "./ProjectsPage";
 import Header, { Brand } from "./Header";
+import { PlaceholderPage } from "./AppShell";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -366,8 +367,23 @@ function App() {
   if (path.startsWith("/dashboard")) {
     return <Dashboard />;
   }
+  if (path.startsWith("/projects/")) {
+    return <PlaceholderPage title="Detail Proyek" subtitle="Tinjau ringkasan proyek, skenario, temuan, dan jejak bukti dalam satu tampilan." />;
+  }
   if (path.startsWith("/projects")) {
     return <ProjectsPage />;
+  }
+  if (path.startsWith("/simulations")) {
+    return <PlaceholderPage title="Simulasi" subtitle="Pantau eksperimen skenario, ronde berjalan, dan hasil awal yang memerlukan peninjauan." />;
+  }
+  if (path.startsWith("/personas")) {
+    return <PlaceholderPage title="Persona" subtitle="Kelola persona sintetis, kelompok terdampak, dan catatan keterwakilan stakeholder." />;
+  }
+  if (path.startsWith("/reports")) {
+    return <PlaceholderPage title="Laporan" subtitle="Akses laporan simulasi, temuan tertaut bukti, dan keluaran untuk konsultasi publik." />;
+  }
+  if (path.startsWith("/settings")) {
+    return <PlaceholderPage title="Pengaturan" subtitle="Atur preferensi ruang kerja, mode prototipe, dan konfigurasi demonstrasi lokal." />;
   }
   return (
     <div id="utama">

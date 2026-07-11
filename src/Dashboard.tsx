@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import Header from "./Header";
+import { AppShell } from "./AppShell";
 import {
   attentionRows,
   overviewMetrics,
@@ -216,13 +216,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div id="dashboard" className="dashboard-page">
-      <Header isDashboard />
-      <main className="dashboard-main shell">
-        <section className="dashboard-hero" aria-labelledby="dashboard-title">
-          <div><p className="eyebrow">RINGKASAN KERJA</p><h1 id="dashboard-title">Dashboard</h1><p>Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan.</p></div>
-          <div className="actions"><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary" onClick={() => action("Lihat Semua Proyek")}>Lihat Semua Proyek</button></div>
-        </section>
+    <AppShell
+      title="Dashboard"
+      subtitle="Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan."
+      eyebrow="Ringkasan kerja"
+      actions={<><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary" onClick={() => action("Lihat Semua Proyek")}>Lihat Semua Proyek</button></>}
+    >
         <section className="metrics-grid" aria-label="Ringkasan metrik">{overviewMetrics.map((metric) => <MetricCard metric={metric} key={metric[0]} />)}</section>
         <div className="dashboard-grid">
           <AttentionList onAction={action} />
@@ -230,9 +229,8 @@ export default function Dashboard() {
           <ProjectsTable onAction={action} />
           <ActivityTimeline />
         </div>
-      </main>
       {dialogOpen && <CreateProjectDialog onClose={() => setDialogOpen(false)} />}
       <ToastRegion toast={toast} />
-    </div>
+    </AppShell>
   );
 }
