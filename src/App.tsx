@@ -465,8 +465,6 @@ function App() {
                 <button
                   className={`step ${activeStep === index ? "active" : ""}`}
                   key={num}
-                  onMouseEnter={() => setActiveStep(index)}
-                  onFocus={() => setActiveStep(index)}
                   onClick={() => setActiveStep(index)}
                 >
                   <span>{num}</span>
