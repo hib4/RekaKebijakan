@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import Header from "./Header";
 import {
   attentionRows,
   overviewMetrics,
@@ -205,40 +206,18 @@ export default function Dashboard() {
     setToast({ id: Date.now(), message });
     window.setTimeout(() => setToast(null), 3200);
   };
-  const action = (label: string) => navigatePlaceholder(`/dashboard/${label.toLowerCase().replaceAll(" ", "-")}`, showToast);
+  const action = (label: string) => {
+    if (label.toLowerCase().includes("semua proyek")) {
+      window.history.pushState(null, "", "/projects");
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
+    navigatePlaceholder(`/dashboard/${label.toLowerCase().replaceAll(" ", "-")}`, showToast);
+  };
 
   return (
     <div id="dashboard" className="dashboard-page">
-      <header className="header">
-        <div className="shell nav-wrap">
-          <a
-            className="brand"
-            href="/"
-            aria-label="RekaKebijakan, kembali ke beranda"
-            onClick={(e) => {
-              e.preventDefault();
-              window.history.pushState(null, "", "/");
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-          >
-            <span aria-hidden="true">RK</span>
-            <b>RekaKebijakan</b>
-          </a>
-          <nav className="desktop-nav dashboard-nav" aria-label="Navigasi dashboard">
-            <a className="active" href="/dashboard" onClick={(e) => e.preventDefault()}>Dashboard</a>
-            <a
-              href="/"
-              onClick={(e) => {
-                e.preventDefault();
-                window.history.pushState(null, "", "/");
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }}
-            >
-              Beranda
-            </a>
-          </nav>
-        </div>
-      </header>
+      <Header isDashboard />
       <main className="dashboard-main shell">
         <section className="dashboard-hero" aria-labelledby="dashboard-title">
           <div><p className="eyebrow">RINGKASAN KERJA</p><h1 id="dashboard-title">Dashboard</h1><p>Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan.</p></div>

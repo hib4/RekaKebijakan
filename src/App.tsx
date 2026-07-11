@@ -1,9 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { navigation, problems, processSteps } from "./data/content";
+import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
 import Dashboard from "./Dashboard";
+import ProjectsPage from "./ProjectsPage";
+import Header, { Brand } from "./Header";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -72,24 +74,7 @@ function getRoundMetrics(scenario: Scenario, round: number): SimulationMetrics {
   };
 }
 
-function Brand() {
-  return (
-    <a
-      className="brand"
-      href="/"
-      aria-label="RekaKebijakan, kembali ke awal"
-      onClick={(e) => {
-        e.preventDefault();
-        window.history.pushState(null, "", "/");
-        window.dispatchEvent(new PopStateEvent('popstate'));
-        scrollTo("utama");
-      }}
-    >
-      <span aria-hidden="true">RK</span>
-      <b>RekaKebijakan</b>
-    </a>
-  );
-}
+
 
 const activeExperiments = [
   {
@@ -282,8 +267,6 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
 
 function App() {
   const [path, setPath] = useState(window.location.pathname);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState("");
   const [activeStep, setActiveStep] = useState(0);
   const [caraKerjaVisible, setCaraKerjaVisible] = useState(false);
   const [scenarioIndex, setScenarioIndex] = useState(0);
@@ -315,20 +298,6 @@ function App() {
       { threshold: 0.1 }
     );
     observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    const sections = [...navigation]
-      .map(([, id]) => document.getElementById(id))
-      .filter(Boolean) as HTMLElement[];
-    const observer = new IntersectionObserver(
-      (entries) =>
-        entries.forEach(
-          (entry) => entry.isIntersecting && setActiveNav(entry.target.id),
-        ),
-      { rootMargin: "-35% 0px -55% 0px" },
-    );
-    sections.forEach((section) => observer.observe(section));
     return () => observer.disconnect();
   }, []);
   useEffect(
@@ -397,76 +366,14 @@ function App() {
   if (path.startsWith("/dashboard")) {
     return <Dashboard />;
   }
+  if (path.startsWith("/projects")) {
+    return <ProjectsPage />;
+  }
   return (
     <div id="utama">
-      <header className="header">
-        <div className="shell nav-wrap">
-          <Brand />
-          <nav className="desktop-nav" aria-label="Navigasi utama">
-            {navigation.map(([label, id]) => (
-              <a
-                className={activeNav === id ? "active" : ""}
-                href={`#${id}`}
-                key={id}
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollTo(id);
-                }}
-              >
-                {label}
-              </a>
-            ))}
-          </nav>
-          <button
-            className="button primary nav-action"
-            onClick={() => {
-              window.history.pushState(null, "", "/dashboard");
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-          >
-            Dashboard
-          </button>
-          <button
-            className="menu-button"
-            aria-label="Buka navigasi"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(!menuOpen)}
-          >
-            <span />
-            <span />
-            <span />
-          </button>
-        </div>
-        {menuOpen && (
-          <nav className="mobile-nav" aria-label="Navigasi seluler">
-            {navigation.map(([label, id]) => (
-              <a
-                href={`#${id}`}
-                key={id}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setMenuOpen(false);
-                  scrollTo(id);
-                }}
-              >
-                {label}
-              </a>
-            ))}
-            <button
-              className="button primary"
-              onClick={() => {
-                setMenuOpen(false);
-                window.history.pushState(null, "", "/dashboard");
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }}
-            >
-              Dashboard
-            </button>
-          </nav>
-        )}
-      </header>
+      <Header />
       <main>
-        <section className="hero section" aria-labelledby="hero-title">
+        <section className="hero section" id="hero" aria-labelledby="hero-title">
           <div className="shell hero-grid">
             <div>
               <p className="eyebrow">
