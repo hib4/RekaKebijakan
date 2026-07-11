@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { navigation, problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
+import Dashboard from "./Dashboard";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -75,8 +76,14 @@ function Brand() {
   return (
     <a
       className="brand"
-      href="#utama"
+      href="/"
       aria-label="RekaKebijakan, kembali ke awal"
+      onClick={(e) => {
+        e.preventDefault();
+        window.history.pushState(null, "", "/");
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        scrollTo("utama");
+      }}
     >
       <span aria-hidden="true">RK</span>
       <b>RekaKebijakan</b>
@@ -133,7 +140,7 @@ function ProductPreview() {
       }, delay);
     };
 
-    runNextTick(previewRound);
+    runNextTick(1);
 
     return () => window.clearTimeout(timerId);
   }, []);
@@ -274,6 +281,7 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
+  const [path, setPath] = useState(window.location.pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("");
   const [activeStep, setActiveStep] = useState(0);
@@ -290,6 +298,11 @@ function App() {
     () => getRoundMetrics(scenario, round),
     [scenario, round],
   );
+  useEffect(() => {
+    const updatePath = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", updatePath);
+    return () => window.removeEventListener("popstate", updatePath);
+  }, []);
   useEffect(() => {
     const element = document.getElementById("cara-kerja");
     if (!element) return;
@@ -381,6 +394,9 @@ function App() {
       });
     }, 1000);
   };
+  if (path.startsWith("/dashboard")) {
+    return <Dashboard />;
+  }
   return (
     <div id="utama">
       <header className="header">
@@ -392,6 +408,10 @@ function App() {
                 className={activeNav === id ? "active" : ""}
                 href={`#${id}`}
                 key={id}
+                onClick={(e) => {
+                  e.preventDefault();
+                  scrollTo(id);
+                }}
               >
                 {label}
               </a>
@@ -399,9 +419,12 @@ function App() {
           </nav>
           <button
             className="button primary nav-action"
-            onClick={() => scrollTo("simulasi")}
+            onClick={() => {
+              window.history.pushState(null, "", "/dashboard");
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
           >
-            Lihat Simulasi
+            Dashboard
           </button>
           <button
             className="menu-button"
@@ -417,7 +440,15 @@ function App() {
         {menuOpen && (
           <nav className="mobile-nav" aria-label="Navigasi seluler">
             {navigation.map(([label, id]) => (
-              <a href={`#${id}`} key={id} onClick={() => setMenuOpen(false)}>
+              <a
+                href={`#${id}`}
+                key={id}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setMenuOpen(false);
+                  scrollTo(id);
+                }}
+              >
                 {label}
               </a>
             ))}
@@ -425,10 +456,11 @@ function App() {
               className="button primary"
               onClick={() => {
                 setMenuOpen(false);
-                scrollTo("simulasi");
+                window.history.pushState(null, "", "/dashboard");
+                window.dispatchEvent(new PopStateEvent('popstate'));
               }}
             >
-              Lihat Simulasi
+              Dashboard
             </button>
           </nav>
         )}

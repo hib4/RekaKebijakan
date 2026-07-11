@@ -1,6 +1,7 @@
 export const navigation = [
   ["Tentang", "tentang"],
   ["Cara Kerja", "cara-kerja"],
+  ["Simulasi Interaktif", "simulasi"],
   ["Keunggulan", "keunggulan"],
   ["Dampak", "dampak"],
 ] as const;
