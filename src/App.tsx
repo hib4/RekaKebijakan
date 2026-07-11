@@ -84,58 +84,118 @@ function Brand() {
   );
 }
 
+const activeExperiments = [
+  {
+    name: "Registrasi Digital UMKM",
+    scenario: scenarios[2],
+    nodes: ["Pelaku mikro", "Dinas UMKM", "Pendamping", "Pasar"],
+  },
+  {
+    name: "Standardisasi Bengkel",
+    scenario: scenarios[1],
+    nodes: ["Pemilik bengkel", "Teknisi", "KLHK", "Asosiasi"],
+  },
+  {
+    name: "Penyaluran Pupuk",
+    scenario: scenarios[0],
+    nodes: ["Petani", "Kios Resmi", "Distributor", "Kementerian"],
+  },
+];
+
 function ProductPreview() {
+  const [activeExpIndex, setActiveExpIndex] = useState(0);
+  const [previewRound, setPreviewRound] = useState(() =>
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 5 : 1,
+  );
+  const activeExp = activeExperiments[activeExpIndex];
+  const previewMetrics = getRoundMetrics(activeExp.scenario, previewRound);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return undefined;
+    }
+
+    let timerId: number;
+
+    const runNextTick = (currentRound: number) => {
+      const isEnd = currentRound >= 5;
+      const delay = 1200;
+
+      timerId = window.setTimeout(() => {
+        if (isEnd) {
+          setActiveExpIndex((prevIdx) => (prevIdx + 1) % activeExperiments.length);
+          setPreviewRound(1);
+          runNextTick(1);
+        } else {
+          setPreviewRound(currentRound + 1);
+          runNextTick(currentRound + 1);
+        }
+      }, delay);
+    };
+
+    runNextTick(previewRound);
+
+    return () => window.clearTimeout(timerId);
+  }, []);
+
   return (
     <div
       className="product-preview"
-      aria-label="Pratinjau simulasi Registrasi Digital UMKM"
+      aria-label={`Pratinjau simulasi ${activeExp.name}`}
     >
       <div className="preview-top">
         <div>
           <small>EKSPERIMEN AKTIF</small>
-          <strong>Registrasi Digital UMKM</strong>
+          <strong>{activeExp.name}</strong>
         </div>
-        <span className="round-tag">Ronde 5 dari 5</span>
+        <span className="round-tag">Ronde {previewRound} dari 5</span>
       </div>
       <div className="network" aria-hidden="true">
         <svg viewBox="0 0 520 218" preserveAspectRatio="none">
           <path d="M55 106 L158 58 L270 112 L390 57 M158 58 L191 168 L270 112 L415 166 M270 112 L470 106" />
-          <circle cx="55" cy="106" r="9" />
-          <circle cx="158" cy="58" r="11" />
-          <circle cx="191" cy="168" r="9" />
-          <circle cx="270" cy="112" r="15" />
-          <circle cx="390" cy="57" r="10" />
-          <circle cx="415" cy="166" r="10" />
-          <circle cx="470" cy="106" r="9" />
+          <circle className={previewRound >= 1 ? "active-node" : ""} cx="55" cy="106" r="9" />
+          <circle className={previewRound >= 2 ? "active-node" : ""} cx="158" cy="58" r="11" />
+          <circle className={previewRound >= 2 ? "active-node" : ""} cx="191" cy="168" r="9" />
+          <circle className={previewRound >= 3 ? "active-node primary-node" : ""} cx="270" cy="112" r="15" />
+          <circle className={previewRound >= 4 ? "active-node" : ""} cx="390" cy="57" r="10" />
+          <circle className={previewRound >= 5 ? "active-node" : ""} cx="415" cy="166" r="10" />
+          <circle className={previewRound >= 5 ? "active-node" : ""} cx="470" cy="106" r="9" />
         </svg>
-        <label className="node n1">Pelaku mikro</label>
-        <label className="node n2">Dinas UMKM</label>
-        <label className="node n3">Pendamping</label>
-        <label className="node n4">Pasar</label>
+        <span className="node n1">{activeExp.nodes[0]}</span>
+        <span className="node n2">{activeExp.nodes[1]}</span>
+        <span className="node n3">{activeExp.nodes[2]}</span>
+        <span className="node n4">{activeExp.nodes[3]}</span>
+      </div>
+      <div className="preview-rounds" aria-hidden="true">
+        {rounds.map((item) => (
+          <i className={item <= previewRound ? "done" : ""} key={item}>
+            {item}
+          </i>
+        ))}
       </div>
       <div className="preview-metrics">
         <div>
           <small>Dukungan</small>
-          <b>74%</b>
+          <b>{previewMetrics.support}%</b>
           <i className="meter blue">
-            <em style={{ width: "74%" }} />
+            <em style={{ width: `${previewMetrics.support}%` }} />
           </i>
         </div>
         <div>
           <small>Kekhawatiran</small>
-          <b>16%</b>
+          <b>{previewMetrics.concern}%</b>
           <i className="meter amber">
-            <em style={{ width: "16%" }} />
+            <em style={{ width: `${previewMetrics.concern}%` }} />
           </i>
         </div>
         <div>
           <small>Risiko narasi</small>
-          <b>Rendah</b>
-          <span className="status-line">Terkendali</span>
+          <b>{previewMetrics.risk}</b>
+          <span className="status-line">{previewRound === 5 ? "Terkendali" : "Dalam evaluasi"}</span>
         </div>
       </div>
       <div className="activity">
-        <span /> Aktivitas ronde selesai ditinjau
+        <span /> {previewRound === 5 ? "Aktivitas ronde selesai ditinjau" : "Persona sedang merespons skenario"}
       </div>
     </div>
   );
@@ -217,6 +277,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("");
   const [activeStep, setActiveStep] = useState(0);
+  const [caraKerjaVisible, setCaraKerjaVisible] = useState(false);
   const [scenarioIndex, setScenarioIndex] = useState(0);
   const [round, setRound] = useState(1);
   const [hasRun, setHasRun] = useState(false);
@@ -229,6 +290,20 @@ function App() {
     () => getRoundMetrics(scenario, round),
     [scenario, round],
   );
+  useEffect(() => {
+    const element = document.getElementById("cara-kerja");
+    if (!element) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setCaraKerjaVisible(true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const sections = [...navigation]
       .map(([, id]) => document.getElementById(id))
@@ -250,6 +325,15 @@ function App() {
     },
     [],
   );
+  useEffect(() => {
+    if (!caraKerjaVisible || activeStep >= processSteps.length - 1) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setActiveStep((prev) => prev + 1);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [activeStep, caraKerjaVisible]);
   const stopSimulationTimer = () => {
     if (simulationTimer.current) {
       window.clearInterval(simulationTimer.current);
@@ -295,7 +379,7 @@ function App() {
 
         return currentRound + 1;
       });
-    }, 420);
+    }, 1000);
   };
   return (
     <div id="utama">
@@ -794,7 +878,7 @@ function App() {
           </div>
         </div>
         <div className="shell copyright">
-          © 2026 RekaKebijakan. Prototipe untuk GEMASTIK 2026.
+          © 2026 RekaKebijakan.
         </div>
       </footer>
       {dialogOpen && <ContactDialog onClose={() => setDialogOpen(false)} />}

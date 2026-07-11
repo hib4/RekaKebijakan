@@ -1,8 +1,8 @@
 export const navigation = [
+  ["Tentang", "tentang"],
   ["Cara Kerja", "cara-kerja"],
   ["Keunggulan", "keunggulan"],
   ["Dampak", "dampak"],
-  ["Tentang", "tentang"],
 ] as const;
 
 export const problems = [

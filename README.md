@@ -1,19 +1,19 @@
 # RekaKebijakan
 
-Prototipe landing page untuk RekaKebijakan, platform simulasi awal kebijakan publik untuk konteks GEMASTIK 2026.
+Landing page prototype for RekaKebijakan, a public policy early-stage simulation platform for GEMASTIK 2026.
 
-## Menjalankan proyek
+## Running the project
 
 ```bash
 bun install
 bun run dev
 ```
 
-Untuk membuat build produksi:
+To create a production build:
 
 ```bash
 bun run build
 bun run preview
 ```
 
-Seluruh skenario dan hasil simulasi menggunakan data demonstrasi lokal. Form diskusi pilot project adalah interaksi prototipe dan tidak mengirim atau menyimpan data.
+All scenarios and simulation results use local demonstration data. The pilot project discussion form is a prototype interaction and does not send or save data.

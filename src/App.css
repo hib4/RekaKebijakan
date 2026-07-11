@@ -264,9 +264,18 @@
   stroke-width: 1;
 }
 .network circle {
-  fill: var(--blue);
+  fill: var(--stronger, #e0e0e0);
   stroke: #fff;
   stroke-width: 3;
+  transition:
+    fill 0.35s ease,
+    r 0.35s ease;
+}
+.network circle.active-node {
+  fill: var(--blue);
+}
+.network circle.primary-node {
+  fill: var(--primary-dark, #0043ce);
 }
 .network .node {
   position: absolute;
@@ -290,6 +299,27 @@
 .n4 {
   right: 3%;
   top: 44%;
+}
+.preview-rounds {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin: 0 0 16px;
+}
+.preview-rounds i {
+  height: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: transparent;
+  font-size: 0;
+  font-style: normal;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+.preview-rounds i.done {
+  background: var(--blue);
+  border-color: var(--blue);
 }
 .preview-metrics {
   display: grid;
@@ -1223,6 +1253,8 @@ footer {
   }
   .meter em,
   .bar i,
+  .network circle,
+  .preview-rounds i,
   .step {
     transition: none;
   }
