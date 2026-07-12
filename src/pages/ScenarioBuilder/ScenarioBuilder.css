@@ -1,0 +1,220 @@
+.scenario-top {
+  display: grid;
+  gap: 14px;
+  margin-top: 32px;
+  padding: 20px 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.scenario-top p {
+  max-width: 860px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.scenario-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+.scenario-summary-bar article {
+  min-height: 92px;
+  background: #fff;
+  padding: 14px;
+}
+.scenario-summary-bar span,
+.scenario-card label,
+.scenario-chip-group legend {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.scenario-summary-bar b {
+  display: block;
+  margin-top: 10px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+.scenario-warning {
+  margin-top: 16px;
+}
+.scenario-mobile-tabs {
+  display: none;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+}
+.scenario-mobile-tabs button {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.scenario-mobile-tabs button:last-child {
+  border-right: 0;
+}
+.scenario-mobile-tabs button.active {
+  color: var(--ink);
+  box-shadow: inset 0 -3px 0 var(--blue);
+}
+.scenario-builder-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+.scenario-card {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 20px;
+}
+.scenario-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.scenario-card-heading h2 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 300;
+}
+.scenario-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.scenario-card-actions .text-button {
+  margin-top: 0;
+}
+.scenario-card label {
+  display: grid;
+  gap: 7px;
+}
+.scenario-card input,
+.scenario-card textarea,
+.scenario-card select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 10px 12px;
+  color: var(--ink);
+  font: inherit;
+}
+.scenario-card textarea {
+  resize: vertical;
+}
+.scenario-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.scenario-chip-group {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  border: 1px solid var(--line);
+  padding: 14px;
+}
+.scenario-chip-group div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.scenario-chip-group button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 7px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.scenario-chip-group button.selected {
+  border-color: var(--blue);
+  color: var(--ink);
+  box-shadow: inset 4px 0 0 var(--blue);
+}
+.scenario-review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+  margin-top: 24px;
+}
+.scenario-comparison,
+.scenario-readiness {
+  padding: 0;
+}
+.scenario-table-wrap {
+  overflow-x: auto;
+}
+.scenario-table-wrap table {
+  min-width: 760px;
+}
+.scenario-readiness {
+  position: sticky;
+  top: 88px;
+  padding: 20px;
+}
+.scenario-readiness h2 {
+  margin: 0 0 16px;
+  font-size: 30px;
+  font-weight: 300;
+}
+.scenario-readiness .inline-alert {
+  margin-top: 16px;
+}
+.scenario-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+@media (max-width: 1000px) {
+  .scenario-summary-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .scenario-builder-grid,
+  .scenario-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .scenario-readiness {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .scenario-summary-bar,
+  .scenario-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .scenario-mobile-tabs {
+    display: flex;
+  }
+  .scenario-builder-grid > div {
+    display: none;
+  }
+  .scenario-builder-grid > div.scenario-mobile-visible {
+    display: block;
+  }
+  .scenario-card-heading,
+  .scenario-card-actions {
+    display: grid;
+    justify-content: stretch;
+  }
+}

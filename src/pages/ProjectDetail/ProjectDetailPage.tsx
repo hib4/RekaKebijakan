@@ -206,7 +206,7 @@ export default function ProjectDetailPage() {
       actions={
         <>
           <button className="button primary" onClick={() => setModalOpen(true)}>Jalankan simulasi</button>
-          <button className="button secondary" onClick={() => showNotice("Panel konfigurasi skenario siap dibuka pada prototipe berikutnya.")}>Ubah skenario</button>
+          <button className="button secondary" onClick={() => navigate("/projects/registrasi-digital-umkm/scenarios")}>Ubah skenario</button>
           <button className="button ghost" onClick={() => showNotice("Draft proyek disimpan secara lokal dalam sesi prototipe.")}>Simpan draft</button>
           <button className="button ghost" onClick={() => showNotice("Duplikasi proyek tersedia sebagai aksi mock.")}>Duplikasi proyek</button>
           <button className="button ghost" onClick={() => showNotice("Arsip proyek tersedia sebagai aksi mock.")}>Arsipkan</button>
@@ -277,7 +277,7 @@ export default function ProjectDetailPage() {
           </section>
 
           <section className="dashboard-panel workspace-panel" aria-labelledby="scenario-title">
-            <div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Konfigurasi skenario untuk melihat indikasi risiko dan perubahan respons.</p></div><button className="text-button inline-action" onClick={() => showNotice("Konfigurasi skenario siap diubah pada prototipe berikutnya.")}>Ubah skenario</button></div>
+            <div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Konfigurasi skenario untuk melihat indikasi risiko dan perubahan respons.</p></div><button className="text-button inline-action" onClick={() => navigate("/projects/registrasi-digital-umkm/scenarios")}>Ubah skenario</button></div>
             <div className="workspace-row-list two-column">
               {scenarioRows.map(([label, value]) => <article key={label}><span>{label}</span><p>{value}</p></article>)}
             </div>

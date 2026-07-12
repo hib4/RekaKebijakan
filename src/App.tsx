@@ -8,6 +8,7 @@ import PersonaStudioPage from "./pages/PersonaStudio/PersonaStudioPage";
 import ProjectDetailPage from "./pages/ProjectDetail/ProjectDetailPage";
 import ProjectWizardPage from "./pages/ProjectWizard/ProjectWizardPage";
 import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
+import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
 import Header, { Brand } from "./components/Header/Header";
 import { PlaceholderPage } from "./components/AppShell/AppShell";
 import "./App.css";
@@ -389,6 +390,9 @@ function App() {
   }
   if (path.match(/^\/projects\/[^/]+\/personas$/)) {
     return <PersonaStudioPage />;
+  }
+  if (path.match(/^\/projects\/[^/]+\/scenarios$/)) {
+    return <ScenarioBuilderPage />;
   }
   if (path.startsWith("/projects/")) {
     return <ProjectDetailPage />;
