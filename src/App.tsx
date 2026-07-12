@@ -96,10 +96,11 @@ const activeExperiments = [
 ];
 
 function ProductPreview() {
+  const [activeExpIndex, setActiveExpIndex] = useState(0);
   const [previewRound, setPreviewRound] = useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 5 : 1,
   );
-  const activeExp = activeExperiments[0];
+  const activeExp = activeExperiments[activeExpIndex];
   const previewMetrics = getRoundMetrics(activeExp.scenario, previewRound);
 
   useEffect(() => {
@@ -111,10 +112,11 @@ function ProductPreview() {
 
     const runNextTick = (currentRound: number) => {
       const isEnd = currentRound >= 5;
-      const delay = 1200;
+      const delay = isEnd ? 1500 : 1200;
 
       timerId = window.setTimeout(() => {
         if (isEnd) {
+          setActiveExpIndex((prevIdx) => (prevIdx + 1) % activeExperiments.length);
           setPreviewRound(1);
           runNextTick(1);
         } else {
