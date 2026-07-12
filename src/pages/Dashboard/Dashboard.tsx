@@ -1,13 +1,14 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { AppShell } from "../components/AppShell";
+import { AppShell } from "../../components/AppShell/AppShell";
 import {
   attentionRows,
   overviewMetrics,
   projectStatuses,
   recentActivity,
   recentProjects,
-} from "../data/dashboard";
+} from "../../data/dashboard";
+import "./Dashboard.css";
 
 type Toast = { id: number; message: string };
 

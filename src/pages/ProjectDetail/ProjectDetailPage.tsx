@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
-import { AppShell } from "../components/AppShell";
+import { AppShell } from "../../components/AppShell/AppShell";
+import "./ProjectDetail.css";
 
 const project = {
   name: "Registrasi Digital UMKM",

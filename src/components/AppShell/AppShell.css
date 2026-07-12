@@ -1,0 +1,227 @@
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  background: #fff;
+}
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  z-index: var(--z-header);
+}
+.app-sidebar-brand {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.app-sidebar-nav {
+  display: grid;
+  padding: 12px 0;
+}
+.app-sidebar-nav a {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px 0 22px;
+  position: relative;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+.app-sidebar-nav a:hover {
+  background: #eaeaea;
+  color: var(--ink);
+}
+.app-sidebar-nav a.active {
+  background: #fff;
+  color: var(--ink);
+}
+.app-sidebar-nav a.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--blue);
+}
+.app-sidebar-nav a span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.app-sidebar-nav a b {
+  font-weight: 400;
+}
+.sidebar-toggle {
+  min-height: 44px;
+  margin: auto 12px 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.sidebar-collapsed {
+  grid-template-columns: 84px minmax(0, 1fr);
+}
+.sidebar-collapsed .app-sidebar .brand b,
+.sidebar-collapsed .app-sidebar-nav a b {
+  display: none;
+}
+.sidebar-collapsed .app-sidebar-brand,
+.sidebar-collapsed .app-sidebar-nav a {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+.app-workspace {
+  min-width: 0;
+}
+.app-topbar {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.app-menu-button {
+  display: none;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.breadcrumb a {
+  color: var(--blue);
+  text-decoration: none;
+}
+.topbar-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.topbar-status i {
+  width: 8px;
+  height: 8px;
+  background: var(--success);
+}
+.app-main {
+  padding: 32px;
+}
+.app-page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 32px;
+  align-items: end;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--line);
+}
+.app-page-header h1 {
+  margin: 0;
+  font-size: 56px;
+  line-height: 1.1;
+  font-weight: 300;
+}
+.app-page-header p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+}
+.app-drawer,
+.app-drawer-backdrop {
+  display: none;
+}
+.dashboard-page .dashboard-main {
+  padding-top: 0;
+}
+.project-list-panel {
+  margin-top: 32px;
+}
+
+
+@media (max-width: 900px) {
+  .app-shell,
+  .sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+  .app-sidebar {
+    display: none;
+  }
+  .app-menu-button {
+    display: flex;
+    margin-left: 0;
+  }
+  .app-topbar {
+    padding: 0 20px;
+  }
+  .app-main {
+    padding: 24px 20px 72px;
+  }
+  .app-page-header {
+    grid-template-columns: 1fr;
+  }
+  .app-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    border: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .app-drawer {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(320px, calc(100vw - 48px));
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform var(--motion-base);
+  }
+  .app-drawer.open {
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar-status {
+    display: none;
+  }
+  .app-page-header h1 {
+    font-size: 42px;
+  }
+  .app-page-header .actions {
+    width: 100%;
+  }
+}

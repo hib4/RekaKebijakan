@@ -3,12 +3,12 @@ import type { FormEvent } from "react";
 import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
-import Dashboard from "./pages/Dashboard";
-import ProjectDetailPage from "./pages/ProjectDetailPage";
-import ProjectWizardPage from "./pages/ProjectWizardPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import Header, { Brand } from "./components/Header";
-import { PlaceholderPage } from "./components/AppShell";
+import Dashboard from "./pages/Dashboard/Dashboard";
+import ProjectDetailPage from "./pages/ProjectDetail/ProjectDetailPage";
+import ProjectWizardPage from "./pages/ProjectWizard/ProjectWizardPage";
+import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
+import Header, { Brand } from "./components/Header/Header";
+import { PlaceholderPage } from "./components/AppShell/AppShell";
 import "./App.css";
 
 const scrollTo = (id: string) =>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "../components/AppShell";
+import { AppShell } from "../../components/AppShell/AppShell";
+import "./ProjectWizard.css";
 
 const steps = [
   "Informasi Proyek",

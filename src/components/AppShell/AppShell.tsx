@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Brand } from "./Header";
+import { Brand } from "../Header/Header";
+import "./AppShell.css";
 
 const productNav = [
   ["/dashboard", "Dashboard", "D"],

@@ -1,0 +1,341 @@
+.dashboard-page {
+  min-height: 100vh;
+  background: #fff;
+  color: var(--ink);
+}
+.dashboard-main {
+  padding: 16px 0 96px;
+}
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: end;
+  padding: 16px 0 40px;
+  border-bottom: 1px solid var(--line);
+}
+.dashboard-hero h1 {
+  margin: 0;
+  font-size: 56px;
+  line-height: 1.1;
+  font-weight: 300;
+}
+.dashboard-hero p:not(.eyebrow) {
+  max-width: 720px;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+}
+.dashboard-nav {
+  margin-left: auto;
+}
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  margin: 32px 0;
+}
+.metric-card {
+  min-height: 170px;
+  padding: 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.metric-card p,
+.metric-card span,
+.metric-card small {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.metric-card p {
+  font-size: 13px;
+  font-weight: 600;
+}
+.metric-card strong {
+  display: block;
+  margin: 28px 0 10px;
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 300;
+}
+.metric-card small {
+  margin-top: 14px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  gap: 24px;
+}
+.dashboard-panel {
+  border: 1px solid var(--line);
+  background: #fff;
+  min-width: 0;
+}
+.span-2 {
+  grid-column: span 2;
+}
+.panel-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-heading h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 400;
+}
+.panel-heading p,
+.panel-heading span {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 880px;
+}
+.data-table th,
+.data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.data-table th {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.data-table tr:last-child td {
+  border-bottom: 0;
+}
+.dash-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dash-risk::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--subtle);
+}
+.dash-risk-high-risk::before,
+.dash-risk-tinggi::before {
+  background: var(--error);
+}
+.dash-risk-medium-risk::before,
+.dash-risk-sedang::before {
+  background: var(--warning);
+}
+.dash-risk-rendah::before {
+  background: var(--success);
+}
+.inline-action {
+  margin: 0;
+  background: transparent;
+  white-space: nowrap;
+}
+.active-simulation {
+  padding-bottom: 24px;
+}
+.status-badge {
+  border: 1px solid var(--blue);
+  color: var(--blue);
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.simulation-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+.simulation-summary div {
+  padding: 16px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.simulation-summary div:nth-child(even) {
+  border-right: 0;
+}
+.simulation-summary span,
+.simulation-summary b {
+  display: block;
+}
+.simulation-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.simulation-summary b {
+  margin-top: 6px;
+  font-weight: 400;
+}
+.dashboard-progress {
+  height: 8px;
+  margin: 24px;
+  background: var(--surface);
+}
+.dashboard-progress span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+.simulation-visual {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 20px;
+  padding: 0 24px 24px;
+  align-items: center;
+}
+.simulation-visual svg {
+  width: 100%;
+  height: auto;
+}
+.simulation-visual path {
+  fill: none;
+  stroke: var(--subtle);
+  stroke-width: 1;
+}
+.simulation-visual circle {
+  fill: var(--blue);
+  stroke: #fff;
+  stroke-width: 3;
+}
+.simulation-visual ol {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.active-simulation .actions {
+  padding: 0 24px;
+}
+.project-tools {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.project-tools label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.project-tools input,
+.project-tools select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background-color: #fff;
+  padding: 10px 12px;
+  color: var(--ink);
+  font: inherit;
+}
+.state-block {
+  padding: 32px 24px;
+  background: var(--surface);
+}
+.state-block h3 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 400;
+}
+.state-block p {
+  margin: 0;
+  color: var(--muted);
+}
+.activity-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.activity-timeline li {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.activity-timeline li:last-child {
+  border-bottom: 0;
+}
+.activity-timeline span,
+.activity-timeline small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.activity-timeline p {
+  margin: 8px 0;
+  line-height: 1.45;
+}
+.toast-region {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  width: min(360px, calc(100vw - 40px));
+}
+.toast {
+  border: 1px solid var(--ink);
+  background: #fff;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+
+@media (max-width: 900px) {
+  .dashboard-hero,
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-main {
+    padding-top: 24px;
+  }
+  .dashboard-hero h1 {
+    font-size: 44px;
+  }
+  .dashboard-hero .actions {
+    width: 100%;
+  }
+  .metrics-grid,
+  .simulation-summary,
+  .simulation-visual {
+    grid-template-columns: 1fr;
+  }
+  .simulation-summary div {
+    border-right: 0;
+  }
+}

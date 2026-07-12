@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { AppShell } from "../components/AppShell";
+import { AppShell } from "../../components/AppShell/AppShell";
 import {
   pageSizeOptions,
   policyProjects,
@@ -8,8 +8,9 @@ import {
   projectSortOptions,
   projectStatusOptions,
   projectSummary,
-} from "../data/projects";
-import type { PolicyProject, ProjectRisk, ProjectStatus } from "../data/projects";
+} from "../../data/projects";
+import type { PolicyProject, ProjectRisk, ProjectStatus } from "../../data/projects";
+import "./ProjectsPage.css";
 
 type Toast = { id: number; message: string };
 type MenuState = { id: string; x: number; y: number } | null;
