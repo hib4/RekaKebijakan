@@ -318,14 +318,19 @@ function App() {
     [],
   );
   useEffect(() => {
-    if (!caraKerjaVisible || !autoPlay) {
+    if (!caraKerjaVisible || !autoPlay || activeStep >= processSteps.length - 1) {
       return;
     }
     const timer = window.setInterval(() => {
-      setActiveStep((prev) => (prev + 1) % processSteps.length);
+      setActiveStep((prev) => {
+        if (prev >= processSteps.length - 1) {
+          return prev;
+        }
+        return prev + 1;
+      });
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [caraKerjaVisible, autoPlay]);
+  }, [activeStep, caraKerjaVisible, autoPlay]);
   const stopSimulationTimer = () => {
     if (simulationTimer.current) {
       window.clearInterval(simulationTimer.current);
