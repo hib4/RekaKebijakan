@@ -7,7 +7,6 @@ const productNav = [
   ["/dashboard", "Dashboard", "D"],
   ["/projects", "Proyek Kebijakan", "P"],
   ["/simulations", "Simulasi", "S"],
-  ["/personas", "Persona", "Pe"],
   ["/reports", "Laporan", "L"],
   ["/settings", "Pengaturan", "Pg"],
 ] as const;

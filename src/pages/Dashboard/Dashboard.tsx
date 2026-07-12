@@ -5,7 +5,6 @@ import {
   attentionRows,
   overviewMetrics,
   projectStatuses,
-  recentActivity,
   recentProjects,
 } from "../../data/dashboard";
 import "./Dashboard.css";
@@ -183,18 +182,6 @@ function ProjectsTable({ onAction }: { onAction: (label: string) => void }) {
   );
 }
 
-function ActivityTimeline() {
-  return (
-    <section className="dashboard-panel" aria-labelledby="activity-title">
-      <div className="panel-heading"><h2 id="activity-title">Aktivitas Terbaru</h2></div>
-      <ol className="activity-timeline">
-        {recentActivity.map(([actor, text, time]) => (
-          <li key={text}><span>{actor}</span><p>{text}</p><small>{time}</small></li>
-        ))}
-      </ol>
-    </section>
-  );
-}
 
 function ToastRegion({ toast }: { toast: Toast | null }) {
   return <div className="toast-region" aria-live="polite">{toast && <div className="toast">{toast.message}</div>}</div>;
@@ -228,7 +215,6 @@ export default function Dashboard() {
           <AttentionList onAction={action} />
           <ActiveSimulationPanel onOpen={() => action("Buka Simulasi")} />
           <ProjectsTable onAction={action} />
-          <ActivityTimeline />
         </div>
       {dialogOpen && <CreateProjectDialog onClose={() => setDialogOpen(false)} />}
       <ToastRegion toast={toast} />

@@ -60,13 +60,6 @@ const scenarioRows = [
   ["Fokus analisis", "Dukungan, kekhawatiran, risiko narasi, dampak tidak langsung"],
 ] as const;
 
-const activities = [
-  ["Proyek dibuat", "2 jam lalu"],
-  ["Dokumen diunggah", "1 jam 45 menit lalu"],
-  ["Bingkai isu dibuat", "1 jam lalu"],
-  ["Persona dipilih", "35 menit lalu"],
-  ["Skenario disiapkan", "12 menit lalu"],
-] as const;
 
 type ReadinessItem = {
   id: string;
@@ -272,7 +265,7 @@ export default function ProjectDetailPage() {
           </section>
 
           <section className="dashboard-panel workspace-panel" aria-labelledby="persona-title">
-            <div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok terdampak dan persona sintetis untuk simulasi terbatas.</p></div><button className="text-button inline-action" onClick={() => navigate("/personas")}>Tinjau persona</button></div>
+            <div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok terdampak dan persona sintetis untuk simulasi terbatas.</p></div><button className="text-button inline-action" onClick={() => navigate("/projects/registrasi-digital-umkm/personas")}>Tinjau persona</button></div>
             <div className="stakeholder-grid">{stakeholders.map((item) => <span key={item}>{item}</span>)}</div>
             <div className="workspace-card-grid persona-summary">
               <article><span>Persona aktif</span><b>30 persona aktif</b></article>
@@ -290,12 +283,6 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
-          <section className="dashboard-panel workspace-panel" aria-labelledby="activity-title">
-            <div className="panel-heading"><div><h2 id="activity-title">Jejak Aktivitas</h2><p>Riwayat ringkas perubahan workspace.</p></div></div>
-            <ol className="activity-timeline">
-              {activities.map(([label, time]) => <li key={label}><span>{time}</span><b>{label}</b></li>)}
-            </ol>
-          </section>
         </div>
         <ReadinessPanel items={readiness} score={score} missing={missing} onToggle={toggleReadiness} onLaunch={() => setModalOpen(true)} />
       </section>

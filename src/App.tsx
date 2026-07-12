@@ -4,6 +4,7 @@ import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
 import Dashboard from "./pages/Dashboard/Dashboard";
+import PersonaStudioPage from "./pages/PersonaStudio/PersonaStudioPage";
 import ProjectDetailPage from "./pages/ProjectDetail/ProjectDetailPage";
 import ProjectWizardPage from "./pages/ProjectWizard/ProjectWizardPage";
 import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
@@ -385,6 +386,9 @@ function App() {
   }
   if (path === "/projects/new") {
     return <ProjectWizardPage />;
+  }
+  if (path.match(/^\/projects\/[^/]+\/personas$/)) {
+    return <PersonaStudioPage />;
   }
   if (path.startsWith("/projects/")) {
     return <ProjectDetailPage />;
