@@ -96,11 +96,10 @@ const activeExperiments = [
 ];
 
 function ProductPreview() {
-  const [activeExpIndex, setActiveExpIndex] = useState(0);
   const [previewRound, setPreviewRound] = useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 5 : 1,
   );
-  const activeExp = activeExperiments[activeExpIndex];
+  const activeExp = activeExperiments[0];
   const previewMetrics = getRoundMetrics(activeExp.scenario, previewRound);
 
   useEffect(() => {
@@ -116,7 +115,6 @@ function ProductPreview() {
 
       timerId = window.setTimeout(() => {
         if (isEnd) {
-          setActiveExpIndex((prevIdx) => (prevIdx + 1) % activeExperiments.length);
           setPreviewRound(1);
           runNextTick(1);
         } else {
@@ -184,7 +182,7 @@ function ProductPreview() {
         <div>
           <small>Risiko narasi</small>
           <b>{previewMetrics.risk}</b>
-          <span className="status-line">{previewRound === 5 ? "Terkendali" : "Dalam evaluasi"}</span>
+          <span className="status-line">Ditinjau</span>
         </div>
       </div>
       <div className="activity">
@@ -270,6 +268,7 @@ function App() {
   const [path, setPath] = useState(window.location.pathname);
   const [activeStep, setActiveStep] = useState(0);
   const [caraKerjaVisible, setCaraKerjaVisible] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(true);
   const [scenarioIndex, setScenarioIndex] = useState(0);
   const [round, setRound] = useState(1);
   const [hasRun, setHasRun] = useState(false);
@@ -289,9 +288,12 @@ function App() {
   }, []);
   useEffect(() => {
     if (path !== "/") {
-      setCaraKerjaVisible(false);
-      setActiveStep(0);
-      return;
+      const resetTimer = window.setTimeout(() => {
+        setCaraKerjaVisible(false);
+        setActiveStep(0);
+        setAutoPlay(true);
+      }, 0);
+      return () => window.clearTimeout(resetTimer);
     }
     const element = document.getElementById("cara-kerja");
     if (!element) return;
@@ -314,14 +316,14 @@ function App() {
     [],
   );
   useEffect(() => {
-    if (!caraKerjaVisible || activeStep >= processSteps.length - 1) {
+    if (!caraKerjaVisible || !autoPlay) {
       return;
     }
     const timer = window.setInterval(() => {
-      setActiveStep((prev) => prev + 1);
+      setActiveStep((prev) => (prev + 1) % processSteps.length);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [activeStep, caraKerjaVisible]);
+  }, [caraKerjaVisible, autoPlay]);
   const stopSimulationTimer = () => {
     if (simulationTimer.current) {
       window.clearInterval(simulationTimer.current);
@@ -401,33 +403,33 @@ function App() {
                 KEBIJAKAN YANG LEBIH SIAP SEBELUM DITERAPKAN
               </p>
               <h1 id="hero-title">
-                Uji dampak.
+                Uji asumsi kebijakan.
                 <br />
                 Temukan risiko.
                 <br />
                 <span>Putuskan lebih baik.</span>
               </h1>
               <p className="lead">
-                RekaKebijakan membantu perancang kebijakan menguji respons
-                kelompok masyarakat, menelusuri narasi berisiko, dan
-                membandingkan skenario sebelum konsultasi publik.
+                RekaKebijakan membantu tim kebijakan mengubah rancangan
+                regulasi menjadi skenario simulasi yang dapat ditinjau,
+                dibandingkan, dan dijelaskan sebelum diterapkan.
               </p>
               <div className="actions">
                 <button
                   className="button primary"
                   onClick={() => scrollTo("simulasi")}
                 >
-                  Coba simulasi interaktif <b>→</b>
+                  Mulai simulasi <b>→</b>
                 </button>
                 <button
                   className="button secondary"
                   onClick={() => scrollTo("cara-kerja")}
                 >
-                  Pelajari cara kerja
+                  Lihat alur kerja
                 </button>
               </div>
               <p className="responsibility">
-                Pendukung keputusan, bukan pengganti partisipasi masyarakat.
+                Simulasi berbasis skenario. Keputusan tetap di tangan manusia.
               </p>
             </div>
             <ProductPreview />
@@ -457,8 +459,8 @@ function App() {
           <div className="shell">
             <p className="eyebrow">01 / PERMASALAHAN</p>
             <h2 className="display">
-              Kebijakan yang baik dapat gagal karena risiko yang terlambat
-              terlihat.
+              Institusi sering perlu menguji asumsi kebijakan sebelum
+              konsultasi publik.
             </h2>
             <div className="problem-grid problem-grid-compact">
               {problems.map(([num, title, text]) => (
@@ -475,18 +477,25 @@ function App() {
           <div className="shell">
             <p className="eyebrow">02 / CARA KERJA</p>
             <h2 className="display">
-              Dari rancangan menjadi eksperimen yang dapat ditelusuri.
+              Dari rancangan menjadi skenario yang dapat diaudit.
             </h2>
             <p className="inverse-intro">
-              Empat langkah terstruktur untuk mengubah asumsi menjadi temuan
-              yang dapat diperiksa dan dibandingkan.
+              Empat langkah terstruktur untuk mengubah asumsi kebijakan
+              menjadi simulasi yang dapat diperiksa dan dibandingkan.
             </p>
-            <div className="step-grid">
+            <div className="step-grid" onMouseLeave={() => setAutoPlay(true)}>
               {processSteps.map(([num, title, text], index) => (
                 <button
                   className={`step ${activeStep === index ? "active" : ""}`}
                   key={num}
-                  onClick={() => setActiveStep(index)}
+                  onMouseEnter={() => {
+                    setActiveStep(index);
+                    setAutoPlay(false);
+                  }}
+                  onClick={() => {
+                    setActiveStep(index);
+                    setAutoPlay(false);
+                  }}
                 >
                   <span>{num}</span>
                   <h3>{title}</h3>
@@ -504,15 +513,15 @@ function App() {
           <div className="shell">
             <p className="eyebrow">03 / SIMULASI INTERAKTIF</p>
             <h2 id="sim-title" className="display">
-              Ubah skenario. Lihat bagaimana hasilnya bergerak.
+              Ubah skenario. Bandingkan dampaknya.
             </h2>
             <p className="section-description">
-              Contoh ini menggunakan data demonstrasi. Pilih intervensi dan
-              jalankan ronde untuk melihat perubahan dukungan, kekhawatiran,
-              serta risiko narasi.
+              Bandingkan rancangan awal dengan skenario revisi untuk melihat
+              indikasi perubahan dukungan, kekhawatiran, dan risiko narasi.
             </p>
             <p className="demo-note">
-              Data pada bagian ini merupakan data demonstrasi.
+              Data pada bagian ini merupakan data demonstrasi dengan tingkat
+              sosialisasi yang dapat dibaca sebagai konteks skenario.
             </p>
             <div className="simulation-grid">
               <section
@@ -533,7 +542,7 @@ function App() {
                   ))}
                 </div>
                 <label className="round-control" htmlFor="round">
-                  <span>RONDE SIMULASI</span>
+                  <span>JUMLAH RONDE</span>
                   <b>{round} dari 5</b>
                   <input
                     id="round"
@@ -546,6 +555,7 @@ function App() {
                     }
                   />
                   <small>Atur ronde untuk meninjau progres eksperimen.</small>
+                  <small>Tingkat sosialisasi ditinjau sebagai konteks simulasi.</small>
                 </label>
                 <button
                   className="button primary run"
@@ -566,7 +576,7 @@ function App() {
                     <h3>{scenario.name}</h3>
                   </div>
                   <span className={`risk risk-${metrics.risk.toLowerCase()}`}>
-                    Risiko {metrics.risk}
+                    Risiko narasi {metrics.risk}
                   </span>
                 </div>
                 <div className="result-bars">
@@ -613,7 +623,7 @@ function App() {
                   </b>
                 </div>
                 <article className="insight">
-                  <p className="label">TEMUAN UTAMA</p>
+                  <p className="label">INDIKASI UTAMA</p>
                   <p>{metrics.insight}</p>
                 </article>
                 <div className="result-counts">
@@ -668,20 +678,20 @@ function App() {
           <div className="shell">
             <p className="eyebrow">04 / KEUNGGULAN</p>
             <h2 className="display">
-              Bukan kotak hitam. Setiap temuan memiliki jejak.
+              Bukan kotak hitam. Setiap temuan punya jejak.
             </h2>
             <p className="section-description">
-              Model bahasa membantu persona mengambil keputusan. Aturan
-              simulasi, validasi, perubahan sikap, dan agregasi tetap
-              dikendalikan oleh sistem yang dapat diperiksa.
+              Asumsi, konfigurasi skenario, respons persona, dan rekomendasi
+              disusun agar dapat ditinjau sebelum digunakan sebagai dukungan
+              keputusan.
             </p>
             <div className="advantages">
               <article className="advantage feature-main">
                 <p className="eyebrow">BERORIENTASI PADA BUKTI</p>
-                <h3>Temuan yang dapat ditelusuri.</h3>
+                <h3>Temuan yang dapat ditelusuri</h3>
                 <p>
-                  Temuan faktual ditautkan ke pasal, data, atau peristiwa
-                  simulasi. Opini dan prediksi diberi label yang jelas.
+                  Insight terhubung ke persona, event simulasi, isu kebijakan,
+                  dan rekomendasi.
                 </p>
                 <div className="source-card">
                   <small>SUMBER TEMUAN</small>
@@ -694,7 +704,7 @@ function App() {
                 <h3>Dapat direproduksi</h3>
                 <p>
                   Versi dokumen, persona, prompt, model, graf, dan random seed
-                  dibekukan pada setiap eksperimen.
+                  dibekukan pada setiap skenario simulasi.
                 </p>
               </article>
               <article className="advantage">
@@ -720,19 +730,19 @@ function App() {
             <div className="impact-grid">
               <div>
                 <b>90%</b>
-                <p>Target temuan faktual memiliki bukti</p>
+                <p>target temuan berjejak</p>
               </div>
               <div>
                 <b>20-50</b>
-                <p>Persona sintetis per simulasi</p>
+                <p>persona sintetis</p>
               </div>
               <div>
                 <b>3 mode</b>
-                <p>Eksekusi untuk ketahanan sistem</p>
+                <p>demo, cached, live</p>
               </div>
               <div>
                 <b>SDG 16</b>
-                <p>Institusi efektif, akuntabel, dan inklusif</p>
+                <p>institusi yang efektif</p>
               </div>
             </div>
             <p className="impact-note">
@@ -749,13 +759,13 @@ function App() {
             </h2>
             <div className="use-grid">
               <article>
-                <h3>RekaKebijakan dapat</h3>
+                <h3>RekaKebijakan dapat:</h3>
                 {[
-                  "Menemukan asumsi yang belum diuji",
-                  "Mengidentifikasi kelompok terdampak",
-                  "Membandingkan skenario kebijakan",
-                  "Menelusuri narasi dan bukti",
-                  "Menyiapkan konsultasi publik",
+                  "Membantu merumuskan asumsi kebijakan",
+                  "Memetakan kelompok terdampak",
+                  "Menjalankan skenario simulasi",
+                  "Mendeteksi risiko narasi",
+                  "Menyajikan rekomendasi berbasis bukti",
                 ].map((text) => (
                   <p key={text}>
                     <b aria-hidden="true">+</b>
@@ -764,13 +774,13 @@ function App() {
                 ))}
               </article>
               <article>
-                <h3>RekaKebijakan tidak dapat</h3>
+                <h3>RekaKebijakan tidak dapat:</h3>
                 {[
-                  "Mewakili seluruh masyarakat",
                   "Menggantikan konsultasi publik",
-                  "Menentukan kebijakan secara otomatis",
-                  "Memprediksi perilaku warga secara pasti",
-                  "Digunakan untuk menargetkan individu",
+                  "Memprediksi opini warga secara pasti",
+                  "Mengambil keputusan kebijakan",
+                  "Menggunakan data pribadi tanpa izin",
+                  "Menjamin semua risiko dapat dihilangkan",
                 ].map((text) => (
                   <p key={text}>
                     <b aria-hidden="true">−</b>
@@ -786,8 +796,8 @@ function App() {
             <p className="eyebrow">MULAI DARI PERTANYAAN YANG BELUM TERJAWAB</p>
             <h2>Uji kebijakan sebelum dampaknya menjadi kenyataan.</h2>
             <p>
-              Bangun skenario, temukan risiko, dan siapkan konsultasi publik
-              dengan dasar yang lebih kuat.
+              Bangun skenario, tinjau risiko, dan siapkan keputusan publik yang
+              lebih terukur.
             </p>
             <div className="actions">
               <button
@@ -798,9 +808,12 @@ function App() {
               </button>
               <button
                 className="button outline-white"
-                onClick={() => setDialogOpen(true)}
+                onClick={() => {
+                  window.history.pushState(null, "", "/projects");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }}
               >
-                Diskusikan pilot project
+                Buka daftar proyek
               </button>
             </div>
           </div>

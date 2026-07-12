@@ -9,23 +9,23 @@ export const navigation = [
 export const problems = [
   [
     "01",
-    "Kelompok terlewat",
-    "Stakeholder penting dapat tidak terwakili pada tahap awal penyusunan.",
+    "Kelompok terdampak sulit dipetakan",
+    "Pemetaan awal sering belum menangkap seluruh pihak yang terdampak.",
   ],
   [
     "02",
-    "Bahasa ambigu",
-    "Ketentuan teknis membuka ruang bagi penafsiran yang berbeda.",
+    "Bahasa regulasi dapat ditafsirkan berbeda",
+    "Istilah dan kewajiban teknis dapat menghasilkan pemahaman yang tidak sama.",
   ],
   [
     "03",
-    "Narasi berisiko",
-    "Informasi tanpa konteks dapat menyebar lebih cepat daripada klarifikasi resmi.",
+    "Narasi berisiko muncul sebelum klarifikasi resmi",
+    "Informasi yang belum lengkap dapat membentuk persepsi lebih awal.",
   ],
   [
     "04",
-    "Dampak tersembunyi",
-    "Konsekuensi terhadap kelompok rentan sering baru terlihat setelah pelaksanaan.",
+    "Dampak tidak langsung terlambat terlihat",
+    "Konsekuensi lanjutan sering baru tampak setelah kebijakan berjalan.",
   ],
 ];
 
@@ -33,21 +33,21 @@ export const processSteps = [
   [
     "01",
     "Masukkan kebijakan",
-    "Unggah rancangan regulasi dan data pendukung. Sistem memetakan pasal, stakeholder, serta asumsi dampaknya.",
+    "Unggah draft regulasi, ringkasan program, atau dataset pendukung.",
   ],
   [
     "02",
-    "Bangun skenario",
-    "Tinjau persona, atur variabel, dan tentukan kondisi yang ingin dibandingkan sebelum simulasi dimulai.",
+    "Bingkai isu kebijakan",
+    "Sistem mengekstrak tujuan, kelompok terdampak, kewajiban, risiko awal, dan indikator.",
   ],
   [
     "03",
     "Jalankan simulasi",
-    "Persona bereaksi dalam ronde terkontrol. Setiap tindakan, narasi, dan perubahan sikap tercatat.",
+    "Persona sintetis merespons dalam ronde terbatas berdasarkan skenario yang ditentukan.",
   ],
   [
     "04",
     "Tinjau bukti",
-    "Bandingkan skenario dan ekspor laporan yang menautkan temuan dengan sumber serta keterbatasannya.",
+    "Lihat insight, event simulasi, rujukan isu, dan rekomendasi yang dapat ditelusuri.",
   ],
 ];

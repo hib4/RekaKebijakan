@@ -25,7 +25,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "transisi",
-    name: "Transisi 6 bulan",
+    name: "Skenario revisi",
     support: 61,
     concern: 25,
     risk: "Sedang",
@@ -37,7 +37,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: "bantuan",
-    name: "Bantuan keliling",
+    name: "Respons pemerintah",
     support: 74,
     concern: 16,
     risk: "Rendah",
