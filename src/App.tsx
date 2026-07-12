@@ -4,6 +4,7 @@ import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
 import Dashboard from "./pages/Dashboard";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProjectWizardPage from "./pages/ProjectWizardPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import Header, { Brand } from "./components/Header";
@@ -386,7 +387,7 @@ function App() {
     return <ProjectWizardPage />;
   }
   if (path.startsWith("/projects/")) {
-    return <PlaceholderPage title="Detail Proyek" subtitle="Tinjau ringkasan proyek, skenario, temuan, dan jejak bukti dalam satu tampilan." />;
+    return <ProjectDetailPage />;
   }
   if (path.startsWith("/projects")) {
     return <ProjectsPage />;
