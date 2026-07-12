@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
 import { AppShell } from "../components/AppShell";
 import {
   pageSizeOptions,
@@ -40,46 +39,6 @@ function RiskBadge({ risk }: { risk: ProjectRisk }) {
 
 function ToastRegion({ toast }: { toast: Toast | null }) {
   return <div className="toast-region" aria-live="polite">{toast && <div className="toast">{toast.message}</div>}</div>;
-}
-
-function CreateProjectDialog({ onClose }: { onClose: () => void }) {
-  const titleId = useId();
-  const [submitted, setSubmitted] = useState(false);
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSubmitted(true);
-  };
-  return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()}>
-        <button className="dialog-close" onClick={onClose} aria-label="Tutup dialog">X</button>
-        {submitted ? (
-          <div className="form-success">
-            <p className="eyebrow">PROYEK DIBUAT</p>
-            <h2 id={titleId}>Proyek tersimpan sebagai prototipe.</h2>
-            <p>Data tidak dikirim ke server. Interaksi ini hanya menunjukkan alur daftar proyek.</p>
-            <button className="button primary" onClick={onClose}>Tutup</button>
-          </div>
-        ) : (
-          <>
-            <p className="eyebrow">PROYEK BARU</p>
-            <h2 id={titleId}>Buat proyek kebijakan.</h2>
-            <form onSubmit={submit}>
-              <label>Nama proyek<input required name="project" autoFocus /></label>
-              <label>Institusi<input required name="institution" /></label>
-              <label>Tujuan pengujian<textarea required name="purpose" rows={3} /></label>
-              <button className="button primary" type="submit">Buat Proyek</button>
-            </form>
-          </>
-        )}
-      </section>
-    </div>
-  );
 }
 
 function ArchiveProjectModal({ project, onCancel, onConfirm }: { project: PolicyProject; onCancel: () => void; onConfirm: () => void }) {
@@ -263,7 +222,6 @@ export default function ProjectsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [menu, setMenu] = useState<MenuState>(null);
   const [archiveProject, setArchiveProject] = useState<PolicyProject | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -323,7 +281,7 @@ export default function ProjectsPage() {
       title="Proyek Kebijakan"
       subtitle="Kelola rancangan kebijakan, skenario, dan hasil simulasi dalam satu ruang kerja."
       eyebrow="Ruang kerja kebijakan"
-      actions={<><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary import-button" disabled>Impor Proyek <span>Prototipe</span></button></>}
+      actions={<><button className="button primary" onClick={() => goTo("/projects/new")}>Buat Proyek</button><button className="button secondary import-button" disabled>Impor Proyek <span>Prototipe</span></button></>}
     >
         <section className="metrics-grid" aria-label="Ringkasan proyek">{projectSummary.map((metric) => <article className="metric-card" key={metric[0]}><p>{metric[0]}</p><strong>{metric[1]}</strong><span>{metric[2]}</span></article>)}</section>
         <section className="dashboard-panel project-list-panel" aria-labelledby="project-table-title">
@@ -331,7 +289,7 @@ export default function ProjectsPage() {
           <ProjectFilters query={query} setQuery={setQuery} status={status} setStatus={setStatus} risk={risk} setRisk={setRisk} institution={institution} setInstitution={setInstitution} sort={sort} setSort={setSort} hasFilters={hasFilters} reset={reset} />
           {loading && <ProjectListState type="loading" />}
           {error && <ProjectListState type="error" onReload={() => { setError(false); setLoading(true); window.setTimeout(() => setLoading(false), 500); }} />}
-          {!loading && !error && paged.length === 0 && <ProjectListState type="empty" onReset={reset} onCreate={() => setDialogOpen(true)} />}
+          {!loading && !error && paged.length === 0 && <ProjectListState type="empty" onReset={reset} onCreate={() => goTo("/projects/new")} />}
           {!loading && !error && paged.length > 0 && (
             <>
               <ProjectTable projects={paged} selected={selected} setSelected={setSelected} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} />
@@ -340,7 +298,6 @@ export default function ProjectsPage() {
             </>
           )}
         </section>
-      {dialogOpen && <CreateProjectDialog onClose={() => setDialogOpen(false)} />}
       {archiveProject && <ArchiveProjectModal project={archiveProject} onCancel={() => setArchiveProject(null)} onConfirm={confirmArchive} />}
       <ToastRegion toast={toast} />
     </AppShell>
