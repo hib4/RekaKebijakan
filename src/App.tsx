@@ -9,6 +9,7 @@ import ProjectDetailPage from "./pages/ProjectDetail/ProjectDetailPage";
 import ProjectWizardPage from "./pages/ProjectWizard/ProjectWizardPage";
 import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
 import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
+import SimulationMonitorPage from "./pages/SimulationMonitor/SimulationMonitorPage";
 import Header, { Brand } from "./components/Header/Header";
 import { PlaceholderPage } from "./components/AppShell/AppShell";
 import "./App.css";
@@ -393,6 +394,9 @@ function App() {
   }
   if (path.match(/^\/projects\/[^/]+\/scenarios$/)) {
     return <ScenarioBuilderPage />;
+  }
+  if (path.match(/^\/projects\/[^/]+\/simulations\/current$/)) {
+    return <SimulationMonitorPage />;
   }
   if (path.startsWith("/projects/")) {
     return <ProjectDetailPage />;

@@ -572,6 +572,9 @@
 .text-button b {
   padding-left: 20px;
 }
+.simulation-results > .text-button {
+  margin-top: 16px;
+}
 .evidence-panel {
   margin-top: 20px;
   border: 1px solid var(--line);

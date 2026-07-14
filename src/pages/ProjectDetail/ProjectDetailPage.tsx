@@ -286,7 +286,7 @@ export default function ProjectDetailPage() {
         </div>
         <ReadinessPanel items={readiness} score={score} missing={missing} onToggle={toggleReadiness} onLaunch={() => setModalOpen(true)} />
       </section>
-      {modalOpen && <LaunchModal readinessComplete={readinessComplete} missing={missing} onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/simulations/registrasi-digital-umkm")} />}
+      {modalOpen && <LaunchModal readinessComplete={readinessComplete} missing={missing} onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/projects/registrasi-digital-umkm/simulations/current")} />}
       <NoticeRegion notice={notice} />
     </AppShell>
   );
