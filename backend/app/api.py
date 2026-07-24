@@ -1,207 +1,234 @@
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, jsonify, request
-from pydantic import ValidationError
+from json import JSONDecodeError
 
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
+
+from .errors import InvalidControl, ResourceNotFound, StageConflict, UnsupportedDocument
+from .auth import current_user
 from .models import EnvironmentInput, InteractionInput, ProjectInput
 
-api = Blueprint("api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
+public_router = APIRouter(prefix="/api")
 
 
-def service():
-    return current_app.extensions["workflow"]
+def service(request: Request):
+    return request.app.state.workflow
 
 
-def repository():
-    return current_app.extensions["repository"]
+def repository(request: Request):
+    return request.app.state.repository
 
 
-def require_state(simulation_id: str):
-    state = repository().get(simulation_id)
+def user_id(request: Request) -> str:
+    return current_user(request)["id"]
+
+
+def require_state(request: Request, simulation_id: str):
+    state = repository(request).get_for_user(simulation_id, user_id(request))
     if not state:
-        abort(404)
+        raise ResourceNotFound()
     return state
 
 
-def start_stage(simulation_id: str, stage: str, payload: dict | None = None):
-    if stage not in {"graph", "environment", "simulation", "report"}:
-        abort(404)
+async def silent_json(request: Request) -> dict:
     try:
-        state = service().start(simulation_id, stage, payload)
+        payload = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError, RuntimeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+async def start_stage(request: Request, simulation_id: str, stage: str, payload: dict | None = None):
+    if stage not in {"graph", "environment", "simulation", "report"}:
+        raise ResourceNotFound()
+    try:
+        state = await run_in_threadpool(service(request).start, simulation_id, stage, payload, user_id(request))
     except ValueError as error:
-        return jsonify(error={"code": "stage_locked", "message": str(error)}, message=str(error)), 409
+        raise StageConflict(str(error)) from error
     if not state:
-        abort(404)
-    return jsonify(state), 202
+        raise ResourceNotFound()
+    return JSONResponse(state, status_code=202)
 
 
-@api.get("/health")
-def health():
-    return jsonify(status="ok", service="rekakebijakan", engine="deterministic-demo")
+@public_router.get("/health")
+async def health():
+    return {"status": "ok", "service": "rekakebijakan", "engine": "deterministic-demo"}
 
 
-@api.post("/projects")
-def create_project():
+@router.post("/projects")
+async def create_project(request: Request):
+    form = await request.form()
     values = {
-        "project_name": request.form.get("project_name") or request.form.get("name"),
-        "institution": request.form.get("institution"),
-        "objective": request.form.get("objective") or request.form.get("description"),
+        "project_name": form.get("project_name") or form.get("name"),
+        "institution": form.get("institution"),
+        "objective": form.get("objective") or form.get("description"),
     }
     model = ProjectInput.model_validate(values)
+    files = [item for item in form.getlist("files") if hasattr(item, "file")]
     try:
-        state = service().create_project(model.model_dump(), request.files.getlist("files"))
+        state = await run_in_threadpool(service(request).create_project, model.model_dump(), files, user_id(request))
     except ValueError as error:
-        return jsonify(error={"code": "unsupported_document", "message": str(error)}, message=str(error)), 422
-    return jsonify(id=state["project"]["id"], project=state["project"], simulation_id=state["id"]), 201
+        raise UnsupportedDocument(str(error)) from error
+    return JSONResponse({"id": state["project"]["id"], "project": state["project"], "simulation_id": state["id"]}, status_code=201)
 
 
-@api.get("/projects")
-def list_projects():
-    return jsonify(projects=[state["project"] | {"simulation_id": state["id"]} for state in repository().list()])
+@router.get("/projects")
+async def list_projects(request: Request):
+    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
+    return {"projects": [state["project"] | {"simulation_id": state["id"]} for state in states]}
 
 
-@api.get("/projects/<project_id>")
-def get_project(project_id: str):
-    state = next((item for item in repository().list() if item["project"]["id"] == project_id), None)
+@router.get("/projects/{project_id}")
+async def get_project(request: Request, project_id: str):
+    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
+    state = next((item for item in states if item["project"]["id"] == project_id), None)
     if not state:
-        abort(404)
-    return jsonify(state["project"] | {"simulation_id": state["id"], "documents": repository().documents(state["id"])})
+        raise ResourceNotFound()
+    documents = await run_in_threadpool(repository(request).documents, state["id"])
+    return state["project"] | {"simulation_id": state["id"], "documents": documents}
 
 
-@api.get("/simulations/<simulation_id>")
-def get_simulation(simulation_id: str):
-    return jsonify(require_state(simulation_id))
+@router.get("/simulations/{simulation_id}")
+async def get_simulation(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)
 
 
-@api.post("/simulations/<simulation_id>/stages/<stage>/start")
-def stage_alias(simulation_id: str, stage: str):
-    payload = request.get_json(silent=True) or {}
+@router.post("/simulations/{simulation_id}/stages/{stage}/start")
+@router.post("/simulations/{simulation_id}/{stage}/start", include_in_schema=False)
+@router.post("/simulations/{simulation_id}/start/{stage}", include_in_schema=False)
+async def stage_alias(request: Request, simulation_id: str, stage: str):
+    payload = await silent_json(request)
     if stage == "environment":
         payload = EnvironmentInput.model_validate(payload).model_dump()
-    return start_stage(simulation_id, stage, payload)
+    return await start_stage(request, simulation_id, stage, payload)
 
 
-@api.post("/simulations/<simulation_id>/graph-build")
-def graph_build(simulation_id: str):
-    return start_stage(simulation_id, "graph")
+@router.post("/simulations/{simulation_id}/graph-build")
+async def graph_build(request: Request, simulation_id: str):
+    return await start_stage(request, simulation_id, "graph")
 
 
-@api.get("/simulations/<simulation_id>/graph")
-def get_graph(simulation_id: str):
-    return jsonify(require_state(simulation_id)["graph"])
+@router.get("/simulations/{simulation_id}/graph")
+async def get_graph(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["graph"]
 
 
-@api.post("/simulations/<simulation_id>/environment/generate")
-def generate_environment(simulation_id: str):
-    payload = EnvironmentInput.model_validate(request.get_json(silent=True) or {}).model_dump()
-    return start_stage(simulation_id, "environment", payload)
+@router.post("/simulations/{simulation_id}/environment/generate")
+async def generate_environment(request: Request, simulation_id: str):
+    payload = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
+    return await start_stage(request, simulation_id, "environment", payload)
 
 
-@api.get("/simulations/<simulation_id>/environment")
-def get_environment(simulation_id: str):
-    return jsonify(require_state(simulation_id)["environment"])
+@router.get("/simulations/{simulation_id}/environment")
+async def get_environment(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["environment"]
 
 
-@api.patch("/simulations/<simulation_id>/environment")
-def update_environment(simulation_id: str):
-    config = EnvironmentInput.model_validate(request.get_json(silent=True) or {}).model_dump()
+@router.patch("/simulations/{simulation_id}/environment")
+async def update_environment(request: Request, simulation_id: str):
+    config = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
+
     def update(state):
+        from .service import now
         state["environment"]["config"] = config
-        state["updated_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-    state = repository().mutate(simulation_id, update)
+        state["updated_at"] = now()
+
+    state = await run_in_threadpool(repository(request).mutate_for_user, simulation_id, user_id(request), update)
     if not state:
-        abort(404)
-    return jsonify(state)
+        raise ResourceNotFound()
+    return state
 
 
-@api.post("/simulations/<simulation_id>/runs")
-def create_run(simulation_id: str):
-    response = start_stage(simulation_id, "simulation", request.get_json(silent=True) or {})
-    return response
+@router.post("/simulations/{simulation_id}/runs")
+async def create_run(request: Request, simulation_id: str):
+    return await start_stage(request, simulation_id, "simulation", await silent_json(request))
 
 
-@api.get("/runs/<simulation_id>")
-def get_run(simulation_id: str):
-    return jsonify(require_state(simulation_id)["simulation"] | {"id": simulation_id, "simulation_id": simulation_id})
+@router.get("/runs/{simulation_id}")
+async def get_run(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["simulation"] | {"id": simulation_id, "simulation_id": simulation_id}
 
 
-@api.get("/runs/<simulation_id>/events")
-def get_events(simulation_id: str):
-    events = require_state(simulation_id)["simulation"].get("events", [])
-    after = request.args.get("after", type=int, default=0)
-    return jsonify(events=events[after:], event_count=len(events))
-
-
-def control(simulation_id: str, action: str):
+@router.get("/runs/{simulation_id}/events")
+async def get_events(request: Request, simulation_id: str):
+    events = require_state(request, simulation_id)["simulation"].get("events", [])
     try:
-        state = service().control(simulation_id, action)
+        after = int(request.query_params.get("after", "0"))
+    except ValueError:
+        after = 0
+    return {"events": events[after:], "event_count": len(events)}
+
+
+async def control(request: Request, simulation_id: str, action: str):
+    try:
+        state = await run_in_threadpool(service(request).control, simulation_id, action, user_id(request))
     except ValueError as error:
-        return jsonify(error={"code": "invalid_control", "message": str(error)}, message=str(error)), 409
+        raise InvalidControl(str(error)) from error
     if not state:
-        abort(404)
-    return jsonify(state)
+        raise ResourceNotFound()
+    return state
 
 
-@api.post("/simulations/<simulation_id>/pause")
-@api.post("/runs/<simulation_id>/pause")
-def pause(simulation_id: str):
-    return control(simulation_id, "pause")
+@router.post("/simulations/{simulation_id}/pause")
+@router.post("/runs/{simulation_id}/pause")
+async def pause(request: Request, simulation_id: str):
+    return await control(request, simulation_id, "pause")
 
 
-@api.post("/simulations/<simulation_id>/resume")
-@api.post("/runs/<simulation_id>/resume")
-def resume(simulation_id: str):
-    return control(simulation_id, "resume")
+@router.post("/simulations/{simulation_id}/resume")
+@router.post("/runs/{simulation_id}/resume")
+async def resume(request: Request, simulation_id: str):
+    return await control(request, simulation_id, "resume")
 
 
-@api.post("/simulations/<simulation_id>/cancel")
-@api.post("/runs/<simulation_id>/cancel")
-def cancel(simulation_id: str):
-    return control(simulation_id, "cancel")
+@router.post("/simulations/{simulation_id}/cancel")
+@router.post("/runs/{simulation_id}/cancel")
+async def cancel(request: Request, simulation_id: str):
+    return await control(request, simulation_id, "cancel")
 
 
-@api.post("/simulations/<simulation_id>/reports")
-def create_report(simulation_id: str):
-    return start_stage(simulation_id, "report", request.get_json(silent=True) or {})
+@router.post("/simulations/{simulation_id}/reports")
+async def create_report(request: Request, simulation_id: str):
+    return await start_stage(request, simulation_id, "report", await silent_json(request))
 
 
-@api.get("/reports")
-def list_reports():
-    reports = [{**state["report"], "simulation_id": state["id"]} for state in repository().list() if state["report"].get("sections")]
-    return jsonify(reports=reports)
+@router.get("/reports")
+async def list_reports(request: Request):
+    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
+    return {"reports": [{**state["report"], "simulation_id": state["id"]} for state in states if state["report"].get("sections")]}
 
 
-@api.get("/reports/<simulation_id>")
-def get_report(simulation_id: str):
-    return jsonify(require_state(simulation_id)["report"] | {"simulation_id": simulation_id})
+@router.get("/reports/{simulation_id}")
+async def get_report(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["report"] | {"simulation_id": simulation_id}
 
 
-@api.get("/reports/<simulation_id>/evidence")
-def get_evidence(simulation_id: str):
-    state = require_state(simulation_id)
-    return jsonify(documents=repository().documents(simulation_id), events=state["simulation"].get("events", []), risks=state["report"].get("risks", []))
+@router.get("/reports/{simulation_id}/evidence")
+async def get_evidence(request: Request, simulation_id: str):
+    state = require_state(request, simulation_id)
+    documents = await run_in_threadpool(repository(request).documents, simulation_id)
+    return {"documents": documents, "events": state["simulation"].get("events", []), "risks": state["report"].get("risks", [])}
 
 
-@api.post("/simulations/<simulation_id>/interactions")
-@api.post("/reports/<simulation_id>/interactions")
-def create_interaction(simulation_id: str):
-    model = InteractionInput.model_validate(request.get_json(silent=True) or {})
-    message = service().interact(simulation_id, model.model_dump())
+@router.post("/simulations/{simulation_id}/interactions")
+@router.post("/reports/{simulation_id}/interactions")
+@router.post("/interactions/{simulation_id}/messages")
+async def create_interaction(request: Request, simulation_id: str):
+    model = InteractionInput.model_validate(await silent_json(request))
+    message = await run_in_threadpool(service(request).interact, simulation_id, model.model_dump(), user_id(request))
     if not message:
-        abort(404)
-    return jsonify(message), 201
+        raise ResourceNotFound()
+    return JSONResponse(message, status_code=201)
 
 
-@api.post("/interactions/<simulation_id>/messages")
-def interaction_message(simulation_id: str):
-    return create_interaction(simulation_id)
+@router.get("/interactions/{simulation_id}/messages")
+async def interaction_messages(request: Request, simulation_id: str):
+    return {"messages": require_state(request, simulation_id)["interactions"]["messages"]}
 
 
-@api.get("/interactions/<simulation_id>/messages")
-def interaction_messages(simulation_id: str):
-    return jsonify(messages=require_state(simulation_id)["interactions"]["messages"])
-
-
-@api.get("/interactions/<simulation_id>")
-def get_interaction(simulation_id: str):
-    return jsonify(require_state(simulation_id)["interactions"] | {"simulation_id": simulation_id})
+@router.get("/interactions/{simulation_id}")
+async def get_interaction(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["interactions"] | {"simulation_id": simulation_id}

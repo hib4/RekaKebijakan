@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Brand } from "../Header/Header";
+import { useAuth } from "../../auth/useAuth";
+import { authStorageKey } from "../../auth/storageNamespace";
 import "./AppShell.css";
 
 const productNav = [
@@ -23,9 +25,12 @@ function navigate(path: string) {
 }
 
 export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children }: AppShellProps) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar-collapsed") === "true");
+  const { user, logout } = useAuth();
+  const sidebarKey = authStorageKey("sidebar-collapsed");
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(sidebarKey) === "true");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -72,7 +77,7 @@ export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children 
           className="sidebar-toggle"
           onClick={() => setCollapsed((prev) => {
             const next = !prev;
-            localStorage.setItem("sidebar-collapsed", String(next));
+            localStorage.setItem(sidebarKey, String(next));
             return next;
           })}
           aria-pressed={collapsed}
@@ -104,8 +109,20 @@ export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children 
             <span aria-hidden="true">/</span>
             <span>{title}</span>
           </div>
-          <div className="topbar-status"><i aria-hidden="true" /> Sistem prototipe aktif</div>
+          <div className="topbar-account">
+            <span title={user?.email}>{user?.name || user?.email}</span>
+            <button onClick={async () => {
+              setLogoutError("");
+              try {
+                await logout();
+                navigate("/login");
+              } catch (error) {
+                setLogoutError(error instanceof Error ? error.message : "Gagal keluar dari akun.");
+              }
+            }}>Keluar</button>
+          </div>
         </header>
+        {logoutError && <p className="app-auth-error" role="alert">{logoutError}</p>}
         <main className="app-main">
           <section className="app-page-header" aria-labelledby="app-page-title">
             <div>

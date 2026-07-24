@@ -1,25 +1,33 @@
 # RekaKebijakan Backend
 
-Flask, Pydantic, SQLite, and local-file implementation of the policy workflow. It is deterministic and needs no credentials or external services.
+FastAPI, Pydantic, SQLite, and local-file implementation of the policy workflow. It uses local email/password accounts and needs no external services.
 
-The structure follows MiroFish's Python application-factory and service-oriented style, but the implementation is original and policy-specific. SQLite-backed jobs replace process-only task state, and the deterministic engine replaces mandatory Zep/OASIS/LLM dependencies for local use.
+The backend uses a Python application factory and service-oriented structure tailored to policy simulation. SQLite-backed jobs provide durable task state, while the deterministic engine supports local use without mandatory external services.
+
+From the repository root, `make up` builds and starts the API plus its persistent SQLite volume. Use `make full-up` to include the frontend. The container stores the database, SQLite WAL files, and uploads together under `/app/data`.
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-flask --app 'app:create_app' run --port 5001
+python run.py
 ```
 
 Uploaded PDF, DOCX, Markdown, and text documents are stored below `DATA_DIR/uploads`; extracted text and workflow state are durable in SQLite. Set `JOB_DELAY=0` for fast tests. In-progress jobs recover when the app starts.
 
-Run the automated tests with `pytest`. The suite covers all document formats, deterministic generation, durable job recovery, validation, simulation controls, and the complete upload-to-report-to-interaction API workflow.
+Run the automated tests with `pytest`. The suite covers authentication and authorization, all document formats, deterministic generation, durable job recovery, validation, simulation controls, and the complete upload-to-report-to-interaction API workflow.
 
 Frontend aliases use `/api/simulations/<id>/stages/<stage>/start`, `/pause`, `/resume`, and `/interactions`. Canonical project, graph, environment, run/event/control, report/evidence, and interaction resources are also exposed.
 
+`python run.py` starts Uvicorn on port 5001. Keep `workers=1`: workflow execution uses local worker threads while durable state and recovery live in SQLite. A multi-worker deployment requires leased database jobs or an external queue.
+
 ## Configuration
 
-Copy `.env.example` to `.env` to override defaults. No variable is required in demo mode. Install `.[llm]` only when implementing an OpenAI-compatible provider; the current engine intentionally remains deterministic and offline.
+Copy `.env.example` to `.env` to override defaults. Registration is open and automatically creates a seven-day opaque session in the HTTP-only `rk_session` cookie. `SESSION_COOKIE_NAME`, `SESSION_TTL_SECONDS`, and `SESSION_COOKIE_SECURE` control cookie deployment settings. Set `SESSION_COOKIE_SECURE=true` behind HTTPS.
+
+`CORS_ORIGINS` must list explicit browser origins; wildcard origins are rejected because credentialed CORS is enabled. Unsafe authenticated browser requests are accepted only from those origins. The defaults allow the local Vite origins. Health endpoints, OpenAPI documentation, and `/api/auth/*` are public; all project, simulation, run, report, and interaction endpoints require authentication and expose only resources owned by the current user.
+
+Auth endpoints are `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout`. Install `.[llm]` only when implementing an OpenAI-compatible provider; the current engine intentionally remains deterministic and offline.
 
 ## Test
 

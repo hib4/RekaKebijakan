@@ -1,9 +1,15 @@
-Flask<4,>=3.1
-flask-cors<7,>=6
+fastapi<1,>=0.139
+uvicorn<1,>=0.51
+python-multipart<1,>=0.0.22
+Werkzeug<4,>=3.1
 pydantic<3,>=2.10
 PyMuPDF<2,>=1.25
 python-docx<2,>=1.1
 python-dotenv<2,>=1.0
 
+[llm]
+openai<3,>=1.0
+
 [test]
 pytest<9,>=8.3
+httpx<1,>=0.28

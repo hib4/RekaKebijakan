@@ -1,4 +1,14 @@
-const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const API_URL = (import.meta.env.VITE_API_URL || "/backend").replace(/\/$/, "");
+
+export type ApiErrorDetails = Record<string, unknown> | unknown[] | string | null;
+
+type ApiErrorPayload = {
+  message?: string;
+  error?: string | { code?: string; message?: string; details?: ApiErrorDetails };
+  code?: string;
+  details?: ApiErrorDetails;
+  detail?: ApiErrorDetails;
+};
 
 export type ApiStageName = "graph" | "environment" | "simulation" | "report" | "interaction";
 export type ApiRunStatus = "locked" | "ready" | "queued" | "processing" | "running" | "paused" | "failed" | "completed";
@@ -126,19 +136,68 @@ export type CreateProjectInput = {
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code: string | null;
+  readonly details: ApiErrorDetails;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null, details: ApiErrorDetails = null) {
     super(message);
+    this.name = "ApiError";
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, init);
-  const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null;
-  if (!response.ok) throw new ApiError(payload?.message || payload?.error || `Permintaan gagal (${response.status})`, response.status);
+  const response = await fetch(`${API_URL}${path}`, { ...init, credentials: "include" });
+  const payload = await response.json().catch(() => null) as ApiErrorPayload | T | null;
+  if (!response.ok) {
+    const error = payload as ApiErrorPayload | null;
+    const detailMessage = typeof error?.detail === "string" ? error.detail : null;
+    const nestedError = typeof error?.error === "object" ? error.error : null;
+    const apiError = new ApiError(
+      error?.message || nestedError?.message || (typeof error?.error === "string" ? error.error : null) || detailMessage || `Permintaan gagal (${response.status})`,
+      response.status,
+      error?.code ?? nestedError?.code ?? null,
+      error?.details ?? nestedError?.details ?? error?.detail ?? null,
+    );
+    if (response.status === 401 && path !== "/api/auth/me" && path !== "/api/auth/login") {
+      window.dispatchEvent(new Event("auth-session-expired"));
+    }
+    throw apiError;
+  }
   return payload as T;
 }
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+type AuthResponse = AuthUser | { user: AuthUser };
+
+function authUser(response: AuthResponse) {
+  return "user" in response ? response.user : response;
+}
+
+export const getCurrentUser = () => request<AuthResponse>("/api/auth/me").then(authUser);
+
+export const loginUser = (input: { email: string; password: string }) =>
+  request<AuthResponse>("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then(authUser);
+
+export const registerUser = (input: { name: string; email: string; password: string }) =>
+  request<AuthResponse>("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then(authUser);
+
+export const logoutUser = () => request<unknown>("/api/auth/logout", { method: "POST" });
 
 async function requestFirst<T>(paths: string[], init?: RequestInit): Promise<T> {
   let lastError: unknown;

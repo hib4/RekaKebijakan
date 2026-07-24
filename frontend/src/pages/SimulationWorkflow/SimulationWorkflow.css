@@ -60,6 +60,8 @@
 .view-modes button[aria-pressed="true"] { background: var(--ink); color: #fff; }
 
 .workflow-meta { justify-content: flex-end; min-width: 0; }
+.workflow-user { max-width: 150px; overflow: hidden; padding: 0 12px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-logout { align-self: stretch; border: 0; border-left: 1px solid var(--line); background: #fff; padding: 0 12px; color: var(--blue); cursor: pointer; }
 .language-placeholder { width: 48px; border-left: 1px solid var(--line); }
 .workflow-step-label { height: 100%; padding: 10px 18px; display: grid; align-content: center; border-right: 1px solid var(--line); }
 .workflow-step-label b { font-size: 12px; }
@@ -328,6 +330,7 @@
   .workflow-topbar { position: sticky; top: 0; }
   .workflow-wordmark { padding: 0 12px; font-size: 14px; }
   .language-placeholder { display: none; }
+  .workflow-user { display: none; }
   .workflow-step-label { padding: 8px 10px; }
   .workflow-status { min-width: 0; padding: 0 10px; }
   .workflow-status { font-size: 0; }

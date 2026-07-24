@@ -11,6 +11,8 @@ import SimulationWorkflowPage from "./pages/SimulationWorkflow/SimulationWorkflo
 import { WorkflowErrorBoundary } from "./pages/SimulationWorkflow/WorkflowErrorBoundary";
 import ReportsPage from "./pages/Reports/ReportsPage";
 import Header, { Brand } from "./components/Header/Header";
+import AuthPage from "./pages/Auth/AuthPage";
+import { ProtectedRoute } from "./auth/ProtectedRoute";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -382,23 +384,29 @@ function App() {
       });
     }, 1000);
   };
+  if (path === "/login") {
+    return <AuthPage mode="login" />;
+  }
+  if (path === "/register") {
+    return <AuthPage mode="register" />;
+  }
   if (path.startsWith("/dashboard")) {
-    return <Dashboard />;
+    return <ProtectedRoute><Dashboard /></ProtectedRoute>;
   }
   if (path.match(/^\/simulation\/[^/]+$/)) {
-    return <WorkflowErrorBoundary simulationId={path.split("/")[2] ?? ""}><SimulationWorkflowPage /></WorkflowErrorBoundary>;
+    return <ProtectedRoute><WorkflowErrorBoundary simulationId={path.split("/")[2] ?? ""}><SimulationWorkflowPage /></WorkflowErrorBoundary></ProtectedRoute>;
   }
   if (path === "/projects/new") {
-    return <ProjectWizardPage />;
+    return <ProtectedRoute><ProjectWizardPage /></ProtectedRoute>;
   }
   if (path.startsWith("/projects/")) {
-    return <ProjectDetailPage />;
+    return <ProtectedRoute><ProjectDetailPage /></ProtectedRoute>;
   }
   if (path.startsWith("/projects")) {
-    return <ProjectsPage />;
+    return <ProtectedRoute><ProjectsPage /></ProtectedRoute>;
   }
   if (path.startsWith("/reports")) {
-    return <ReportsPage />;
+    return <ProtectedRoute><ReportsPage /></ProtectedRoute>;
   }
   return (
     <div id="utama">

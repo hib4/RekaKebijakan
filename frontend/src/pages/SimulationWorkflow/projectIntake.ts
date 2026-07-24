@@ -1,6 +1,7 @@
 import { demoCases } from "./workflowData";
 import { getWorkspaceProjectBySimulation, saveWorkspaceProject } from "../../data/localWorkspace";
 import type { DemoCase, PolicyGraphEdge, PolicyGraphNode } from "./workflowTypes";
+import { authStorageKey } from "../../auth/storageNamespace";
 
 export type ProjectIntake = {
   simulationId: string;
@@ -25,7 +26,7 @@ export function saveProjectIntake(intake: ProjectIntake) {
 export function loadProjectIntake(simulationId: string): ProjectIntake | null {
   const project = getWorkspaceProjectBySimulation(simulationId);
   if (project) return project;
-  const stored = sessionStorage.getItem(`${storagePrefix}${simulationId}`);
+  const stored = sessionStorage.getItem(authStorageKey(`${storagePrefix}${simulationId}`));
   if (!stored) return null;
   try {
     return JSON.parse(stored) as ProjectIntake;

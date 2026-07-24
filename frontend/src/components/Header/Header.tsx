@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { navigation } from "../../data/content";
+import { useAuth } from "../../auth/useAuth";
+import { navigate } from "../../auth/navigation";
 import "./Header.css";
 
 const scrollTo = (id: string) => {
@@ -33,6 +35,7 @@ interface HeaderProps {
 }
 
 export default function Header({ isDashboard = false }: HeaderProps) {
+  const { loading, user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("");
 
@@ -65,8 +68,7 @@ export default function Header({ isDashboard = false }: HeaderProps) {
   const handleDashboardClick = (e: React.MouseEvent) => {
     e.preventDefault();
     setMenuOpen(false);
-    window.history.pushState(null, "", "/dashboard");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    navigate("/dashboard");
   };
 
   const handleProjectsClick = (e: React.MouseEvent) => {
@@ -107,10 +109,17 @@ export default function Header({ isDashboard = false }: HeaderProps) {
           </nav>
         )}
 
-        {!isDashboard && (
-          <button className="button primary nav-action" onClick={handleDashboardClick}>
-            Dashboard
-          </button>
+        {!isDashboard && !loading && (
+          <div className="nav-auth">
+            {user ? (
+              <a className="button primary nav-action" href="/dashboard" onClick={handleDashboardClick}>Dashboard</a>
+            ) : (
+              <>
+                <a href="/login" onClick={(event) => { event.preventDefault(); navigate("/login"); }}>Masuk</a>
+                <a className="button primary nav-action" href="/register" onClick={(event) => { event.preventDefault(); navigate("/register"); }}>Daftar</a>
+              </>
+            )}
+          </div>
         )}
 
         <button
@@ -151,9 +160,14 @@ export default function Header({ isDashboard = false }: HeaderProps) {
                   {label}
                 </a>
               ))}
-              <button className="button primary" onClick={handleDashboardClick}>
-                Dashboard
-              </button>
+              {user ? (
+                <button className="button primary" onClick={handleDashboardClick}>Dashboard</button>
+              ) : (
+                <>
+                  <a href="/login" onClick={(event) => { event.preventDefault(); setMenuOpen(false); navigate("/login"); }}>Masuk</a>
+                  <a href="/register" onClick={(event) => { event.preventDefault(); setMenuOpen(false); navigate("/register"); }}>Daftar</a>
+                </>
+              )}
             </>
           )}
         </nav>

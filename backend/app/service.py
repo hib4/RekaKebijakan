@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 from . import engine
@@ -32,8 +31,10 @@ class WorkflowService:
         self.delay = delay
         self.threads: dict[str, threading.Thread] = {}
         self.job_simulations: dict[str, str] = {}
+        self.thread_lock = threading.RLock()
+        self.stopping = threading.Event()
 
-    def create_project(self, project: dict, files: list[FileStorage]) -> dict:
+    def create_project(self, project: dict, files: list, owner_user_id: str | None = None) -> dict:
         if not files or not any(upload.filename for upload in files):
             raise ValueError("Minimal satu dokumen kebijakan diperlukan")
         project_id, simulation_id = identifier("project"), identifier("sim")
@@ -50,21 +51,23 @@ class WorkflowService:
                 if not upload.filename:
                     continue
                 document_id = identifier("doc")
-                filename = secure_filename(upload.filename)
+                filename = secure_filename(upload.filename) or f"document{Path(upload.filename).suffix.lower()}"
                 path = target_dir / f"{document_id}_{filename}"
-                upload.save(path)
+                upload.file.seek(0)
+                with path.open("wb") as destination:
+                    shutil.copyfileobj(upload.file, destination)
                 text = extract_text(path)
                 documents.append({"id": document_id, "simulation_id": simulation_id, "name": filename, "path": str(path), "text": text})
         except Exception:
             shutil.rmtree(target_dir, ignore_errors=True)
             raise
-        self.repository.create(state)
+        self.repository.create(state, owner_user_id)
         for document in documents:
             self.repository.add_document(document)
         return state
 
-    def start(self, simulation_id: str, stage: str, config: dict | None = None) -> dict | None:
-        state = self.repository.get(simulation_id)
+    def start(self, simulation_id: str, stage: str, config: dict | None = None, owner_user_id: str | None = None) -> dict | None:
+        state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state or stage not in STAGES[:4]:
             return None
         if stage != "graph" and state["stages"][stage]["status"] == "locked":
@@ -73,7 +76,8 @@ class WorkflowService:
             raise ValueError("Tahap sedang diproses")
         job_id = identifier("job")
         config = config or {}
-        self.repository.put_job(job_id, simulation_id, stage, "queued", config)
+        if not self.repository.put_job(job_id, simulation_id, stage, "queued", config):
+            raise ValueError("Tahap lain sedang diproses")
 
         def queued(current):
             metadata = current["stages"][stage]
@@ -88,15 +92,22 @@ class WorkflowService:
         return state
 
     def _spawn(self, job_id: str, simulation_id: str, stage: str, config: dict):
+        if self.stopping.is_set():
+            return
         thread = threading.Thread(target=self._run, args=(job_id, simulation_id, stage, config), daemon=True, name=job_id)
-        self.threads[job_id] = thread
-        self.job_simulations[job_id] = simulation_id
+        with self.thread_lock:
+            self.threads[job_id] = thread
+            self.job_simulations[job_id] = simulation_id
         thread.start()
 
     def _run(self, job_id: str, simulation_id: str, stage: str, config: dict):
         try:
-            self.repository.claim_job(job_id)
+            if not self.repository.claim_job(job_id):
+                return
             for progress in (15, 40, 70):
+                if self.stopping.is_set():
+                    self.repository.set_job_status(job_id, "queued")
+                    return
                 while self.repository.job_status(job_id) == "paused":
                     time.sleep(max(self.delay, 0.01))
                 if self.repository.job_status(job_id) == "cancelled":
@@ -116,14 +127,17 @@ class WorkflowService:
                 result["event_count"] = len(result["events"])
             else:
                 result = engine.report(state["project"]["name"], state["simulation"]["events"], documents)
+            if self.repository.job_status(job_id) == "cancelled":
+                return
             self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
             self.repository.set_job_status(job_id, "completed")
         except Exception as error:
             self.repository.set_job_status(job_id, "failed")
             self.repository.mutate(simulation_id, lambda state: self._fail(state, stage, str(error)))
         finally:
-            self.threads.pop(job_id, None)
-            self.job_simulations.pop(job_id, None)
+            with self.thread_lock:
+                self.threads.pop(job_id, None)
+                self.job_simulations.pop(job_id, None)
 
     def _progress(self, state: dict, stage: str, progress: int):
         state["stages"][stage].update(status="running", progress=progress, active_task=f"Memproses {stage}: {progress}%")
@@ -147,16 +161,18 @@ class WorkflowService:
         self._touch(state, f"Tahap {stage} gagal: {message}", "WARN")
         self._sync_stages(state)
 
-    def control(self, simulation_id: str, action: str) -> dict | None:
-        state = self.repository.get(simulation_id)
+    def control(self, simulation_id: str, action: str, owner_user_id: str | None = None) -> dict | None:
+        state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state:
             return None
-        jobs = [job_id for job_id, owner in self.job_simulations.items() if owner == simulation_id]
+        if action not in {"pause", "resume", "cancel"}:
+            raise ValueError("Aksi simulasi tidak valid")
+        jobs = self.repository.active_jobs(simulation_id)
         if not jobs or state["current_stage"] != "simulation" or state["stages"]["simulation"]["status"] not in {"queued", "running", "paused"}:
             raise ValueError("Tidak ada simulasi aktif")
-        # Only one progressive job is allowed per simulation by the API workflow.
-        for job_id in jobs:
-            status = self.repository.job_status(job_id)
+        for job in jobs:
+            job_id = job["id"]
+            status = job["status"]
             if status in ("running", "queued", "paused"):
                 self.repository.set_job_status(job_id, {"pause": "paused", "resume": "running", "cancel": "cancelled"}[action])
         def update(current):
@@ -168,8 +184,8 @@ class WorkflowService:
             self._sync_stages(current)
         return self.repository.mutate(simulation_id, update)
 
-    def interact(self, simulation_id: str, payload: dict) -> dict | None:
-        state = self.repository.get(simulation_id)
+    def interact(self, simulation_id: str, payload: dict, owner_user_id: str | None = None) -> dict | None:
+        state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state:
             return None
         response = engine.answer(payload["tool"], payload["question"], payload.get("persona_group"), state)
@@ -186,6 +202,14 @@ class WorkflowService:
     def recover(self):
         for job in self.repository.recoverable_jobs():
             self._spawn(job["id"], job["simulation_id"], job["stage"], job["config"])
+
+    def shutdown(self, timeout: float = 2.0):
+        self.stopping.set()
+        with self.thread_lock:
+            threads = list(self.threads.values())
+        deadline = time.monotonic() + timeout
+        for thread in threads:
+            thread.join(max(0, deadline - time.monotonic()))
 
     @staticmethod
     def _sync_stages(state: dict):

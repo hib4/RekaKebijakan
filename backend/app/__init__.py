@@ -1,64 +1,96 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
+import logging
+from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
-from flask import Flask, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException
 
-from .api import api
+from .api import public_router, router
+from .auth import router as auth_router
+from .config import Settings
+from .errors import ApiError
+from .middleware import OriginValidationMiddleware, RequestSizeLimitMiddleware
 from .repository import Repository
 from .service import WorkflowService
 
+logger = logging.getLogger("rekakebijakan")
 
-def create_app(config: dict | None = None) -> Flask:
-    load_dotenv()
-    app = Flask(__name__)
-    root = Path(__file__).resolve().parent.parent
-    data_dir = Path(os.getenv("DATA_DIR", root / "data"))
-    app.config.from_mapping(
-        DATABASE_PATH=os.getenv("DATABASE_PATH", data_dir / "rekakebijakan.sqlite3"),
-        UPLOAD_DIR=data_dir / "uploads",
-        MAX_CONTENT_LENGTH=int(os.getenv("MAX_UPLOAD_BYTES", 16 * 1024 * 1024)),
-        JOB_DELAY=float(os.getenv("JOB_DELAY", "0.08")),
-        TESTING=False,
+
+def error_response(status_code: int, code: str, message: str, details=None) -> JSONResponse:
+    error = {"code": code, "message": message}
+    if details is not None:
+        error["details"] = jsonable_encoder(details)
+    return JSONResponse({"error": error, "message": message}, status_code=status_code)
+
+
+def create_app(config: dict | None = None) -> FastAPI:
+    settings = Settings.load(config)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        settings.upload_dir.mkdir(parents=True, exist_ok=True)
+        repository = Repository(str(settings.database_path))
+        service = WorkflowService(repository, settings.upload_dir, settings.job_delay)
+        app.state.settings = settings
+        app.state.repository = repository
+        app.state.workflow = service
+        service.recover()
+        try:
+            yield
+        finally:
+            service.shutdown()
+
+    app = FastAPI(title="RekaKebijakan API", version="0.2.0", lifespan=lifespan)
+    app.state.settings = settings
+    app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.max_upload_bytes)
+    app.add_middleware(
+        OriginValidationMiddleware,
+        allowed_origins=settings.cors_origins,
+        cookie_name=settings.session_cookie_name,
     )
-    if config:
-        app.config.update(config)
-    Path(app.config["UPLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
-    repository = Repository(str(app.config["DATABASE_PATH"]))
-    service = WorkflowService(repository, Path(app.config["UPLOAD_DIR"]), float(app.config["JOB_DELAY"]))
-    app.extensions["repository"] = repository
-    app.extensions["workflow"] = service
-    CORS(app, origins=os.getenv("CORS_ORIGINS", "*"))
-    app.register_blueprint(api)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(router)
+    app.include_router(public_router)
+    app.include_router(auth_router)
 
     @app.get("/health")
-    def health():
-        return jsonify(status="ok", service="rekakebijakan", engine="deterministic-demo")
+    async def health():
+        return {"status": "ok", "service": "rekakebijakan", "engine": "deterministic-demo"}
 
-    @app.errorhandler(ValidationError)
-    def validation_error(error):
-        details = error.errors(include_url=False)
-        return jsonify(error={"code": "validation_error", "message": "Input tidak valid", "details": details}, message="Input tidak valid"), 422
+    @app.exception_handler(ApiError)
+    async def api_error(_request: Request, error: ApiError):
+        return error_response(error.status_code, error.code, error.message, error.details)
 
-    @app.errorhandler(404)
-    def not_found(_error):
-        message = "Sumber daya tidak ditemukan"
-        return jsonify(error={"code": "not_found", "message": message}, message=message), 404
+    @app.exception_handler(ValidationError)
+    async def validation_error(_request: Request, error: ValidationError):
+        return error_response(422, "validation_error", "Input tidak valid", error.errors(include_url=False))
 
-    @app.errorhandler(413)
-    def too_large(_error):
-        message = "Berkas terlalu besar"
-        return jsonify(error={"code": "payload_too_large", "message": message}, message=message), 413
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error(_request: Request, error: RequestValidationError):
+        return error_response(422, "validation_error", "Input tidak valid", error.errors())
 
-    @app.errorhandler(Exception)
-    def unexpected(error):
-        app.logger.exception("Unhandled API error")
-        message = "Terjadi kesalahan internal"
-        return jsonify(error={"code": "internal_error", "message": message}, message=message), 500
+    @app.exception_handler(HTTPException)
+    async def http_error(_request: Request, error: HTTPException):
+        if error.status_code == 404:
+            return error_response(404, "not_found", "Sumber daya tidak ditemukan")
+        message = str(error.detail) if error.detail else "Permintaan tidak dapat diproses"
+        return error_response(error.status_code, "http_error", message)
 
-    service.recover()
+    @app.exception_handler(Exception)
+    async def unexpected(_request: Request, error: Exception):
+        logger.exception("Unhandled API error", exc_info=error)
+        return error_response(500, "internal_error", "Terjadi kesalahan internal")
+
     return app

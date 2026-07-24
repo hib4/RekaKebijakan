@@ -2,8 +2,11 @@ README.md
 pyproject.toml
 app/__init__.py
 app/api.py
+app/config.py
 app/documents.py
 app/engine.py
+app/errors.py
+app/middleware.py
 app/models.py
 app/repository.py
 app/service.py

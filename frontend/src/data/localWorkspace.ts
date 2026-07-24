@@ -1,5 +1,6 @@
 import type { ProjectIntake } from "../pages/SimulationWorkflow/projectIntake";
 import type { ReportSection } from "../pages/SimulationWorkflow/workflowTypes";
+import { authStorageKey } from "../auth/storageNamespace";
 
 export type ProjectStage = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -31,7 +32,7 @@ type WorkspaceData = {
   reports: WorkspaceReport[];
 };
 
-const key = "rekakebijakan-workspace-v1";
+const workspaceKey = () => authStorageKey("rekakebijakan-workspace-v1");
 
 const seedProjects: WorkspaceProject[] = [
   {
@@ -134,6 +135,7 @@ function initialData(): WorkspaceData {
 }
 
 function read(): WorkspaceData {
+  const key = workspaceKey();
   const stored = localStorage.getItem(key);
   if (!stored) {
     const data = initialData();
@@ -150,7 +152,7 @@ function read(): WorkspaceData {
 }
 
 function write(data: WorkspaceData) {
-  localStorage.setItem(key, JSON.stringify(data));
+  localStorage.setItem(workspaceKey(), JSON.stringify(data));
   window.dispatchEvent(new Event("workspace-updated"));
 }
 

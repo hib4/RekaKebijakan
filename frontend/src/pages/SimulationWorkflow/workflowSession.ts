@@ -1,4 +1,5 @@
 import type { ConsoleLog, ReportSection, SimulationStatus, ViewMode, WorkflowStep } from "./workflowTypes";
+import { authStorageKey } from "../../auth/storageNamespace";
 
 export type StepRunStatus = "locked" | "ready" | "processing" | "paused" | "failed" | "completed";
 
@@ -35,6 +36,7 @@ export type WorkflowSession = {
 };
 
 const prefix = "rekakebijakan-workflow-v2:";
+const sessionKey = (simulationId: string) => authStorageKey(`${prefix}${simulationId}`);
 
 function readyStep(status: StepRunStatus): WorkflowStepState {
   return { status, progress: 0, activeTask: null };
@@ -68,7 +70,7 @@ export function createWorkflowSession(simulationId: string, projectName: string)
 }
 
 export function loadWorkflowSession(simulationId: string): WorkflowSession | null {
-  const stored = localStorage.getItem(`${prefix}${simulationId}`);
+  const stored = localStorage.getItem(sessionKey(simulationId));
   if (!stored) return null;
   try {
     const parsed = JSON.parse(stored) as Partial<WorkflowSession>;
@@ -131,11 +133,11 @@ export function loadWorkflowSession(simulationId: string): WorkflowSession | nul
 }
 
 export function clearWorkflowSession(simulationId: string) {
-  localStorage.removeItem(`${prefix}${simulationId}`);
+  localStorage.removeItem(sessionKey(simulationId));
 }
 
 export function saveWorkflowSession(session: WorkflowSession) {
-  localStorage.setItem(`${prefix}${session.simulationId}`, JSON.stringify({ ...session, updatedAt: new Date().toISOString() }));
+  localStorage.setItem(sessionKey(session.simulationId), JSON.stringify({ ...session, updatedAt: new Date().toISOString() }));
 }
 
 export function formatTime(value = new Date().toISOString()) {

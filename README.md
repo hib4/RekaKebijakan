@@ -1,16 +1,44 @@
 # RekaKebijakan
 
-RekaKebijakan is a policy-scenario simulation prototype with a React frontend and an original Flask backend. Its staged workflow follows the useful interaction style observed in MiroFish: source intake, graph construction, environment preparation, simulation, progressive reporting, and evidence-aware follow-up.
+RekaKebijakan is a policy-scenario simulation prototype with a React frontend and an original FastAPI backend. Its staged workflow covers source intake, graph construction, environment preparation, simulation, progressive reporting, and evidence-aware follow-up.
 
 ## Architecture
 
 - `frontend/`: React 19, TypeScript, and Vite user interface.
-- `backend/`: Flask application factory, Pydantic request validation, SQLite persistence, local document storage, and background jobs.
-- `mirofish/`: ignored reference project only; no source code is imported or copied into RekaKebijakan.
+- `backend/`: FastAPI application factory, Pydantic request validation, SQLite persistence, local document storage, and background jobs served by Uvicorn.
 
 The backend defaults to a deterministic demo engine. It requires no LLM, graph service, queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are extracted locally, and generated graph, persona, event, risk, report, citation, log, and interaction data remain durable in SQLite.
 
 ## Local Run
+
+### One-command Docker
+
+Start the backend with its persistent SQLite database and uploaded-document storage:
+
+```sh
+make up
+```
+
+Start the full stack instead:
+
+```sh
+make full-up
+```
+
+The services are available at:
+
+- Frontend: `http://localhost:5173` when using `make full-up`
+- Backend API: `http://localhost:5001`
+- API documentation: `http://localhost:5001/docs`
+- Health check: `http://localhost:5001/health`
+
+Use `make up-d` or `make full-up-d` for detached startup, `make health` to check the services, and `make full-down` to stop them. SQLite, its WAL files, and uploaded documents are retained in the Docker volume `rekakebijakan_backend_data` across shutdowns and image rebuilds.
+
+`make down` and `make full-down` never delete application data. To remove the database and uploaded documents intentionally, run `make reset` and then the displayed confirmation command.
+
+Copy `.env.example` to `.env` to customize host ports, CORS origins, upload limits, job delay, or frontend build variables.
+
+### Local processes
 
 Start the backend:
 
@@ -30,7 +58,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The frontend uses `http://localhost:5001` by default. IDs beginning with `demo-` continue to use the original local browser demo; newly uploaded projects use the Flask API. See `frontend/.env.example` to override this behavior.
+Open `http://localhost:5173`. The frontend uses `http://localhost:5001` by default. IDs beginning with `demo-` continue to use the original local browser demo; newly uploaded projects use the FastAPI service. See `frontend/.env.example` to override this behavior.
 
 ## Workflow API
 
@@ -56,3 +84,11 @@ npm run build
 ```
 
 Backend tests cover deterministic generation, all four document types, SQLite persistence and job recovery, upload validation, round configuration, simulation control, cited reports, all interaction tools, and the complete API workflow.
+
+Authentication uses seven-day opaque server sessions in an HTTP-only cookie. Register at `/register` with name, email, and a password of at least 6 characters. Backend projects and workflow artifacts are private to their creator; legacy unowned rows remain inaccessible.
+
+Containerized verification is also available:
+
+```sh
+make test
+```
