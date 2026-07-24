@@ -35,7 +35,10 @@ export function mapInteractionMessage(message: ApiInteractionMessageDto, index =
     author: message.author ?? (message.role === "user" ? "Anda" : "Report Agent"),
     tool: message.tool ?? "report",
     text: message.text ?? message.content ?? "",
-    citations: message.citations,
+    citations: [
+      ...(message.citations ?? []),
+      ...(message.evidence_citations ?? []).map((citation) => citation.label ?? citation.quote ?? citation.source_id),
+    ],
   };
 }
 

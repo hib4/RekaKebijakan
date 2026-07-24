@@ -165,3 +165,44 @@ def test_upload_limit_returns_json_without_creating_project(tmp_path, database_u
         assert response.status_code == 413
         assert response.json()["error"]["code"] == "payload_too_large"
         assert client.get("/api/projects").json()["projects"] == []
+
+
+def test_grounded_artifacts_interviews_and_graph_feedback(client):
+    created = project(client, "Kebijakan Pesisir", b"Nelayan membutuhkan akses pelabuhan, subsidi bahan bakar, dan perlindungan abrasi.")
+    simulation_id = created.json()["simulation_id"]
+    project_id = created.json()["id"]
+    chunks = client.get(f"/api/projects/{project_id}/chunks").json()["chunks"]
+    assert chunks and chunks[0]["text"].startswith("Nelayan")
+
+    graph = start_and_wait(client, simulation_id, "graph")
+    assert graph["ontology"]["entity_types"]
+    assert any(node["label"] in {"Nelayan", "Membutuhkan", "Akses", "Pelabuhan", "Subsidi", "Bahan"} for node in graph["graph"]["nodes"])
+    assert any(node.get("citations") for node in graph["graph"]["nodes"])
+    start_and_wait(client, simulation_id, "environment", {"rounds": 3})
+    start_and_wait(client, simulation_id, "simulation")
+    report = start_and_wait(client, simulation_id, "report")
+    assert report["report"]["sections"][0]["citations"][0]["chunk_id"] == chunks[0]["id"]
+    persisted = client.get(f"/api/simulations/{simulation_id}/citations").json()["citations"]
+    assert any(item["source_type"] == "document_chunk" for item in persisted)
+
+    interview = client.post(
+        f"/api/simulations/{simulation_id}/interviews",
+        json={"question": "Apa perhatian utama?", "persona_ids": ["persona-1"]},
+    )
+    assert interview.status_code == 201
+    assert len(interview.json()["answers"]) == 1
+
+    revision = report["graph"]["revision"]
+    feedback = client.post(
+        f"/api/simulations/{simulation_id}/graph/feedback",
+        json={
+            "action": "add_node",
+            "patch": {"id": "risk-community", "label": "Risiko komunitas", "type": "Risk", "summary": "Hasil review manusia"},
+            "reason": "Tambahkan risiko hasil review",
+            "base_revision": revision,
+        },
+    )
+    assert feedback.status_code == 200
+    snapshot = client.get(f"/api/simulations/{simulation_id}").json()
+    assert snapshot["graph"]["revision"] == revision + 1
+    assert snapshot["report"]["stale"] is True

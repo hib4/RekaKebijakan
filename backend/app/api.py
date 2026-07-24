@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .errors import InvalidControl, ResourceNotFound, StageConflict, UnsupportedDocument
 from .auth import current_user
-from .models import EnvironmentInput, InteractionInput, ProjectInput
+from .models import EnvironmentInput, GraphFeedbackInput, InteractionInput, InterviewInput, ProjectInput
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 public_router = APIRouter(prefix="/api")
@@ -55,7 +55,7 @@ async def start_stage(request: Request, simulation_id: str, stage: str, payload:
 
 @public_router.get("/health")
 async def health():
-    return {"status": "ok", "service": "rekakebijakan", "engine": "deterministic-demo"}
+    return {"status": "ok", "service": "rekakebijakan", "engine": "configurable"}
 
 
 @router.post("/projects")
@@ -87,7 +87,7 @@ async def get_project(request: Request, project_id: str):
     state = next((item for item in states if item["project"]["id"] == project_id), None)
     if not state:
         raise ResourceNotFound()
-    documents = await run_in_threadpool(repository(request).documents, state["id"])
+    documents = await run_in_threadpool(repository(request).public_documents, state["id"])
     return state["project"] | {"simulation_id": state["id"], "documents": documents}
 
 
@@ -116,6 +116,25 @@ async def get_graph(request: Request, simulation_id: str):
     return require_state(request, simulation_id)["graph"]
 
 
+@router.get("/simulations/{simulation_id}/ontology")
+async def get_ontology(request: Request, simulation_id: str):
+    return require_state(request, simulation_id).get("ontology", {})
+
+
+@router.post("/simulations/{simulation_id}/ontology/generate")
+async def generate_ontology(request: Request, simulation_id: str):
+    return await start_stage(request, simulation_id, "graph")
+
+
+@router.get("/projects/{project_id}/chunks")
+async def get_project_chunks(request: Request, project_id: str):
+    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
+    state = next((item for item in states if item["project"]["id"] == project_id), None)
+    if not state:
+        raise ResourceNotFound()
+    return {"chunks": await run_in_threadpool(repository(request).chunks, state["id"])}
+
+
 @router.post("/simulations/{simulation_id}/environment/generate")
 async def generate_environment(request: Request, simulation_id: str):
     payload = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
@@ -133,13 +152,38 @@ async def update_environment(request: Request, simulation_id: str):
 
     def update(state):
         from .service import now
-        state["environment"]["config"] = config
+        current = state["environment"].get("config", {})
+        state["environment"]["config"] = current | config | {"overrides": current.get("overrides", {}) | config}
+        state["revision"] = state.get("revision", 1) + 1
         state["updated_at"] = now()
 
     state = await run_in_threadpool(repository(request).mutate_for_user, simulation_id, user_id(request), update)
     if not state:
         raise ResourceNotFound()
     return state
+
+
+@router.get("/simulations/{simulation_id}/personas")
+async def get_personas(request: Request, simulation_id: str):
+    state = require_state(request, simulation_id)
+    return {"personas": state["environment"].get("personas", []), "persona_count": state["environment"].get("persona_count", 0)}
+
+
+@router.post("/simulations/{simulation_id}/personas/generate")
+async def generate_personas(request: Request, simulation_id: str):
+    payload = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
+    return await start_stage(request, simulation_id, "environment", payload)
+
+
+@router.get("/simulations/{simulation_id}/config")
+async def get_config(request: Request, simulation_id: str):
+    return require_state(request, simulation_id)["environment"].get("config", {})
+
+
+@router.post("/simulations/{simulation_id}/config/generate")
+async def generate_config(request: Request, simulation_id: str):
+    payload = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
+    return await start_stage(request, simulation_id, "environment", payload)
 
 
 @router.post("/simulations/{simulation_id}/runs")
@@ -159,7 +203,8 @@ async def get_events(request: Request, simulation_id: str):
         after = int(request.query_params.get("after", "0"))
     except ValueError:
         after = 0
-    return {"events": events[after:], "event_count": len(events)}
+    selected = [event for index, event in enumerate(events) if event.get("sequence", index + 1) > after]
+    return {"events": selected, "event_count": len(events)}
 
 
 async def control(request: Request, simulation_id: str, action: str):
@@ -209,8 +254,51 @@ async def get_report(request: Request, simulation_id: str):
 @router.get("/reports/{simulation_id}/evidence")
 async def get_evidence(request: Request, simulation_id: str):
     state = require_state(request, simulation_id)
-    documents = await run_in_threadpool(repository(request).documents, simulation_id)
-    return {"documents": documents, "events": state["simulation"].get("events", []), "risks": state["report"].get("risks", [])}
+    documents = await run_in_threadpool(repository(request).public_documents, simulation_id)
+    chunks = await run_in_threadpool(repository(request).chunks, simulation_id)
+    citations = await run_in_threadpool(repository(request).citations, simulation_id)
+    return {"documents": documents, "chunks": chunks, "citations": citations, "events": state["simulation"].get("events", []), "risks": state["report"].get("risks", [])}
+
+
+@router.get("/simulations/{simulation_id}/citations")
+async def get_citations(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    return {"citations": await run_in_threadpool(repository(request).citations, simulation_id)}
+
+
+@router.post("/simulations/{simulation_id}/interviews")
+async def create_interview(request: Request, simulation_id: str):
+    model = InterviewInput.model_validate(await silent_json(request))
+    result = await run_in_threadpool(
+        service(request).interview, simulation_id, model.question, model.persona_ids, user_id(request)
+    )
+    if not result:
+        raise ResourceNotFound()
+    return JSONResponse(result, status_code=201)
+
+
+@router.get("/simulations/{simulation_id}/interviews")
+async def list_interviews(request: Request, simulation_id: str):
+    return require_state(request, simulation_id).get("interviews", {"items": []})
+
+
+@router.post("/simulations/{simulation_id}/graph/feedback")
+async def graph_feedback(request: Request, simulation_id: str):
+    model = GraphFeedbackInput.model_validate(await silent_json(request))
+    try:
+        state = await run_in_threadpool(
+            service(request).apply_graph_feedback, simulation_id, model.model_dump(exclude_none=True), user_id(request)
+        )
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
+    if not state:
+        raise ResourceNotFound()
+    return state["graph"]
+
+
+@router.get("/simulations/{simulation_id}/graph/feedback")
+async def list_graph_feedback(request: Request, simulation_id: str):
+    return require_state(request, simulation_id).get("graph_feedback", {"items": []})
 
 
 @router.post("/simulations/{simulation_id}/interactions")

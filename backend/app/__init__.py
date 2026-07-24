@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -20,6 +16,7 @@ from .config import Settings
 from .errors import ApiError
 from .middleware import OriginValidationMiddleware, RequestSizeLimitMiddleware
 from .repository import Repository
+from .providers import make_provider
 from .service import WorkflowService
 
 logger = logging.getLogger("rekakebijakan")
@@ -38,11 +35,18 @@ def create_app(config: dict | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
-        alembic_config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
-        alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
-        command.upgrade(alembic_config, "head")
         repository = Repository(settings.database_url)
-        service = WorkflowService(repository, settings.upload_dir, settings.job_delay)
+        provider = make_provider(settings)
+        service = WorkflowService(
+            repository,
+            provider,
+            settings.upload_dir,
+            settings.job_delay,
+            settings.chunk_size,
+            settings.chunk_overlap,
+            settings.embedded_worker,
+            settings.worker_lease_seconds,
+        )
         app.state.settings = settings
         app.state.repository = repository
         app.state.workflow = service
@@ -74,7 +78,7 @@ def create_app(config: dict | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "rekakebijakan", "engine": "deterministic-demo"}
+        return {"status": "ok", "service": "rekakebijakan", "engine": settings.policy_provider}
 
     @app.get("/ready")
     async def ready(request: Request):

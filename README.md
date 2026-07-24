@@ -7,7 +7,7 @@ RekaKebijakan is a policy-scenario simulation prototype with a React frontend an
 - `frontend/`: React 19, TypeScript, and Vite user interface.
 - `backend/`: FastAPI application factory, Pydantic request validation, PostgreSQL persistence, local document storage, and background jobs served by Uvicorn.
 
-The backend defaults to a deterministic demo engine. It requires no LLM, graph service, queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are extracted locally, and generated graph, persona, event, risk, report, citation, log, and interaction data remain durable in PostgreSQL.
+The backend defaults to a grounded deterministic policy provider. It requires no LLM, graph service, external queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are chunked with stable evidence IDs; ontology, graph, persona, event, interview, report, citation, log, and interaction data remain durable in PostgreSQL.
 
 ## Local Run
 
@@ -63,11 +63,13 @@ Open `http://localhost:5173`. The frontend uses `http://localhost:5001` by defau
 ## Workflow API
 
 1. `POST /api/projects` uploads project metadata and real source files.
-2. `POST /api/simulations/<id>/graph-build` constructs the policy graph.
+2. `POST /api/simulations/<id>/graph-build` generates a source-grounded ontology and policy graph.
 3. `POST /api/simulations/<id>/environment/generate` creates 30 synthetic personas and scenario configuration.
 4. `POST /api/simulations/<id>/runs` executes 3, 5, or 8 rounds with pause, resume, cancellation, and event retrieval.
 5. `POST /api/simulations/<id>/reports` creates report sections, risks, and evidence references.
 6. `POST /api/simulations/<id>/interactions` supports report, persona, evidence, risk, comparison, and revision tools.
+7. `POST /api/simulations/<id>/interviews` interviews selected synthetic personas.
+8. `POST /api/simulations/<id>/graph/feedback` applies reviewed graph changes and invalidates downstream artifacts.
 
 The frontend-compatible stage endpoint is `POST /api/simulations/<id>/stages/<stage>/start`. Poll `GET /api/simulations/<id>` for a canonical workflow snapshot.
 

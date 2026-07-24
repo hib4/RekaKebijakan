@@ -42,6 +42,6 @@ def clean_database(database_url: str):
     command.upgrade(config, "head")
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE jobs, documents, sessions, simulations, users CASCADE"))
+        connection.execute(text("TRUNCATE citations, document_chunks, jobs, documents, sessions, simulations, users CASCADE"))
     engine.dispose()
     yield

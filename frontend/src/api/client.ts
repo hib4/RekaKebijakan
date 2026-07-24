@@ -22,6 +22,17 @@ export type ApiStageDto = {
   error?: string;
 };
 
+export type ApiCitationDto = {
+  id?: string;
+  source_type: "document_chunk" | "event" | "graph_node" | "interview_answer" | "report_section";
+  source_id: string;
+  document_id?: string;
+  chunk_id?: string;
+  locator?: Record<string, unknown>;
+  quote?: string;
+  label?: string;
+};
+
 export type ApiGraphNodeDto = {
   id: string;
   label?: string;
@@ -33,6 +44,7 @@ export type ApiGraphNodeDto = {
   group?: string;
   x?: number;
   y?: number;
+  citations?: ApiCitationDto[];
 };
 
 export type ApiGraphEdgeDto = {
@@ -41,6 +53,7 @@ export type ApiGraphEdgeDto = {
   target: string;
   type?: string;
   relation_type?: string;
+  citations?: ApiCitationDto[];
 };
 
 export type ApiPersonaDto = {
@@ -54,6 +67,7 @@ export type ApiPersonaDto = {
   concerns?: string[];
   topics?: string[];
   count?: number;
+  citations?: ApiCitationDto[];
 };
 
 export type ApiEventDto = {
@@ -73,6 +87,7 @@ export type ApiEventDto = {
   concerns?: string[];
   risk_narrative?: string;
   influence_source?: string;
+  citations?: ApiCitationDto[];
 };
 
 export type ApiRiskDto = {
@@ -81,6 +96,7 @@ export type ApiRiskDto = {
   level?: "Rendah" | "Sedang" | "Tinggi" | "low" | "medium" | "high";
   trend?: "Menurun" | "Stabil" | "Meningkat" | "decreasing" | "stable" | "increasing";
   evidence?: string;
+  citations?: ApiCitationDto[];
 };
 
 export type ApiReportSectionDto = {
@@ -88,6 +104,7 @@ export type ApiReportSectionDto = {
   title: string;
   content?: string | string[];
   paragraphs?: string[];
+  citations?: ApiCitationDto[];
 };
 
 export type ApiInteractionMessageDto = {
@@ -98,6 +115,7 @@ export type ApiInteractionMessageDto = {
   text?: string;
   content?: string;
   citations?: string[];
+  evidence_citations?: ApiCitationDto[];
 };
 
 export type ApiSimulationSnapshot = {
@@ -125,6 +143,13 @@ export type ApiSimulationSnapshot = {
   interactions?: { messages?: ApiInteractionMessageDto[] } | ApiInteractionMessageDto[];
   logs?: { id?: string; time?: string; level?: string; message: string }[];
   updated_at?: string;
+  ontology?: {
+    version?: number;
+    entity_types?: { name: string; description?: string }[];
+    relation_types?: { name: string }[];
+    analysis_summary?: string;
+    citations?: ApiCitationDto[];
+  };
 };
 
 export type CreateProjectInput = {

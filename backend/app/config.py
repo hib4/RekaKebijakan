@@ -18,6 +18,16 @@ class Settings:
     session_cookie_name: str
     session_ttl_seconds: int
     session_cookie_secure: bool
+    policy_provider: str
+    llm_base_url: str | None
+    llm_api_key: str | None
+    llm_model: str
+    chunk_size: int
+    chunk_overlap: int
+    provider_timeout_seconds: float
+    embedded_worker: bool
+    worker_poll_seconds: float
+    worker_lease_seconds: int
 
     @classmethod
     def load(cls, overrides: dict | None = None) -> "Settings":
@@ -37,6 +47,16 @@ class Settings:
             "SESSION_COOKIE_NAME": os.getenv("SESSION_COOKIE_NAME", "rk_session"),
             "SESSION_TTL_SECONDS": int(os.getenv("SESSION_TTL_SECONDS", 7 * 24 * 60 * 60)),
             "SESSION_COOKIE_SECURE": os.getenv("SESSION_COOKIE_SECURE", "false"),
+            "POLICY_PROVIDER": os.getenv("POLICY_PROVIDER", "deterministic"),
+            "LLM_BASE_URL": os.getenv("LLM_BASE_URL") or None,
+            "LLM_API_KEY": os.getenv("LLM_API_KEY") or None,
+            "LLM_MODEL": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            "CHUNK_SIZE": int(os.getenv("CHUNK_SIZE", "1200")),
+            "CHUNK_OVERLAP": int(os.getenv("CHUNK_OVERLAP", "150")),
+            "PROVIDER_TIMEOUT_SECONDS": float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
+            "EMBEDDED_WORKER": os.getenv("EMBEDDED_WORKER", "false"),
+            "WORKER_POLL_SECONDS": float(os.getenv("WORKER_POLL_SECONDS", "0.5")),
+            "WORKER_LEASE_SECONDS": int(os.getenv("WORKER_LEASE_SECONDS", "180")),
         }
         values.update(overrides or {})
         origins = values["CORS_ORIGINS"]
@@ -47,6 +67,12 @@ class Settings:
         secure = values["SESSION_COOKIE_SECURE"]
         if isinstance(secure, str):
             secure = secure.strip().lower() in {"1", "true", "yes", "on"}
+        embedded_worker = values["EMBEDDED_WORKER"]
+        if isinstance(embedded_worker, str):
+            embedded_worker = embedded_worker.strip().lower() in {"1", "true", "yes", "on"}
+        provider = str(values["POLICY_PROVIDER"]).strip().lower()
+        if provider not in {"deterministic", "openai"}:
+            raise ValueError("POLICY_PROVIDER must be deterministic or openai")
         return cls(
             database_url=str(values["DATABASE_URL"]),
             upload_dir=Path(values["UPLOAD_DIR"]),
@@ -57,4 +83,14 @@ class Settings:
             session_cookie_name=str(values["SESSION_COOKIE_NAME"]),
             session_ttl_seconds=int(values["SESSION_TTL_SECONDS"]),
             session_cookie_secure=bool(secure),
+            policy_provider=provider,
+            llm_base_url=values["LLM_BASE_URL"],
+            llm_api_key=values["LLM_API_KEY"],
+            llm_model=str(values["LLM_MODEL"]),
+            chunk_size=int(values["CHUNK_SIZE"]),
+            chunk_overlap=int(values["CHUNK_OVERLAP"]),
+            provider_timeout_seconds=float(values["PROVIDER_TIMEOUT_SECONDS"]),
+            embedded_worker=bool(embedded_worker) or bool(values["TESTING"]),
+            worker_poll_seconds=float(values["WORKER_POLL_SECONDS"]),
+            worker_lease_seconds=int(values["WORKER_LEASE_SECONDS"]),
         )

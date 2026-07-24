@@ -29,3 +29,14 @@ def test_repository_allows_only_one_active_job_per_simulation(database_url):
     assert not second.put_job("job-2", "sim-1", "environment", "queued", {})
     first.set_job_status("job-1", "completed")
     assert second.put_job("job-2", "sim-1", "environment", "queued", {})
+
+
+def test_worker_lease_allows_only_one_claim(database_url):
+    repository = Repository(database_url)
+    repository.create({"id": "sim-lease", "project": {"id": "project-lease"}, "updated_at": datetime.now(timezone.utc).isoformat()})
+    assert repository.put_job("job-lease", "sim-lease", "graph", "queued", {})
+    claimed = repository.claim_next_job("worker-a", lease_seconds=60)
+    assert claimed and claimed["id"] == "job-lease"
+    assert repository.claim_next_job("worker-b", lease_seconds=60) is None
+    assert not repository.finish_job("job-lease", "worker-b")
+    assert repository.finish_job("job-lease", "worker-a")

@@ -49,3 +49,16 @@ class InteractionInput(BaseModel):
     tool: Literal["report", "persona", "evidence", "risk", "compare", "revision"] = "report"
     question: str = Field(min_length=2, max_length=2000)
     persona_group: str | None = Field(default=None, max_length=120)
+
+
+class InterviewInput(BaseModel):
+    question: str = Field(min_length=2, max_length=2000)
+    persona_ids: list[str] = Field(default_factory=list, max_length=10)
+
+
+class GraphFeedbackInput(BaseModel):
+    action: Literal["add_node", "update_node", "remove_node", "add_edge", "update_edge", "remove_edge"]
+    target_id: str | None = None
+    patch: dict = Field(default_factory=dict)
+    reason: str = Field(min_length=2, max_length=2000)
+    base_revision: int | None = None

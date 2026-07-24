@@ -13,13 +13,14 @@ COPY migrations ./migrations
 
 FROM base AS production
 
-RUN pip install . && \
+RUN pip install ".[llm]" && \
     groupadd --gid 10001 reka && \
     useradd --uid 10001 --gid reka --create-home reka && \
     mkdir -p /app/data && \
     chown -R reka:reka /app
 
 COPY run.py ./run.py
+COPY worker.py ./worker.py
 
 USER reka
 EXPOSE 5001
