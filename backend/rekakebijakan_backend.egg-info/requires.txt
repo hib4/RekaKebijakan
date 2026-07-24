@@ -1,0 +1,9 @@
+Flask<4,>=3.1
+flask-cors<7,>=6
+pydantic<3,>=2.10
+PyMuPDF<2,>=1.25
+python-docx<2,>=1.1
+python-dotenv<2,>=1.0
+
+[test]
+pytest<9,>=8.3

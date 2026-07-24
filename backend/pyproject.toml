@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rekakebijakan-backend"
+version = "0.1.0"
+description = "Credential-free Flask policy simulation backend"
+requires-python = ">=3.11"
+dependencies = [
+  "Flask>=3.1,<4",
+  "flask-cors>=6,<7",
+  "pydantic>=2.10,<3",
+  "PyMuPDF>=1.25,<2",
+  "python-docx>=1.1,<2",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3,<9"]
+llm = ["openai>=1.0,<3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

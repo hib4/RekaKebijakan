@@ -16,4 +16,6 @@ bun run build
 bun run preview
 ```
 
-All scenarios and simulation results use local demonstration data. The pilot project discussion form is a prototype interaction and does not send or save data.
+The project wizard and non-demo simulation IDs use the Flask API at `http://localhost:5001` by default. Copy `.env.example` to `.env` only when you need to override the API URL or force local demo behavior.
+
+IDs beginning with `demo-` always use local demonstration data and timers. Setting `VITE_DEMO_MODE=true` forces the same local workflow mode for all IDs. The pilot project discussion form remains a prototype interaction and does not send or save data.

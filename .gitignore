@@ -23,3 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 mirofish/
+
+# Python backend runtime
+backend/.venv/
+backend/data/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/**/*.pyc

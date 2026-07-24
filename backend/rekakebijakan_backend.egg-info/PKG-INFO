@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: rekakebijakan-backend
+Version: 0.1.0
+Summary: Credential-free Flask policy simulation backend
+Requires-Python: >=3.11
+Requires-Dist: Flask<4,>=3.1
+Requires-Dist: flask-cors<7,>=6
+Requires-Dist: pydantic<3,>=2.10
+Requires-Dist: PyMuPDF<2,>=1.25
+Requires-Dist: python-docx<2,>=1.1
+Requires-Dist: python-dotenv<2,>=1.0
+Provides-Extra: test
+Requires-Dist: pytest<9,>=8.3; extra == "test"

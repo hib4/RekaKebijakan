@@ -1,4 +1,5 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
+import { ApiError, getSimulation, pauseSimulation, resumeSimulation, sendInteraction, startStage, updateEnvironment } from "../../api/client";
 import { getWorkspaceProjectBySimulation, getWorkspaceReportBySimulation, saveWorkspaceReport, updateProjectStage } from "../../data/localWorkspace";
 import { demoCases, entityTypes, relationTypes, suggestedQuestions } from "./workflowData";
 import { intakeToDemoCase, loadProjectIntake } from "./projectIntake";
@@ -7,6 +8,7 @@ import { PolicyGraph, StepCard, SystemConsole, WorkflowTopBar } from "./Workflow
 import { appendSessionLog, createWorkflowSession, highestUnlockedStep, loadWorkflowSession, saveWorkflowSession } from "./workflowSession";
 import type { InteractionMessage, WorkflowSession } from "./workflowSession";
 import { useAutoFollow } from "./useAutoFollow";
+import { mapBackendSnapshot, mapInteractionMessage } from "./backendWorkflow";
 import "./SimulationWorkflow.css";
 
 const graphTasks = [
@@ -105,11 +107,12 @@ const tools = [
   ["report", "Report Agent", "Ajukan pertanyaan dengan kutipan laporan."], ["persona", "Persona Group Interview", "Wawancarai kelompok stakeholder sintetis."], ["evidence", "Evidence Trace", "Telusuri insight ke event dan graph."], ["compare", "Scenario Compare", "Bandingkan baseline dan asumsi revisi."], ["revision", "Revision Notes", "Susun catatan revisi kebijakan."],
 ] as const;
 
-function InteractionStep({ demo, session, update }: { demo: DemoCase; session: WorkflowSession; update: (session: WorkflowSession) => void }) {
+function InteractionStep({ demo, session, update, sendBackend }: { demo: DemoCase; session: WorkflowSession; update: (session: WorkflowSession) => void; sendBackend?: (tool: string, question: string, group: string) => Promise<InteractionMessage> }) {
   const [tool, setTool] = useState("report");
   const [group, setGroup] = useState(demo.personas[0]?.group ?? "Stakeholder");
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
+  const [, setSendError] = useState("");
   const timer = useRef<number | null>(null);
   const scrollRef = useAutoFollow<HTMLElement>(`${tool}-${typing}-${session.interaction.messages.length}`);
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
@@ -120,11 +123,22 @@ function InteractionStep({ demo, session, update }: { demo: DemoCase; session: W
     if (tool === "revision") return `Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.`;
     return `Laporan menunjukkan bahwa ${demo.risks[0]?.title.toLowerCase()} merupakan indikasi risiko utama. Temuan ini didukung Bagian 3 dan event pada ronde ${demo.events[0]?.round ?? 1}. Pertanyaan: ${question}`;
   };
-  const send = (question = input) => {
+  const send = async (question = input) => {
     if (!question.trim() || typing) return;
     const user: InteractionMessage = { id: `u-${tool}-${session.interaction.messages.length}`, role: "user", author: "Anda", tool, text: question };
     update({ ...session, interaction: { ...session.interaction, messages: [...session.interaction.messages, user] } });
-    setInput(""); setTyping(true);
+    setInput(""); setTyping(true); setSendError("");
+    if (sendBackend) {
+      try {
+        const agent = await sendBackend(tool, question, group);
+        update(appendSessionLog({ ...session, interaction: { ...session.interaction, messages: [...session.interaction.messages, user, agent] } }, `${agent.author} response generated`));
+      } catch (cause) {
+        setSendError(cause instanceof Error ? cause.message : "Interaksi gagal dikirim.");
+      } finally {
+        setTyping(false);
+      }
+      return;
+    }
     timer.current = window.setTimeout(() => {
       const agent: InteractionMessage = { id: `a-${tool}-${session.interaction.messages.length + 1}`, role: "agent", author: tool === "persona" ? group : tools.find((item) => item[0] === tool)?.[1] ?? "Report Agent", tool, text: answer(question), citations: tool === "persona" ? ["Persona sintetis", `Kelompok ${group}`] : ["Bagian 3", `Event ${demo.events[0]?.id ?? "01"}`] };
       update(appendSessionLog({ ...session, interaction: { ...session.interaction, messages: [...session.interaction.messages, user, agent] } }, `${agent.author} response generated`)); setTyping(false);
@@ -136,17 +150,62 @@ function InteractionStep({ demo, session, update }: { demo: DemoCase; session: W
 
 export default function SimulationWorkflowPage() {
   const simulationId = window.location.pathname.split("/")[2] ?? "";
+  const localMode = import.meta.env.VITE_DEMO_MODE === "true" || simulationId.startsWith("demo-");
   const intake = loadProjectIntake(simulationId);
   const knownDemo = demoCases[simulationId];
   const project = getWorkspaceProjectBySimulation(simulationId);
   const demo = intake ? intakeToDemoCase(intake) : knownDemo;
-  const exists = Boolean(simulationId && (demo || project));
-  const [resolvedDemo] = useState<DemoCase>(() => demo ?? (project ? intakeToDemoCase(project) : demoCases["demo-penyaluran-pupuk"]));
+  const exists = localMode ? Boolean(simulationId && (demo || project)) : Boolean(simulationId);
+  const [resolvedDemo, setResolvedDemo] = useState<DemoCase>(() => demo ?? (project ? intakeToDemoCase(project) : demoCases["demo-penyaluran-pupuk"]));
   const [session, setSession] = useState(() => hydrateSession(simulationId, resolvedDemo));
-  const latest = useEffectEvent((next: WorkflowSession) => { saveWorkflowSession(next); });
+  const [backendLoading, setBackendLoading] = useState(!localMode);
+  const [backendError, setBackendError] = useState("");
+  const latest = useEffectEvent((next: WorkflowSession) => { if (localMode) saveWorkflowSession(next); });
   useEffect(() => { latest(session); }, [session]);
 
+  const applyBackendSnapshot = useCallback((snapshot: Awaited<ReturnType<typeof getSimulation>>) => {
+    setSession((current) => {
+      const mapped = mapBackendSnapshot(snapshot, simulationId, current);
+      setResolvedDemo(mapped.demo);
+      return mapped.session;
+    });
+    setBackendError("");
+    setBackendLoading(false);
+  }, [simulationId]);
+  const loadBackend = useCallback(async () => {
+    try {
+      applyBackendSnapshot(await getSimulation(simulationId));
+    } catch (cause) {
+      setBackendError(cause instanceof Error ? cause.message : "Simulasi gagal dimuat.");
+      setBackendLoading(false);
+    }
+  }, [applyBackendSnapshot, simulationId]);
+  useEffect(() => {
+    if (localMode) return;
+    const timer = window.setTimeout(loadBackend, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadBackend, localMode]);
+  const backendPolling = !localMode && Object.values(session.steps).some((item) => item.status === "processing") || (!localMode && session.simulation.status === "running");
+  useEffect(() => {
+    if (!backendPolling) return;
+    const timer = window.setInterval(loadBackend, 1500);
+    return () => window.clearInterval(timer);
+  }, [backendPolling, loadBackend]);
+
   const update = (next: WorkflowSession) => setSession(next);
+  const updateWorkflow = (next: WorkflowSession) => {
+    if (!localMode && session.simulation.status !== next.simulation.status) {
+      const action = next.simulation.status === "paused" ? pauseSimulation(simulationId) : next.simulation.status === "running" ? resumeSimulation(simulationId) : null;
+      if (action) action.then(applyBackendSnapshot).catch((cause) => setBackendError(cause instanceof Error ? cause.message : "Status simulasi gagal diperbarui."));
+      return;
+    }
+    setSession(next);
+    if (!localMode && next.environment !== session.environment) {
+      updateEnvironment(simulationId, { rounds: next.environment.rounds, socialization: next.environment.socialization, response_mode: next.environment.responseMode })
+        .then(applyBackendSnapshot)
+        .catch((cause) => { if (!(cause instanceof ApiError) || (cause.status !== 404 && cause.status !== 405)) setBackendError(cause instanceof Error ? cause.message : "Konfigurasi gagal disimpan."); });
+    }
+  };
   const log = (message: string, level: ConsoleLog["level"] = "INFO") => setSession((current) => appendSessionLog(current, message, level));
   const goStep = (step: WorkflowStep) => {
     if (session.steps[step].status === "locked") return;
@@ -173,6 +232,7 @@ export default function SimulationWorkflowPage() {
   }, []);
 
   useEffect(() => {
+    if (!localMode) return;
     const step = session.currentStep;
     const state = session.steps[step];
     if (state.status !== "processing" || step === 3) return;
@@ -199,9 +259,10 @@ export default function SimulationWorkflowPage() {
       return next;
     }), delay);
     return () => window.clearTimeout(timer);
-  }, [project?.institution, project?.projectId, resolvedDemo, session.currentStep, session.steps, simulationId]);
+  }, [localMode, project?.institution, project?.projectId, resolvedDemo, session.currentStep, session.steps, simulationId]);
 
   useEffect(() => {
+    if (!localMode) return;
     if (session.simulation.status !== "running") return;
     const timer = window.setTimeout(() => setSession((current) => {
       const count = Math.min(resolvedDemo.events.length, current.simulation.eventCount + 1);
@@ -212,16 +273,26 @@ export default function SimulationWorkflowPage() {
       return next;
     }), 1100 / session.simulation.speed);
     return () => window.clearTimeout(timer);
-  }, [resolvedDemo.events, resolvedDemo.graphNodes, session.simulation.speed, session.simulation.status, simulationId]);
+  }, [localMode, resolvedDemo.events, resolvedDemo.graphNodes, session.simulation.speed, session.simulation.status, simulationId]);
 
-  const startStep = (step: WorkflowStep) => setSession((current) => appendSessionLog({ ...current, steps: { ...current.steps, [step]: { ...current.steps[step], status: "processing", startedAt: new Date().toISOString(), progress: 0 } }, ...(step === 3 ? { simulation: { ...current.simulation, status: "running" as const, eventCount: 0 } } : {}) }, `${stepQuery(step)} started`));
+  const startStep = (step: WorkflowStep) => {
+    if (!localMode) {
+      const config = step === 2 || step === 3 ? { rounds: session.environment.rounds, socialization: session.environment.socialization, response_mode: session.environment.responseMode } : undefined;
+      setSession((current) => ({ ...current, steps: { ...current.steps, [step]: { ...current.steps[step], status: "processing", progress: 0, activeTask: stepQuery(step) } }, ...(step === 3 ? { simulation: { ...current.simulation, status: "running" as const } } : {}) }));
+      startStage(simulationId, stepQuery(step) as "graph" | "environment" | "simulation" | "report", config).then(applyBackendSnapshot).catch((cause) => setBackendError(cause instanceof Error ? cause.message : "Tahap gagal dimulai."));
+      return;
+    }
+    setSession((current) => appendSessionLog({ ...current, steps: { ...current.steps, [step]: { ...current.steps[step], status: "processing", startedAt: new Date().toISOString(), progress: 0 } }, ...(step === 3 ? { simulation: { ...current.simulation, status: "running" as const, eventCount: 0 } } : {}) }, `${stepQuery(step)} started`));
+  };
   const graphActiveNode = session.currentStep === 3 ? session.graph.selectedNodeId : session.steps[1].status === "processing" ? resolvedDemo.graphNodes[Math.max(0, session.graph.nodeCount - 1)]?.id ?? null : null;
+  if (backendLoading) return <div className="workflow-not-found"><p className="eyebrow">MEMUAT WORKFLOW</p><h1>Mengambil snapshot simulasi...</h1></div>;
+  if (backendError && !resolvedDemo.id.startsWith(simulationId)) return <div className="workflow-not-found"><h1>Workflow gagal dimuat</h1><p>{backendError}</p><button className="button primary" onClick={() => { setBackendLoading(true); setBackendError(""); loadBackend(); }}>Coba lagi</button></div>;
   if (!exists) return <div className="workflow-not-found"><h1>Workflow tidak ditemukan</h1><p>ID simulasi tidak tersedia atau data lokal telah dihapus.</p><button className="button primary" onClick={() => { window.history.pushState(null, "", "/projects"); window.dispatchEvent(new PopStateEvent("popstate")); }}>Kembali ke Proyek Kebijakan</button></div>;
-  return <div className="simulation-workflow"><WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} /><main className={`workflow-content mode-${session.viewMode}`}>{session.viewMode !== "workbench" && <div className="graph-column"><PolicyGraph demo={resolvedDemo} nodeCount={session.graph.nodeCount} edgeCount={session.graph.edgeCount} activeNodeId={graphActiveNode} selectedNodeId={session.graph.selectedNodeId} onSelect={(id) => setSession((current) => ({ ...current, graph: { ...current.graph, selectedNodeId: id } }))} onLog={log} /></div>}{session.viewMode !== "graph" && <div className="workbench-column">
+  return <div className="simulation-workflow"><WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} />{backendError && <p className="inline-alert error workflow-api-error" role="alert">{backendError} <button onClick={loadBackend}>Coba lagi</button></p>}<main className={`workflow-content mode-${session.viewMode}`}>{session.viewMode !== "workbench" && <div className="graph-column"><PolicyGraph demo={resolvedDemo} nodeCount={session.graph.nodeCount} edgeCount={session.graph.edgeCount} activeNodeId={graphActiveNode} selectedNodeId={session.graph.selectedNodeId} onSelect={(id) => setSession((current) => ({ ...current, graph: { ...current.graph, selectedNodeId: id } }))} onLog={log} /></div>}{session.viewMode !== "graph" && <div className="workbench-column">
     {session.currentStep === 1 && <GraphBuildStep demo={resolvedDemo} session={session} start={() => startStep(1)} next={() => goStep(2)} />}
-    {session.currentStep === 2 && <EnvironmentStep demo={resolvedDemo} session={session} update={update} start={() => startStep(2)} next={() => goStep(3)} />}
-    {session.currentStep === 3 && <SimulationStep demo={resolvedDemo} session={session} update={update} start={() => startStep(3)} report={() => goStep(4)} />}
+    {session.currentStep === 2 && <EnvironmentStep demo={resolvedDemo} session={session} update={updateWorkflow} start={() => startStep(2)} next={() => goStep(3)} />}
+    {session.currentStep === 3 && <SimulationStep demo={resolvedDemo} session={session} update={updateWorkflow} start={() => startStep(3)} report={() => goStep(4)} />}
     {session.currentStep === 4 && <ReportStep demo={resolvedDemo} session={session} start={() => startStep(4)} next={() => { const next = appendSessionLog({ ...session, currentStep: 5, viewMode: "workbench", steps: { ...session.steps, 5: { ...session.steps[5], status: "completed", progress: 100, activeTask: null, completedAt: new Date().toISOString() } } }, "Interaction tools loaded", "DONE"); setSession(next); updateProjectStage(simulationId, 5); window.history.pushState(null, "", `/simulation/${simulationId}?step=interaction&mode=workbench`); }} />}
-    {session.currentStep === 5 && <InteractionStep demo={resolvedDemo} session={session} update={update} />}
+    {session.currentStep === 5 && <InteractionStep demo={resolvedDemo} session={session} update={update} sendBackend={localMode ? undefined : async (tool, question, group) => mapInteractionMessage(await sendInteraction(simulationId, { tool, question, personaGroup: tool === "persona" ? group : undefined }))} />}
   </div>}</main><SystemConsole logs={session.logs} /></div>;
 }
