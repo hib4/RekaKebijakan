@@ -10,6 +10,8 @@ import {
   projectSummary,
 } from "../../data/projects";
 import type { PolicyProject, ProjectRisk, ProjectStatus } from "../../data/projects";
+import { getWorkspaceProject, listWorkspaceProjects } from "../../data/localWorkspace";
+import type { WorkspaceProject } from "../../data/localWorkspace";
 import "./ProjectsPage.css";
 
 type Toast = { id: number; message: string };
@@ -21,6 +23,27 @@ const riskRank: Record<ProjectRisk, number> = {
   Rendah: 2,
   "Belum dihitung": 1,
 };
+
+function workspaceStatus(project: WorkspaceProject): ProjectStatus {
+  if (project.stage >= 4) return "Laporan tersedia";
+  if (project.stage === 3) return "Simulasi berjalan";
+  if (project.stage >= 1) return "Persiapan";
+  return "Draft";
+}
+
+function workspaceProject(project: WorkspaceProject, index: number): PolicyProject {
+  return {
+    id: project.projectId,
+    name: project.projectName,
+    institution: project.institution,
+    status: workspaceStatus(project),
+    scenarios: project.stage >= 2 ? 1 : 0,
+    lastSimulation: project.stage >= 4 ? "Laporan selesai" : project.stage === 3 ? "Simulasi selesai" : project.stage === 2 ? "Environment siap" : project.stage === 1 ? "Graph selesai" : "Belum dijalankan",
+    risk: project.highestRisk ?? "Belum dihitung",
+    updated: new Date(project.updatedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }),
+    updatedRank: index + 1,
+  };
+}
 
 function goTo(path: string, setToast?: (message: string) => void) {
   window.history.pushState(null, "", path);
@@ -213,7 +236,11 @@ function Pagination({ pageSize, setPageSize, total }: { pageSize: number; setPag
 }
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState(policyProjects);
+  const [projects, setProjects] = useState(() => {
+    const stored = listWorkspaceProjects().map(workspaceProject);
+    const storedIds = new Set(stored.map((project) => project.id));
+    return [...stored, ...policyProjects.filter((project) => !storedIds.has(project.id))];
+  });
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Semua status");
   const [risk, setRisk] = useState("Semua risiko");
@@ -263,6 +290,15 @@ export default function ProjectsPage() {
   const paged = filtered.slice(0, pageSize);
   const openProject = (project: PolicyProject) => {
     setMenu(null);
+    const workspace = getWorkspaceProject(project.id);
+    if (workspace?.stage && workspace.stage >= 4) {
+      goTo(`/simulation/${workspace.simulationId}?step=report&mode=workbench`);
+      return;
+    }
+    if (workspace && workspace.projectId !== "registrasi-digital-umkm") {
+      goTo(`/simulation/${workspace.simulationId}`);
+      return;
+    }
     goTo(`/projects/${project.id}`, showToast);
   };
   const duplicate = (project: PolicyProject) => {
@@ -282,7 +318,7 @@ export default function ProjectsPage() {
       title="Proyek Kebijakan"
       subtitle="Kelola rancangan kebijakan, skenario, dan hasil simulasi dalam satu ruang kerja."
       eyebrow="Ruang kerja kebijakan"
-      actions={<><button className="button primary" onClick={() => goTo("/projects/new")}>Buat Proyek</button><button className="button secondary import-button" disabled>Impor Proyek <span>Prototipe</span></button></>}
+      actions={<button className="button primary" onClick={() => goTo("/projects/new")}>Buat Proyek</button>}
     >
         <section className="metrics-grid" aria-label="Ringkasan proyek">{projectSummary.map((metric) => <article className="metric-card" key={metric[0]}><p>{metric[0]}</p><strong>{metric[1]}</strong><span>{metric[2]}</span></article>)}</section>
         <section className="dashboard-panel project-list-panel" aria-labelledby="project-table-title">

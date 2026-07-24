@@ -6,9 +6,7 @@ import "./AppShell.css";
 const productNav = [
   ["/dashboard", "Dashboard", "D"],
   ["/projects", "Proyek Kebijakan", "P"],
-  ["/simulations", "Simulasi", "S"],
   ["/reports", "Laporan", "L"],
-  ["/settings", "Pengaturan", "Pg"],
 ] as const;
 
 type AppShellProps = {

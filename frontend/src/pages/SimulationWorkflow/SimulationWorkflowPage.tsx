@@ -1,0 +1,227 @@
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { getWorkspaceProjectBySimulation, getWorkspaceReportBySimulation, saveWorkspaceReport, updateProjectStage } from "../../data/localWorkspace";
+import { demoCases, entityTypes, relationTypes, suggestedQuestions } from "./workflowData";
+import { intakeToDemoCase, loadProjectIntake } from "./projectIntake";
+import type { ConsoleLog, DemoCase, ReportSection, SimulationEvent, ViewMode, WorkflowStep } from "./workflowTypes";
+import { PolicyGraph, StepCard, SystemConsole, WorkflowTopBar } from "./WorkflowComponents";
+import { appendSessionLog, createWorkflowSession, highestUnlockedStep, loadWorkflowSession, saveWorkflowSession } from "./workflowSession";
+import type { InteractionMessage, WorkflowSession } from "./workflowSession";
+import { useAutoFollow } from "./useAutoFollow";
+import "./SimulationWorkflow.css";
+
+const graphTasks = [
+  { title: "Policy Ontology Generation", endpoint: "POST /api/policy/ontology/generate", description: "Mengekstrak isu, stakeholder, klausul, kekhawatiran publik, dan narasi risiko." },
+  { title: "Stakeholder Graph Build", endpoint: "POST /api/policy/graph/build", description: "Menyusun entity dan relasi menjadi graf kebijakan yang dapat ditinjau." },
+  { title: "Graph Build Complete", endpoint: "POST /api/simulation/create", description: "Memvalidasi cakupan stakeholder dan jejak bukti sebelum Environment Setup." },
+];
+const environmentTasks = [
+  { title: "Generate Persona Profiles", endpoint: "POST /api/simulation/personas/generate", description: "Membentuk 30 persona sintetis dalam enam kelompok stakeholder." },
+  { title: "Generate Simulation Config", endpoint: "POST /api/simulation/config/generate", description: "Menyiapkan ronde, kanal reaksi, pengaruh, dan respons pemerintah." },
+  { title: "Environment Ready", endpoint: "GET /api/simulation/environment", description: "Memeriksa cakupan persona dan kesiapan konfigurasi." },
+];
+const reportTasks = ["Planning / Outline", "Evidence Selection", "Section Writing", "Risk Review", "Complete"];
+
+function stepQuery(step: WorkflowStep) { return ["graph", "environment", "simulation", "report", "interaction"][step - 1]; }
+function queryStep(value: string | null): WorkflowStep | null { const index = ["graph", "environment", "simulation", "report", "interaction"].indexOf(value ?? ""); return index >= 0 ? (index + 1) as WorkflowStep : null; }
+function taskState(progress: number, index: number, running: boolean) { const start = index * 33; const end = (index + 1) * 33; if (progress >= end || (index === 2 && progress === 100)) return "completed" as const; if (running && progress >= start) return "processing" as const; return "ready" as const; }
+
+function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
+  const stored = loadWorkflowSession(simulationId);
+  const session = stored ?? createWorkflowSession(simulationId, demo.title);
+  if (stored) {
+    const params = new URLSearchParams(window.location.search);
+    const requested = queryStep(params.get("step"));
+    const mode = params.get("mode") as ViewMode | null;
+    if (requested && requested <= highestUnlockedStep(session)) session.currentStep = requested;
+    if (mode && ["graph", "split", "workbench"].includes(mode)) session.viewMode = mode;
+    return session;
+  }
+  const project = getWorkspaceProjectBySimulation(simulationId);
+  const report = getWorkspaceReportBySimulation(simulationId);
+  const stage = project?.stage ?? 0;
+  for (let step = 1; step <= 5; step += 1) {
+    const key = step as WorkflowStep;
+    if (step <= stage) session.steps[key] = { status: "completed", progress: 100, activeTask: null, completedAt: project?.updatedAt };
+    else if (step === stage + 1) session.steps[key] = { status: "ready", progress: 0, activeTask: null };
+  }
+  if (stage >= 1) session.graph = { nodeCount: demo.graphNodes.length, edgeCount: demo.graphEdges.length, selectedNodeId: null };
+  if (stage >= 2) session.environment.personaCount = 30;
+  if (stage >= 3) session.simulation = { ...session.simulation, status: "completed", eventCount: demo.events.length };
+  if (report) session.report = { progress: 100, sections: report.sections, timestamps: Array(5).fill(report.completedAt), completedAt: report.completedAt };
+  session.currentStep = Math.min(5, Math.max(1, stage || 1)) as WorkflowStep;
+  const params = new URLSearchParams(window.location.search);
+  const requested = queryStep(params.get("step"));
+  const mode = params.get("mode") as ViewMode | null;
+  if (requested && requested <= highestUnlockedStep(session)) session.currentStep = requested;
+  if (mode && ["graph", "split", "workbench"].includes(mode)) session.viewMode = mode;
+  return session;
+}
+
+function GraphBuildStep({ demo, session, start, next }: { demo: DemoCase; session: WorkflowSession; start: () => void; next: () => void }) {
+  const step = session.steps[1];
+  const scrollRef = useAutoFollow<HTMLDivElement>(`${step.status}-${step.progress}-${session.graph.nodeCount}-${session.graph.edgeCount}`);
+  return <div className="step-scroll" ref={scrollRef}><div className="step-intro"><span>STEP 1/5</span><h1 tabIndex={-1}>Bangun graf kebijakan</h1><p>Entity dan relasi muncul bertahap sesuai proses ekstraksi dan validasi.</p></div>{graphTasks.map((task, index) => <StepCard key={task.title} number={index + 1} task={task} state={taskState(step.progress, index, step.status === "processing")} progress={Math.min(100, Math.max(0, (step.progress - index * 33) * 3))}>
+    {index === 0 && step.progress >= 24 && <><h4>Generated entity types</h4><div className="type-tags">{entityTypes.slice(0, Math.max(2, Math.ceil(step.progress / 12))).map((type) => <span key={type}>{type}</span>)}</div>{step.progress >= 33 && <><h4>Generated relation types</h4><div className="type-tags relations">{relationTypes.map((type) => <span key={type}>{type}</span>)}</div></>}</>}
+    {index === 1 && step.progress >= 48 && <div className="inline-stats"><span><b>{session.graph.nodeCount}</b>Entity nodes</span><span><b>{session.graph.edgeCount}</b>Relation edges</span><span><b>{entityTypes.length}</b>Schema types</span></div>}
+    {index === 2 && step.status === "completed" && <div className="completion-review"><span><b>100%</b>Stakeholder coverage</span><span><b>{demo.risks.length}</b>Narasi risiko</span><span><b>0</b>Node terputus</span></div>}
+  </StepCard>)}{step.status === "ready" && <button className="button primary start-action" onClick={start}>Start Graph Build →</button>}{step.status === "completed" && <button className="button primary start-action" onClick={next}>Continue to Env Setup →</button>}</div>;
+}
+
+function EnvironmentStep({ demo, session, update, start, next }: { demo: DemoCase; session: WorkflowSession; update: (session: WorkflowSession) => void; start: () => void; next: () => void }) {
+  const step = session.steps[2];
+  const visibleGroups = Math.ceil(session.environment.personaCount / 5);
+  const scrollRef = useAutoFollow<HTMLDivElement>(`${step.status}-${step.progress}-${session.environment.personaCount}`);
+  return <div className="step-scroll" ref={scrollRef}><div className="step-intro"><span>STEP 2/5</span><h1 tabIndex={-1}>Siapkan lingkungan simulasi</h1><p>Persona dibentuk per kelompok, lalu konfigurasi skenario divalidasi.</p></div>{environmentTasks.map((task, index) => <StepCard key={task.title} number={index + 1} task={task} state={taskState(step.progress, index, step.status === "processing")} progress={Math.min(100, Math.max(0, (step.progress - index * 33) * 3))}>
+    {index === 0 && step.progress > 0 && <><div className="persona-summary"><span><b>{session.environment.personaCount}</b>Persona saat ini</span><span><b>30</b>Total diharapkan</span><span><b>{demo.personas.slice(0, visibleGroups).flatMap((persona) => persona.topics).length}</b>Topik terkait</span><span><b>{Math.min(6, visibleGroups)}/6</b>Cakupan stakeholder</span></div><div className="persona-list">{demo.personas.slice(0, visibleGroups).map((persona) => <article key={persona.id}><div><b>{persona.name}</b><span>{persona.group} · {persona.role}</span></div><strong>{persona.count} persona</strong><p>{persona.concern}</p><div>{persona.topics.map((topic) => <i key={topic}>{topic}</i>)}</div></article>)}</div></>}
+    {index === 1 && step.progress >= 50 && <><div className="config-controls"><label>Jumlah ronde<select value={session.environment.rounds} onChange={(event) => update({ ...session, environment: { ...session.environment, rounds: Number(event.target.value) as 3 | 5 | 8 } })}><option value="3">3 ronde</option><option value="5">5 ronde</option><option value="8">8 ronde</option></select></label><label>Intensitas sosialisasi<select value={session.environment.socialization} onChange={(event) => update({ ...session, environment: { ...session.environment, socialization: event.target.value as "Rendah" | "Sedang" | "Tinggi" } })}><option>Rendah</option><option>Sedang</option><option>Tinggi</option></select></label><label>Respons pemerintah<select value={session.environment.responseMode} onChange={(event) => update({ ...session, environment: { ...session.environment, responseMode: event.target.value as "Klarifikasi" | "Responsif" | "Revisi" } })}><option>Klarifikasi</option><option>Responsif</option><option>Revisi</option></select></label></div><div className="config-grid"><span><small>Reaction channels</small><b>Forum Publik · Komunitas Kebijakan</b></span><span><small>Influence mode</small><b>Network weighted</b></span><span><small>Output mode</small><b>Jejak bukti</b></span><span><small>Scenario</small><b>{demo.title}</b></span></div></>}
+  </StepCard>)}<p className="responsible-note">Persona bersifat sintetis dan digunakan untuk simulasi skenario, bukan profil warga nyata.</p>{step.status === "ready" && <button className="button primary start-action" onClick={start}>Start Persona Generation →</button>}{step.status === "completed" && <button className="button primary start-action" onClick={next}>Start Simulation →</button>}</div>;
+}
+
+function EventCard({ event, selected, onSelect }: { event: SimulationEvent; selected: boolean; onSelect: () => void }) {
+  const [open, setOpen] = useState(false);
+  return <article className={`simulation-event ${selected ? "selected" : ""}`} onClick={onSelect}><header><div><b>{event.persona}</b><span>{event.group} · {event.channel}</span></div><time>Ronde {event.round} · {event.time}</time></header><p>{event.statement}</p><div className="event-tags"><span>{event.type}</span><span>Sikap: {event.stance}</span>{event.concerns.map((tag) => <span key={tag}>{tag}</span>)}</div><button onClick={(click) => { click.stopPropagation(); setOpen(!open); }}>{open ? "Tutup detail" : "Lihat kutipan dan jejak"}</button>{open && <dl><dt>Narasi risiko</dt><dd>{event.riskNarrative}</dd><dt>Sumber pengaruh</dt><dd>{event.influenceSource}</dd></dl>}</article>;
+}
+
+function SimulationStep({ demo, session, update, start, report }: { demo: DemoCase; session: WorkflowSession; update: (session: WorkflowSession) => void; start: () => void; report: () => void }) {
+  const run = session.simulation;
+  const events = demo.events.slice(0, run.eventCount);
+  const round = run.status === "completed" ? session.environment.rounds : Math.max(1, events.at(-1)?.round ?? 1);
+  const activeNode = session.graph.selectedNodeId;
+  const scrollRef = useAutoFollow<HTMLDivElement>(`${run.status}-${events.length}`);
+  return <div className="step-scroll simulation-step" ref={scrollRef}><div className="step-intro"><span>STEP 3/5</span><h1 tabIndex={-1}>Jalankan simulasi skenario</h1><p>{demo.question}</p></div><div className="channel-grid">{["Forum Publik", "Komunitas Kebijakan"].map((channel) => { const count = events.filter((event) => event.channel === channel).length; const lastRound = events.filter((event) => event.channel === channel).at(-1)?.round ?? 0; return <article key={channel}><header><h3>{channel}</h3><span className={run.status}>{run.status === "completed" ? "Completed" : run.status === "running" ? "Running" : run.status === "paused" ? "Paused" : "Ready"}</span></header><dl><div><dt>Round</dt><dd>{lastRound}/{session.environment.rounds}</dd></div><div><dt>Elapsed</dt><dd>{events.at(-1)?.time ?? "00:00"}</dd></div><div><dt>Acts/events</dt><dd>{count}</dd></div></dl></article>; })}</div><div className="workflow-simulation-summary"><span><b>{events.length}</b>Total events</span><span><b>{round}/{session.environment.rounds}</b>Round progress</span><label>Speed<select value={run.speed} onChange={(event) => update({ ...session, simulation: { ...run, speed: Number(event.target.value) as .5 | 1 | 2 } })}><option value="0.5">0.5x</option><option value="1">1x</option><option value="2">2x</option></select></label>{run.status === "ready" && <button className="button primary" onClick={start}>Start Simulation →</button>}{run.status === "running" && <button className="button secondary" onClick={() => update(appendSessionLog({ ...session, simulation: { ...run, status: "paused" }, steps: { ...session.steps, 3: { ...session.steps[3], status: "paused" } } }, "Simulation paused"))}>Pause</button>}{run.status === "paused" && <><button className="button primary" onClick={() => update(appendSessionLog({ ...session, simulation: { ...run, status: "running" }, steps: { ...session.steps, 3: { ...session.steps[3], status: "processing" } } }, "Simulation resumed"))}>Resume</button><button className="button secondary" onClick={() => update({ ...session, simulation: { ...run, eventCount: Math.min(demo.events.length, run.eventCount + 1) } })}>Next event</button></>}{run.status === "completed" && <button className="button primary" onClick={report}>Generate Report →</button>}</div><div className="event-feed">{events.length ? events.map((event) => <div className="event-feed-item" key={event.id}><EventCard event={event} selected={activeNode === event.group.toLowerCase().replaceAll(" ", "-")} onSelect={() => update({ ...session, graph: { ...session.graph, selectedNodeId: demo.graphNodes.find((node) => node.group === event.group)?.id ?? null } })} /></div>) : <div className="workflow-empty"><h3>Simulasi siap dijalankan</h3><p>Event persona, pengaruh, dan perubahan risiko akan muncul secara bertahap.</p></div>}</div></div>;
+}
+
+function ReportPreview({ demo, sections, pendingCount = 0 }: { demo: DemoCase; sections: ReportSection[]; pendingCount?: number }) {
+  return <article className="report-preview"><header><span>POLICY SIMULATION REPORT</span><h1>{demo.reportTitle}</h1><p>Disusun dari simulasi skenario · {demo.events.length} event · 30 persona sintetis</p></header>{demo.reportSections.map((section, index) => { const stored = sections.find((item) => item.id === section.id); return <section key={section.id} className={stored ? "visible" : "pending"}><span>{String(index + 1).padStart(2, "0")}</span><div><h2>{section.title}</h2>{stored ? stored.content.map((paragraph) => <p key={paragraph}>{paragraph}</p>) : <p>{index === pendingCount ? "Sedang menyusun bagian dan menghubungkan jejak bukti..." : "Menunggu penulisan bagian..."}</p>}</div></section>; })}</article>;
+}
+
+function ReportStep({ demo, session, start, next }: { demo: DemoCase; session: WorkflowSession; start: () => void; next: () => void }) {
+  const step = session.steps[4];
+  const scrollRef = useAutoFollow<HTMLElement>(`${step.status}-${session.report.progress}-${session.report.sections.length}`);
+  return <div className="report-workbench"><ReportPreview demo={demo} sections={session.report.sections} pendingCount={session.report.sections.length} /><aside className="report-progress" ref={scrollRef}><div className="step-intro"><span>STEP 4/5</span><h1 tabIndex={-1}>Generate policy report</h1><p>Dokumen dan jejak proses diperbarui dari artifact yang sama.</p></div><div className="report-metrics"><span><b>{session.report.sections.length}/{demo.reportSections.length}</b>Bagian selesai</span><span><b>{demo.events.length}</b>Event dipilih</span><span><b>{session.report.progress}%</b>Progress</span></div><div className="progress-timeline">{reportTasks.map((task, index) => { const threshold = (index + 1) * 20; const complete = session.report.progress >= threshold; const active = step.status === "processing" && session.report.progress >= index * 20 && !complete; return <article key={task} className={complete ? "complete" : active ? "processing" : "ready"}><i>{complete ? "✓" : index + 1}</i><div><b>{task}</b><span>{complete ? `${session.report.timestamps[index] ?? "--"} · selesai` : active ? "Sedang diproses" : "Menunggu"}</span></div></article>; })}</div>{step.status === "ready" && <button className="button primary" onClick={start}>Generate Report →</button>}{step.status === "completed" && <><span className="report-complete-badge">✓ Report completed and saved</span><button className="button primary" onClick={next}>Go to Interaction →</button></>}</aside></div>;
+}
+
+const tools = [
+  ["report", "Report Agent", "Ajukan pertanyaan dengan kutipan laporan."], ["persona", "Persona Group Interview", "Wawancarai kelompok stakeholder sintetis."], ["evidence", "Evidence Trace", "Telusuri insight ke event dan graph."], ["compare", "Scenario Compare", "Bandingkan baseline dan asumsi revisi."], ["revision", "Revision Notes", "Susun catatan revisi kebijakan."],
+] as const;
+
+function InteractionStep({ demo, session, update }: { demo: DemoCase; session: WorkflowSession; update: (session: WorkflowSession) => void }) {
+  const [tool, setTool] = useState("report");
+  const [group, setGroup] = useState(demo.personas[0]?.group ?? "Stakeholder");
+  const [input, setInput] = useState("");
+  const [typing, setTyping] = useState(false);
+  const timer = useRef<number | null>(null);
+  const scrollRef = useAutoFollow<HTMLElement>(`${tool}-${typing}-${session.interaction.messages.length}`);
+  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+  const answer = (question: string) => {
+    if (tool === "persona") { const persona = demo.personas.find((item) => item.group === group) ?? demo.personas[0]; return `${group} menekankan ${persona?.concern.toLowerCase()}. Sikap awalnya ${persona?.stance.toLowerCase()} dan berubah ketika asumsi skenario menyediakan klarifikasi yang dapat ditelusuri.`; }
+    if (tool === "evidence") return `Jejak bukti menghubungkan temuan ke event "${demo.events[0]?.statement}", node ${demo.graphNodes[0]?.label}, dan bagian Ringkasan Eksekutif.`;
+    if (tool === "compare") return `Baseline menunjukkan risiko komunikasi lebih tinggi. Pada asumsi revisi, intensitas sosialisasi ${session.environment.socialization.toLowerCase()} dan respons ${session.environment.responseMode.toLowerCase()} menurunkan ketidakpastian stakeholder.`;
+    if (tool === "revision") return `Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.`;
+    return `Laporan menunjukkan bahwa ${demo.risks[0]?.title.toLowerCase()} merupakan indikasi risiko utama. Temuan ini didukung Bagian 3 dan event pada ronde ${demo.events[0]?.round ?? 1}. Pertanyaan: ${question}`;
+  };
+  const send = (question = input) => {
+    if (!question.trim() || typing) return;
+    const user: InteractionMessage = { id: `u-${tool}-${session.interaction.messages.length}`, role: "user", author: "Anda", tool, text: question };
+    update({ ...session, interaction: { ...session.interaction, messages: [...session.interaction.messages, user] } });
+    setInput(""); setTyping(true);
+    timer.current = window.setTimeout(() => {
+      const agent: InteractionMessage = { id: `a-${tool}-${session.interaction.messages.length + 1}`, role: "agent", author: tool === "persona" ? group : tools.find((item) => item[0] === tool)?.[1] ?? "Report Agent", tool, text: answer(question), citations: tool === "persona" ? ["Persona sintetis", `Kelompok ${group}`] : ["Bagian 3", `Event ${demo.events[0]?.id ?? "01"}`] };
+      update(appendSessionLog({ ...session, interaction: { ...session.interaction, messages: [...session.interaction.messages, user, agent] } }, `${agent.author} response generated`)); setTyping(false);
+    }, 1200);
+  };
+  const exportNotes = () => { const content = session.interaction.messages.map((message) => `## ${message.author}\n${message.text}`).join("\n\n"); const url = URL.createObjectURL(new Blob([content], { type: "text/markdown" })); const link = document.createElement("a"); link.href = url; link.download = `${demo.id}-interaction.md`; link.click(); URL.revokeObjectURL(url); };
+  return <div className="interaction-workbench"><ReportPreview demo={demo} sections={session.report.sections.length ? session.report.sections : demo.reportSections} /><aside className="interaction-tools" ref={scrollRef}><div className="step-intro"><span>STEP 5/5</span><h1 tabIndex={-1}>Interaksi dengan hasil</h1><p>Setiap alat memiliki konteks dan keluaran yang berbeda.</p></div><div className="tool-list">{tools.map(([id, title, description]) => <button key={id} aria-pressed={tool === id} className={tool === id ? "active" : ""} onClick={() => setTool(id)}><b>{title}</b><span>{description}</span></button>)}</div>{tool === "persona" && <label className="persona-select">Persona group<select value={group} onChange={(event) => setGroup(event.target.value)}>{demo.personas.map((persona) => <option key={persona.group}>{persona.group}</option>)}</select><small>Persona bersifat sintetis dan bukan profil warga nyata.</small></label>}{tool === "evidence" && <div className="tool-artifact"><b>Evidence chain</b><span>Report §3 → Event {demo.events[0]?.id} → {demo.graphNodes[0]?.label}</span></div>}{tool === "compare" && <div className="scenario-comparison"><span><b>Baseline</b>Sosialisasi rendah · risiko meningkat</span><span><b>Revisi</b>{session.environment.socialization} · respons {session.environment.responseMode}</span></div>}{tool === "revision" && <div className="tool-artifact"><b>Revision workspace</b><span>Catatan dapat diedit melalui percakapan dan diekspor sebagai Markdown.</span></div>}<div className="chat-panel"><div className="chat-messages" aria-live="polite">{session.interaction.messages.filter((message) => message.tool === tool || message.id === "welcome").map((message) => <p key={message.id} className={message.role}><b>{message.author}</b>{message.text}{message.citations && <span className="message-citations">{message.citations.map((citation) => <i key={citation}>{citation}</i>)}</span>}</p>)}{typing && <p className="agent typing"><b>{tools.find((item) => item[0] === tool)?.[1]}</b><span><i /><i /><i /></span></p>}</div><div className="suggested-questions">{suggestedQuestions.map((question) => <button key={question} onClick={() => send(question)}>{question}</button>)}</div><form onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ajukan pertanyaan berbasis laporan..." rows={3} /><button className="button primary" type="submit" disabled={!input.trim() || typing}>Send →</button><button className="button secondary" type="button" onClick={exportNotes}>Export .md</button></form></div></aside></div>;
+}
+
+export default function SimulationWorkflowPage() {
+  const simulationId = window.location.pathname.split("/")[2] ?? "";
+  const intake = loadProjectIntake(simulationId);
+  const knownDemo = demoCases[simulationId];
+  const project = getWorkspaceProjectBySimulation(simulationId);
+  const demo = intake ? intakeToDemoCase(intake) : knownDemo;
+  const exists = Boolean(simulationId && (demo || project));
+  const [resolvedDemo] = useState<DemoCase>(() => demo ?? (project ? intakeToDemoCase(project) : demoCases["demo-penyaluran-pupuk"]));
+  const [session, setSession] = useState(() => hydrateSession(simulationId, resolvedDemo));
+  const latest = useEffectEvent((next: WorkflowSession) => { saveWorkflowSession(next); });
+  useEffect(() => { latest(session); }, [session]);
+
+  const update = (next: WorkflowSession) => setSession(next);
+  const log = (message: string, level: ConsoleLog["level"] = "INFO") => setSession((current) => appendSessionLog(current, message, level));
+  const goStep = (step: WorkflowStep) => {
+    if (session.steps[step].status === "locked") return;
+    const mode: ViewMode = step >= 4 ? "workbench" : session.viewMode;
+    const next = { ...session, currentStep: step, viewMode: mode };
+    setSession(next); document.title = `${resolvedDemo.title} · ${stepQuery(step)} · RekaKebijakan`;
+    window.history.pushState(null, "", `/simulation/${simulationId}?step=${stepQuery(step)}&mode=${mode}`);
+  };
+  const setMode = (mode: ViewMode) => { setSession((current) => ({ ...current, viewMode: mode })); window.history.replaceState(null, "", `/simulation/${simulationId}?step=${stepQuery(session.currentStep)}&mode=${mode}`); };
+  const syncRoute = useEffectEvent(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = queryStep(params.get("step"));
+    const requestedMode = params.get("mode") as ViewMode | null;
+    setSession((current) => {
+      const targetStep = requested && requested <= highestUnlockedStep(current) ? requested : current.currentStep;
+      const targetMode = requestedMode && ["graph", "split", "workbench"].includes(requestedMode) ? requestedMode : current.viewMode;
+      if (targetStep === current.currentStep && targetMode === current.viewMode) return current;
+      return { ...current, currentStep: targetStep, viewMode: targetMode };
+    });
+  });
+  useEffect(() => {
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, []);
+
+  useEffect(() => {
+    const step = session.currentStep;
+    const state = session.steps[step];
+    if (state.status !== "processing" || step === 3) return;
+    const delay = step === 1 ? 360 : step === 2 ? 380 : 330;
+    const timer = window.setTimeout(() => setSession((current) => {
+      const currentState = current.steps[step];
+      if (currentState.status !== "processing") return current;
+      const progress = Math.min(100, currentState.progress + (step === 4 ? 4 : 5));
+      let next: WorkflowSession = { ...current, steps: { ...current.steps, [step]: { ...currentState, progress, activeTask: step === 1 ? progress < 33 ? "ontology" : progress < 66 ? "graph" : "validation" : step === 2 ? progress < 50 ? "personas" : "config" : progress < 20 ? "outline" : progress < 40 ? "evidence" : progress < 80 ? "writing" : "review" } } };
+      if (step === 1) next.graph = { ...next.graph, nodeCount: Math.min(resolvedDemo.graphNodes.length, Math.floor(progress / 100 * resolvedDemo.graphNodes.length)), edgeCount: Math.min(resolvedDemo.graphEdges.length, Math.floor(Math.max(0, progress - 28) / 72 * resolvedDemo.graphEdges.length)) };
+      if (step === 2) next.environment = { ...next.environment, personaCount: Math.min(30, Math.floor(progress / 50 * 30)) };
+      if (step === 4) {
+        const sectionCount = Math.min(resolvedDemo.reportSections.length, Math.floor(Math.max(0, progress - 35) / 65 * (resolvedDemo.reportSections.length + 1)));
+        next.report = { ...next.report, progress, sections: resolvedDemo.reportSections.slice(0, sectionCount), timestamps: progress % 20 < 4 ? [...next.report.timestamps, new Date().toLocaleTimeString("id-ID", { hour12: false })] : next.report.timestamps };
+      }
+      if (progress % 20 === 0) next = appendSessionLog(next, `${stepQuery(step)} progress ${progress}%`);
+      if (progress === 100) {
+        const completedAt = new Date().toISOString();
+        next.steps[step] = { ...next.steps[step], status: "completed", completedAt, activeTask: null };
+        if (step < 5) next.steps[(step + 1) as WorkflowStep] = { ...next.steps[(step + 1) as WorkflowStep], status: "ready" };
+        next = appendSessionLog(next, `${stepQuery(step)} completed`, "DONE"); updateProjectStage(simulationId, step);
+        if (step === 4) { next.report.completedAt = completedAt; saveWorkspaceReport({ id: `report-${simulationId}`, simulationId, projectId: project?.projectId ?? simulationId, projectName: resolvedDemo.title, institution: project?.institution ?? "Institusi kebijakan", title: resolvedDemo.reportTitle, completedAt, highestRisk: resolvedDemo.risks.some((risk) => risk.level === "Tinggi") ? "Tinggi" : "Sedang", eventCount: resolvedDemo.events.length, personaCount: 30, sections: resolvedDemo.reportSections }); }
+      }
+      return next;
+    }), delay);
+    return () => window.clearTimeout(timer);
+  }, [project?.institution, project?.projectId, resolvedDemo, session.currentStep, session.steps, simulationId]);
+
+  useEffect(() => {
+    if (session.simulation.status !== "running") return;
+    const timer = window.setTimeout(() => setSession((current) => {
+      const count = Math.min(resolvedDemo.events.length, current.simulation.eventCount + 1);
+      const event = resolvedDemo.events[count - 1];
+      let next: WorkflowSession = { ...current, simulation: { ...current.simulation, eventCount: count }, graph: { ...current.graph, selectedNodeId: resolvedDemo.graphNodes.find((node) => node.group === event?.group)?.id ?? current.graph.selectedNodeId }, steps: { ...current.steps, 3: { ...current.steps[3], progress: Math.round(count / resolvedDemo.events.length * 100), activeTask: `round-${event?.round ?? 1}` } } };
+      next = appendSessionLog(next, `Ronde ${event?.round}: ${event?.persona} · ${event?.type}`, event?.round === 2 ? "WARN" : "INFO");
+      if (count === resolvedDemo.events.length) { next.simulation.status = "completed"; next.steps[3] = { ...next.steps[3], status: "completed", progress: 100, activeTask: null, completedAt: new Date().toISOString() }; next.steps[4] = { ...next.steps[4], status: "ready" }; next = appendSessionLog(next, "Simulation completed", "DONE"); updateProjectStage(simulationId, 3); }
+      return next;
+    }), 1100 / session.simulation.speed);
+    return () => window.clearTimeout(timer);
+  }, [resolvedDemo.events, resolvedDemo.graphNodes, session.simulation.speed, session.simulation.status, simulationId]);
+
+  const startStep = (step: WorkflowStep) => setSession((current) => appendSessionLog({ ...current, steps: { ...current.steps, [step]: { ...current.steps[step], status: "processing", startedAt: new Date().toISOString(), progress: 0 } }, ...(step === 3 ? { simulation: { ...current.simulation, status: "running" as const, eventCount: 0 } } : {}) }, `${stepQuery(step)} started`));
+  const graphActiveNode = session.currentStep === 3 ? session.graph.selectedNodeId : session.steps[1].status === "processing" ? resolvedDemo.graphNodes[Math.max(0, session.graph.nodeCount - 1)]?.id ?? null : null;
+  if (!exists) return <div className="workflow-not-found"><h1>Workflow tidak ditemukan</h1><p>ID simulasi tidak tersedia atau data lokal telah dihapus.</p><button className="button primary" onClick={() => { window.history.pushState(null, "", "/projects"); window.dispatchEvent(new PopStateEvent("popstate")); }}>Kembali ke Proyek Kebijakan</button></div>;
+  return <div className="simulation-workflow"><WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} /><main className={`workflow-content mode-${session.viewMode}`}>{session.viewMode !== "workbench" && <div className="graph-column"><PolicyGraph demo={resolvedDemo} nodeCount={session.graph.nodeCount} edgeCount={session.graph.edgeCount} activeNodeId={graphActiveNode} selectedNodeId={session.graph.selectedNodeId} onSelect={(id) => setSession((current) => ({ ...current, graph: { ...current.graph, selectedNodeId: id } }))} onLog={log} /></div>}{session.viewMode !== "graph" && <div className="workbench-column">
+    {session.currentStep === 1 && <GraphBuildStep demo={resolvedDemo} session={session} start={() => startStep(1)} next={() => goStep(2)} />}
+    {session.currentStep === 2 && <EnvironmentStep demo={resolvedDemo} session={session} update={update} start={() => startStep(2)} next={() => goStep(3)} />}
+    {session.currentStep === 3 && <SimulationStep demo={resolvedDemo} session={session} update={update} start={() => startStep(3)} report={() => goStep(4)} />}
+    {session.currentStep === 4 && <ReportStep demo={resolvedDemo} session={session} start={() => startStep(4)} next={() => { const next = appendSessionLog({ ...session, currentStep: 5, viewMode: "workbench", steps: { ...session.steps, 5: { ...session.steps[5], status: "completed", progress: 100, activeTask: null, completedAt: new Date().toISOString() } } }, "Interaction tools loaded", "DONE"); setSession(next); updateProjectStage(simulationId, 5); window.history.pushState(null, "", `/simulation/${simulationId}?step=interaction&mode=workbench`); }} />}
+    {session.currentStep === 5 && <InteractionStep demo={resolvedDemo} session={session} update={update} />}
+  </div>}</main><SystemConsole logs={session.logs} /></div>;
+}

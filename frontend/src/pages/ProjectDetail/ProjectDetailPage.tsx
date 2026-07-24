@@ -206,7 +206,7 @@ export default function ProjectDetailPage() {
       actions={
         <>
           <button className="button primary" onClick={() => setModalOpen(true)}>Jalankan simulasi</button>
-          <button className="button secondary" onClick={() => navigate("/projects/registrasi-digital-umkm/scenarios")}>Ubah skenario</button>
+          <button className="button secondary" onClick={() => navigate("/simulation/demo-registrasi-umkm")}>Lanjutkan workflow</button>
           <button className="button ghost" onClick={() => showNotice("Draft proyek disimpan secara lokal dalam sesi prototipe.")}>Simpan draft</button>
           <button className="button ghost" onClick={() => showNotice("Duplikasi proyek tersedia sebagai aksi mock.")}>Duplikasi proyek</button>
           <button className="button ghost" onClick={() => showNotice("Arsip proyek tersedia sebagai aksi mock.")}>Arsipkan</button>
@@ -265,7 +265,7 @@ export default function ProjectDetailPage() {
           </section>
 
           <section className="dashboard-panel workspace-panel" aria-labelledby="persona-title">
-            <div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok terdampak dan persona sintetis untuk simulasi terbatas.</p></div><button className="text-button inline-action" onClick={() => navigate("/projects/registrasi-digital-umkm/personas")}>Tinjau persona</button></div>
+            <div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok terdampak dan persona sintetis untuk simulasi terbatas.</p></div><button className="text-button inline-action" onClick={() => navigate("/simulation/demo-registrasi-umkm")}>Buka workflow</button></div>
             <div className="stakeholder-grid">{stakeholders.map((item) => <span key={item}>{item}</span>)}</div>
             <div className="workspace-card-grid persona-summary">
               <article><span>Persona aktif</span><b>30 persona aktif</b></article>
@@ -277,7 +277,7 @@ export default function ProjectDetailPage() {
           </section>
 
           <section className="dashboard-panel workspace-panel" aria-labelledby="scenario-title">
-            <div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Konfigurasi skenario untuk melihat indikasi risiko dan perubahan respons.</p></div><button className="text-button inline-action" onClick={() => navigate("/projects/registrasi-digital-umkm/scenarios")}>Ubah skenario</button></div>
+            <div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Konfigurasi skenario untuk melihat indikasi risiko dan perubahan respons.</p></div><button className="text-button inline-action" onClick={() => navigate("/simulation/demo-registrasi-umkm")}>Buka workflow</button></div>
             <div className="workspace-row-list two-column">
               {scenarioRows.map(([label, value]) => <article key={label}><span>{label}</span><p>{value}</p></article>)}
             </div>
@@ -286,7 +286,7 @@ export default function ProjectDetailPage() {
         </div>
         <ReadinessPanel items={readiness} score={score} missing={missing} onToggle={toggleReadiness} onLaunch={() => setModalOpen(true)} />
       </section>
-      {modalOpen && <LaunchModal readinessComplete={readinessComplete} missing={missing} onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/projects/registrasi-digital-umkm/simulations/current")} />}
+      {modalOpen && <LaunchModal readinessComplete={readinessComplete} missing={missing} onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/simulation/demo-registrasi-umkm")} />}
       <NoticeRegion notice={notice} />
     </AppShell>
   );

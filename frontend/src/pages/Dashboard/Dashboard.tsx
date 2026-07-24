@@ -1,5 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "../../components/AppShell/AppShell";
 import {
   attentionRows,
@@ -16,6 +15,11 @@ function navigatePlaceholder(target: string, setToast: (message: string) => void
   setToast(`Membuka ${target}. Halaman ini masih berupa placeholder prototipe.`);
 }
 
+function navigate(target: string) {
+  window.history.pushState(null, "", target);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function RiskLabel({ value }: { value: string }) {
   const key = value.toLowerCase().replaceAll(" ", "-");
   return <span className={`dash-risk dash-risk-${key}`}>{value}</span>;
@@ -29,49 +33,6 @@ function MetricCard({ metric }: { metric: (typeof overviewMetrics)[number] }) {
       <span>{metric[2]}</span>
       <small>{metric[3]}</small>
     </article>
-  );
-}
-
-function CreateProjectDialog({ onClose }: { onClose: () => void }) {
-  const titleId = useId();
-  const [submitted, setSubmitted] = useState(false);
-
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSubmitted(true);
-  };
-
-  return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()}>
-        <button className="dialog-close" onClick={onClose} aria-label="Tutup dialog">X</button>
-        {submitted ? (
-          <div className="form-success">
-            <p className="eyebrow">PROYEK DIBUAT</p>
-            <h2 id={titleId}>Proyek tersimpan sebagai prototipe.</h2>
-            <p>Data tidak dikirim ke server. Interaksi ini hanya menunjukkan alur dashboard.</p>
-            <button className="button primary" onClick={onClose}>Tutup</button>
-          </div>
-        ) : (
-          <>
-            <p className="eyebrow">PROYEK BARU</p>
-            <h2 id={titleId}>Buat proyek kebijakan.</h2>
-            <form onSubmit={submit}>
-              <label>Nama proyek<input name="project" required autoFocus /></label>
-              <label>Institusi<input name="institution" required /></label>
-              <label>Tujuan pengujian<textarea name="purpose" required rows={3} /></label>
-              <button className="button primary" type="submit">Buat Proyek</button>
-            </form>
-          </>
-        )}
-      </section>
-    </div>
   );
 }
 
@@ -188,7 +149,6 @@ function ToastRegion({ toast }: { toast: Toast | null }) {
 }
 
 export default function Dashboard() {
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const showToast = (message: string) => {
     setToast({ id: Date.now(), message });
@@ -200,6 +160,14 @@ export default function Dashboard() {
       window.dispatchEvent(new PopStateEvent('popstate'));
       return;
     }
+    if (label.toLowerCase().includes("simulasi")) {
+      navigate("/projects/registrasi-digital-umkm");
+      return;
+    }
+    if (label.toLowerCase().includes("laporan")) {
+      navigate("/reports");
+      return;
+    }
     navigatePlaceholder(`/dashboard/${label.toLowerCase().replaceAll(" ", "-")}`, showToast);
   };
 
@@ -208,7 +176,7 @@ export default function Dashboard() {
       title="Dashboard"
       subtitle="Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan."
       eyebrow="Ringkasan kerja"
-      actions={<><button className="button primary" onClick={() => setDialogOpen(true)}>Buat Proyek</button><button className="button secondary" onClick={() => action("Lihat Semua Proyek")}>Lihat Semua Proyek</button></>}
+      actions={<><button className="button primary" onClick={() => navigate("/projects")}>Buka Proyek Kebijakan</button><button className="button secondary" onClick={() => navigate("/reports")}>Lihat Laporan</button></>}
     >
         <section className="metrics-grid" aria-label="Ringkasan metrik">{overviewMetrics.map((metric) => <MetricCard metric={metric} key={metric[0]} />)}</section>
         <div className="dashboard-grid">
@@ -216,7 +184,6 @@ export default function Dashboard() {
           <ActiveSimulationPanel onOpen={() => action("Buka Simulasi")} />
           <ProjectsTable onAction={action} />
         </div>
-      {dialogOpen && <CreateProjectDialog onClose={() => setDialogOpen(false)} />}
       <ToastRegion toast={toast} />
     </AppShell>
   );

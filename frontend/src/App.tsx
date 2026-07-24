@@ -4,14 +4,13 @@ import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
 import Dashboard from "./pages/Dashboard/Dashboard";
-import PersonaStudioPage from "./pages/PersonaStudio/PersonaStudioPage";
 import ProjectDetailPage from "./pages/ProjectDetail/ProjectDetailPage";
 import ProjectWizardPage from "./pages/ProjectWizard/ProjectWizardPage";
 import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
-import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
-import SimulationMonitorPage from "./pages/SimulationMonitor/SimulationMonitorPage";
+import SimulationWorkflowPage from "./pages/SimulationWorkflow/SimulationWorkflowPage";
+import { WorkflowErrorBoundary } from "./pages/SimulationWorkflow/WorkflowErrorBoundary";
+import ReportsPage from "./pages/Reports/ReportsPage";
 import Header, { Brand } from "./components/Header/Header";
-import { PlaceholderPage } from "./components/AppShell/AppShell";
 import "./App.css";
 
 const scrollTo = (id: string) =>
@@ -386,17 +385,11 @@ function App() {
   if (path.startsWith("/dashboard")) {
     return <Dashboard />;
   }
+  if (path.match(/^\/simulation\/[^/]+$/)) {
+    return <WorkflowErrorBoundary simulationId={path.split("/")[2] ?? ""}><SimulationWorkflowPage /></WorkflowErrorBoundary>;
+  }
   if (path === "/projects/new") {
     return <ProjectWizardPage />;
-  }
-  if (path.match(/^\/projects\/[^/]+\/personas$/)) {
-    return <PersonaStudioPage />;
-  }
-  if (path.match(/^\/projects\/[^/]+\/scenarios$/)) {
-    return <ScenarioBuilderPage />;
-  }
-  if (path.match(/^\/projects\/[^/]+\/simulations\/current$/)) {
-    return <SimulationMonitorPage />;
   }
   if (path.startsWith("/projects/")) {
     return <ProjectDetailPage />;
@@ -404,17 +397,8 @@ function App() {
   if (path.startsWith("/projects")) {
     return <ProjectsPage />;
   }
-  if (path.startsWith("/simulations")) {
-    return <PlaceholderPage title="Simulasi" subtitle="Pantau eksperimen skenario, ronde berjalan, dan hasil awal yang memerlukan peninjauan." />;
-  }
-  if (path.startsWith("/personas")) {
-    return <PlaceholderPage title="Persona" subtitle="Kelola persona sintetis, kelompok terdampak, dan catatan keterwakilan stakeholder." />;
-  }
   if (path.startsWith("/reports")) {
-    return <PlaceholderPage title="Laporan" subtitle="Akses laporan simulasi, temuan tertaut bukti, dan keluaran untuk konsultasi publik." />;
-  }
-  if (path.startsWith("/settings")) {
-    return <PlaceholderPage title="Pengaturan" subtitle="Atur preferensi ruang kerja, mode prototipe, dan konfigurasi demonstrasi lokal." />;
+    return <ReportsPage />;
   }
   return (
     <div id="utama">

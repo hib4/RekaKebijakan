@@ -1,0 +1,22 @@
+.report-index-summary { display: grid; grid-template-columns: repeat(3, 1fr); margin: 32px 0 24px; border: 1px solid var(--line); background: #fff; }
+.report-index-summary article { min-height: 100px; padding: 20px; border-right: 1px solid var(--line); }
+.report-index-summary article:last-child { border-right: 0; }
+.report-index-summary span,.report-index-summary b { display: block; }
+.report-index-summary span { color: var(--muted); font-size: 12px; }
+.report-index-summary b { margin-top: 8px; font-size: 30px; font-weight: 300; }
+.reports-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) 180px 180px; gap: 1px; padding: 16px 24px; border-bottom: 1px solid var(--line); background: var(--line); }
+.reports-toolbar label { display: grid; gap: 6px; background: #fff; padding: 10px 12px; color: var(--muted); font-size: 11px; }
+.reports-toolbar input,.reports-toolbar select { min-height: 38px; border: 0; border-bottom: 1px solid var(--subtle); background: var(--surface); padding: 0 10px; color: var(--ink); }
+.reports-table-wrap { overflow-x: auto; }
+.reports-table td:first-child { min-width: 300px; }
+.reports-table td:first-child b,.reports-table td:first-child span { display: block; }
+.reports-table td:first-child b { font-weight: 600; }
+.reports-table td:first-child span { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.report-risk { padding: 4px 7px; border: 1px solid var(--line); font-size: 11px; }
+.report-risk.tinggi { border-color: var(--error); color: #a2191f; }
+.report-risk.sedang { border-color: #b28600; color: #755600; }
+.report-risk.rendah { border-color: var(--success); color: #0e6027; }
+.report-actions { display: flex; gap: 12px; white-space: nowrap; }
+.report-actions button { border: 0; border-bottom: 1px solid var(--blue); background: transparent; padding: 0; color: var(--blue); cursor: pointer; }
+.reports-index .state-block { margin: 24px; }
+@media (max-width: 760px) { .report-index-summary { grid-template-columns: 1fr; } .report-index-summary article { border-right: 0; border-bottom: 1px solid var(--line); } .reports-toolbar { grid-template-columns: 1fr; } }

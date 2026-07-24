@@ -3,13 +3,13 @@
 }
 .wizard-steps {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   border: 1px solid var(--line);
   border-bottom: 0;
   background: #fff;
 }
 .wizard-steps button {
-  min-height: 72px;
+  min-height: 96px;
   border: 0;
   border-right: 1px solid var(--line);
   background: #fff;
@@ -31,6 +31,20 @@
 .wizard-steps button.active {
   color: var(--ink);
   font-weight: 600;
+}
+.wizard-steps button.active {
+  box-shadow: inset 0 -3px var(--blue);
+}
+.wizard-steps button.complete span {
+  color: #0e6027;
+}
+.wizard-steps button small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
 }
 .wizard-steps button.active span {
   color: var(--ink);
@@ -121,6 +135,31 @@
 .mock-upload p {
   margin: 0 0 18px;
   color: var(--muted);
+}
+.mock-upload.processed {
+  border-style: solid;
+  border-color: var(--success);
+}
+.wizard-handoff {
+  border: 1px solid var(--blue);
+  background: #edf5ff;
+  padding: 20px;
+}
+.wizard-handoff span {
+  color: var(--blue-dark);
+  font-size: 11px;
+  font-weight: 600;
+}
+.wizard-handoff h3 {
+  margin: 8px 0;
+  font-size: 22px;
+  font-weight: 400;
+}
+.wizard-handoff p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
 }
 .extracted-grid,
 .wizard-review-grid,
@@ -388,3 +427,37 @@
     display: grid;
   }
 }
+
+.create-project-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, .8fr) minmax(460px, 1.2fr);
+  margin-top: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.create-project-guide { padding: 32px; border-right: 1px solid var(--line); background: var(--surface); }
+.create-project-guide h2 { max-width: 14ch; margin: 8px 0 16px; font-size: 34px; font-weight: 300; line-height: 1.2; }
+.create-project-guide > p:not(.eyebrow, .responsible-note) { max-width: 54ch; color: var(--muted); line-height: 1.5; }
+.create-workflow-list { margin: 28px 0; border-top: 1px solid var(--line); }
+.create-workflow-list article { display: grid; grid-template-columns: 36px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.create-workflow-list article > span { color: var(--subtle); font-size: 12px; }
+.create-workflow-list b { font-size: 14px; }
+.create-workflow-list p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.create-project-console { min-width: 0; padding: 0 28px 28px; }
+.create-console-header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; margin: 0 -28px 24px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--ink); color: #fff; font-size: 10px; letter-spacing: .4px; }
+.create-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.create-console-section { margin-top: 24px; }
+.create-console-section > header { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 10px; letter-spacing: .3px; }
+.project-upload-zone { width: 100%; min-height: 174px; display: grid; place-items: center; align-content: center; gap: 6px; border: 1px dashed var(--subtle); background: var(--surface); padding: 20px; color: var(--ink); cursor: pointer; }
+.project-upload-zone.dragging { border-color: var(--blue); background: #edf5ff; }
+.project-upload-zone.has-files { place-items: stretch; align-content: start; border-style: solid; }
+.project-upload-zone input { display: none; }
+.project-upload-zone > strong { color: var(--blue); font-size: 28px; font-weight: 400; }
+.project-upload-zone > span { color: var(--muted); font-size: 12px; }
+.project-file-list { display: grid; gap: 7px; }
+.project-file-list span { min-height: 38px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--line); background: #fff; padding: 0 10px; font-size: 12px; }
+.project-file-list i { color: var(--error); font-size: 17px; font-style: normal; }
+.create-console-section textarea { width: 100%; resize: vertical; border: 0; border-bottom: 1px solid var(--subtle); background: var(--surface); padding: 14px; color: var(--ink); }
+.create-project-submit { width: 100%; margin-top: 24px; }
+@media (max-width: 900px) { .create-project-layout { grid-template-columns: 1fr; } .create-project-guide { border-right: 0; border-bottom: 1px solid var(--line); } }
+@media (max-width: 640px) { .create-project-layout { margin-top: 20px; } .create-project-guide { padding: 22px 18px; } .create-project-console { padding: 0 18px 18px; } .create-console-header { margin: 0 -18px 20px; } .create-fields { grid-template-columns: 1fr; } }

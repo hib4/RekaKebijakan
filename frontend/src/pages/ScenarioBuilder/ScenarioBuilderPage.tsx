@@ -235,7 +235,7 @@ export default function ScenarioBuilderPage() {
           </div>
         </aside>
       </section>
-      {modalOpen && <ConfirmModal onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/projects/registrasi-digital-umkm/simulations/current")} />}
+      {modalOpen && <ConfirmModal onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/simulation/demo-registrasi-umkm")} />}
       <NoticeRegion notice={notice} />
     </AppShell>
   );
