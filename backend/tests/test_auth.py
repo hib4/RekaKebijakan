@@ -1,16 +1,18 @@
 import io
-import sqlite3
+from datetime import datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, inspect, select
 
 from app import create_app
+from app.database import simulations
 from app.repository import Repository
 
 
-def make_app(tmp_path, name="auth.sqlite3", **overrides):
+def make_app(tmp_path, database_url, **overrides):
     config = {
         "TESTING": True,
-        "DATABASE_PATH": tmp_path / name,
+        "DATABASE_URL": database_url,
         "UPLOAD_DIR": tmp_path / "uploads",
         "JOB_DELAY": 0,
         "CORS_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
@@ -34,8 +36,8 @@ def create_project(client, name="Kebijakan Privat"):
     )
 
 
-def test_register_cookie_me_logout_login_duplicate_and_invalid_credentials(tmp_path):
-    with TestClient(make_app(tmp_path)) as client:
+def test_register_cookie_me_logout_login_duplicate_and_invalid_credentials(tmp_path, database_url):
+    with TestClient(make_app(tmp_path, database_url)) as client:
         assert client.get("/api/projects").status_code == 401
         created = register(client, " User@Example.com ")
         assert created.status_code == 201
@@ -64,8 +66,8 @@ def test_register_cookie_me_logout_login_duplicate_and_invalid_credentials(tmp_p
         assert client.get("/api/auth/me").status_code == 200
 
 
-def test_password_minimum_is_six_characters(tmp_path):
-    with TestClient(make_app(tmp_path)) as client:
+def test_password_minimum_is_six_characters(tmp_path, database_url):
+    with TestClient(make_app(tmp_path, database_url)) as client:
         too_short = client.post(
             "/api/auth/register",
             json={"name": "Pengguna Pendek", "email": "short@example.com", "password": "12345"},
@@ -78,18 +80,18 @@ def test_password_minimum_is_six_characters(tmp_path):
         assert accepted.status_code == 201
 
 
-def test_session_and_user_persist_across_app_restart(tmp_path):
-    app = make_app(tmp_path, "persistent.sqlite3")
+def test_session_and_user_persist_across_app_restart(tmp_path, database_url):
+    app = make_app(tmp_path, database_url)
     with TestClient(app) as client:
         register(client)
         token = client.cookies.get("rk_session")
-    with TestClient(make_app(tmp_path, "persistent.sqlite3")) as reopened:
+    with TestClient(make_app(tmp_path, database_url)) as reopened:
         reopened.cookies.set("rk_session", token)
         assert reopened.get("/api/auth/me").json()["user"]["email"] == "user@example.com"
 
 
-def test_projects_are_private_and_cross_user_resources_return_404(tmp_path):
-    app = make_app(tmp_path)
+def test_projects_are_private_and_cross_user_resources_return_404(tmp_path, database_url):
+    app = make_app(tmp_path, database_url)
     with TestClient(app) as first, TestClient(app) as second:
         register(first, "first@example.com", "Pengguna Pertama")
         created = create_project(first)
@@ -114,42 +116,39 @@ def test_projects_are_private_and_cross_user_resources_return_404(tmp_path):
         assert first.get(f"/api/simulations/{simulation_id}").status_code == 200
 
 
-def test_schema_migration_keeps_existing_unowned_simulations_inaccessible(tmp_path):
-    database = tmp_path / "legacy.sqlite3"
-    repository = Repository(str(database))
+def test_unowned_simulations_remain_inaccessible(tmp_path, database_url):
+    repository = Repository(database_url)
     repository.create({
         "id": "sim-legacy",
         "project": {"id": "project-legacy"},
         "updated_at": "2026-01-01T00:00:00+00:00",
     })
-    with TestClient(make_app(tmp_path, "legacy.sqlite3")) as client:
+    with TestClient(make_app(tmp_path, database_url)) as client:
         register(client)
         assert client.get("/api/simulations/sim-legacy").status_code == 404
         assert client.get("/api/projects").json() == {"projects": []}
-    with sqlite3.connect(database) as db:
+    with repository.engine.connect() as db:
         assert db.execute(
-            "SELECT owner_user_id FROM simulations WHERE id='sim-legacy'"
-        ).fetchone()[0] is None
+            select(simulations.c.owner_user_id).where(simulations.c.id == "sim-legacy")
+        ).scalar_one() is None
 
 
-def test_legacy_schema_is_migrated_idempotently(tmp_path):
-    database = tmp_path / "old.sqlite3"
-    with sqlite3.connect(database) as db:
-        db.execute(
-            "CREATE TABLE simulations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
-    Repository(str(database))
-    Repository(str(database))
-    with sqlite3.connect(database) as db:
-        columns = {row[1] for row in db.execute("PRAGMA table_info(simulations)")}
-        assert "owner_user_id" in columns
-        assert {"users", "sessions"}.issubset(
-            {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        )
+def test_postgresql_schema_uses_jsonb_and_timezone_aware_timestamps(database_url):
+    engine = create_engine(database_url)
+    inspector = inspect(engine)
+    simulation_columns = {column["name"]: column for column in inspector.get_columns("simulations")}
+    user_columns = {column["name"]: column for column in inspector.get_columns("users")}
+    session_columns = {column["name"]: column for column in inspector.get_columns("sessions")}
+    assert str(simulation_columns["state"]["type"]) == "JSONB"
+    assert simulation_columns["updated_at"]["type"].timezone is True
+    assert user_columns["created_at"]["type"].timezone is True
+    assert session_columns["created_at"]["type"].timezone is True
+    assert session_columns["expires_at"]["type"].timezone is True
+    engine.dispose()
 
 
-def test_credentialed_cors_and_authenticated_origin_validation(tmp_path):
-    with TestClient(make_app(tmp_path)) as client:
+def test_credentialed_cors_and_authenticated_origin_validation(tmp_path, database_url):
+    with TestClient(make_app(tmp_path, database_url)) as client:
         preflight = client.options(
             "/api/projects",
             headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
@@ -173,9 +172,9 @@ def test_credentialed_cors_and_authenticated_origin_validation(tmp_path):
         assert blocked_registration.status_code == 403
 
 
-def test_wildcard_cors_is_rejected_with_credentials(tmp_path):
+def test_wildcard_cors_is_rejected_with_credentials(tmp_path, database_url):
     try:
-        make_app(tmp_path, CORS_ORIGINS="*")
+        make_app(tmp_path, database_url, CORS_ORIGINS="*")
     except ValueError as error:
         assert "explicit origins" in str(error)
     else:

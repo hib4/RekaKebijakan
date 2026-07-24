@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Settings:
-    database_path: Path
+    database_url: str
     upload_dir: Path
     max_upload_bytes: int
     job_delay: float
@@ -25,7 +25,10 @@ class Settings:
         root = Path(__file__).resolve().parent.parent
         data_dir = Path(os.getenv("DATA_DIR", root / "data"))
         values = {
-            "DATABASE_PATH": os.getenv("DATABASE_PATH", data_dir / "rekakebijakan.sqlite3"),
+            "DATABASE_URL": os.getenv(
+                "DATABASE_URL",
+                "postgresql+psycopg://rekakebijakan:rekakebijakan@localhost:5432/rekakebijakan",
+            ),
             "UPLOAD_DIR": os.getenv("UPLOAD_DIR", data_dir / "uploads"),
             "MAX_UPLOAD_BYTES": int(os.getenv("MAX_UPLOAD_BYTES", 16 * 1024 * 1024)),
             "JOB_DELAY": float(os.getenv("JOB_DELAY", "0.08")),
@@ -45,7 +48,7 @@ class Settings:
         if isinstance(secure, str):
             secure = secure.strip().lower() in {"1", "true", "yes", "on"}
         return cls(
-            database_path=Path(values["DATABASE_PATH"]),
+            database_url=str(values["DATABASE_URL"]),
             upload_dir=Path(values["UPLOAD_DIR"]),
             max_upload_bytes=int(values["MAX_UPLOAD_BYTES"]),
             job_delay=float(values["JOB_DELAY"]),

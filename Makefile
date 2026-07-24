@@ -7,9 +7,9 @@ FULL_COMPOSE := docker compose -f compose.yaml -f compose.full.yaml
 
 help:
 	@printf '%s\n' \
-		'make up             Start backend and persistent SQLite' \
+		'make up             Start backend and persistent PostgreSQL' \
 		'make up-d           Start backend in the background' \
-		'make full-up        Start backend, SQLite, and frontend' \
+		'make full-up        Start backend, PostgreSQL, and frontend' \
 		'make full-up-d      Start the full stack in the background' \
 		'make down           Stop backend without deleting data' \
 		'make full-down      Stop the full stack without deleting data' \
@@ -17,7 +17,7 @@ help:
 		'make full-logs      Follow all full-stack logs' \
 		'make test           Run backend and frontend container checks' \
 		'make health         Check backend and optional frontend health' \
-		'make reset          Delete containers and persistent SQLite/uploads'
+		'make reset          Delete containers and persistent PostgreSQL/uploads'
 
 up:
 	$(COMPOSE) up --build
@@ -55,8 +55,7 @@ full-build:
 test: backend-test frontend-test
 
 backend-test:
-	docker build --target test --tag rekakebijakan-backend-test ./backend
-	docker run --rm rekakebijakan-backend-test
+	$(COMPOSE) --profile test run --build --rm backend-test
 
 frontend-test:
 	docker build --target test --tag rekakebijakan-frontend-test ./frontend
@@ -72,7 +71,7 @@ health:
 	fi
 
 reset:
-	@printf 'This deletes the persistent SQLite database and uploaded documents.\n'
+	@printf 'This deletes the persistent PostgreSQL database and uploaded documents.\n'
 	@printf 'Run "make reset-confirm" to continue.\n'
 
 .PHONY: reset-confirm

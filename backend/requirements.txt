@@ -8,5 +8,8 @@ python-docx==1.2.0
 lxml>=6.0,<7
 python-dotenv>=1.0,<2
 pwdlib[argon2]>=0.3,<1
+SQLAlchemy>=2.0,<3
+psycopg[binary]>=3.2,<4
+alembic>=1.14,<2
 pytest>=8.3,<9
 httpx>=0.28,<1

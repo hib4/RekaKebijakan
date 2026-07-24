@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -35,7 +38,10 @@ def create_app(config: dict | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
-        repository = Repository(str(settings.database_path))
+        alembic_config = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+        alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
+        command.upgrade(alembic_config, "head")
+        repository = Repository(settings.database_url)
         service = WorkflowService(repository, settings.upload_dir, settings.job_delay)
         app.state.settings = settings
         app.state.repository = repository
@@ -45,6 +51,7 @@ def create_app(config: dict | None = None) -> FastAPI:
             yield
         finally:
             service.shutdown()
+            repository.close()
 
     app = FastAPI(title="RekaKebijakan API", version="0.2.0", lifespan=lifespan)
     app.state.settings = settings
@@ -68,6 +75,11 @@ def create_app(config: dict | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok", "service": "rekakebijakan", "engine": "deterministic-demo"}
+
+    @app.get("/ready")
+    async def ready(request: Request):
+        request.app.state.repository.ping()
+        return {"status": "ok", "database": "postgresql"}
 
     @app.exception_handler(ApiError)
     async def api_error(_request: Request, error: ApiError):

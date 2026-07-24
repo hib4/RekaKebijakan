@@ -1,6 +1,24 @@
 name: rekakebijakan
 
 services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rekakebijakan}
+      POSTGRES_USER: ${POSTGRES_USER:-rekakebijakan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rekakebijakan}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -9,7 +27,7 @@ services:
       HOST: 0.0.0.0
       PORT: 5001
       DATA_DIR: /app/data
-      DATABASE_PATH: /app/data/rekakebijakan.sqlite3
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
       UPLOAD_DIR: /app/data/uploads
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-rk_session}
@@ -19,6 +37,9 @@ services:
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-16777216}
     ports:
       - "${BACKEND_PORT:-5001}:5001"
+    depends_on:
+      database:
+        condition: service_healthy
     volumes:
       - backend_data:/app/data
     healthcheck:
@@ -26,7 +47,7 @@ services:
         - CMD
         - python
         - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=2)
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/ready', timeout=2)
       interval: 5s
       timeout: 3s
       retries: 10
@@ -34,5 +55,17 @@ services:
     restart: unless-stopped
     stop_grace_period: 10s
 
+  backend-test:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
+    depends_on:
+      database:
+        condition: service_healthy
+
 volumes:
   backend_data:
+  postgres_data:

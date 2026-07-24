@@ -5,15 +5,15 @@ RekaKebijakan is a policy-scenario simulation prototype with a React frontend an
 ## Architecture
 
 - `frontend/`: React 19, TypeScript, and Vite user interface.
-- `backend/`: FastAPI application factory, Pydantic request validation, SQLite persistence, local document storage, and background jobs served by Uvicorn.
+- `backend/`: FastAPI application factory, Pydantic request validation, PostgreSQL persistence, local document storage, and background jobs served by Uvicorn.
 
-The backend defaults to a deterministic demo engine. It requires no LLM, graph service, queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are extracted locally, and generated graph, persona, event, risk, report, citation, log, and interaction data remain durable in SQLite.
+The backend defaults to a deterministic demo engine. It requires no LLM, graph service, queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are extracted locally, and generated graph, persona, event, risk, report, citation, log, and interaction data remain durable in PostgreSQL.
 
 ## Local Run
 
 ### One-command Docker
 
-Start the backend with its persistent SQLite database and uploaded-document storage:
+Start the backend with its persistent PostgreSQL database and uploaded-document storage:
 
 ```sh
 make up
@@ -32,7 +32,7 @@ The services are available at:
 - API documentation: `http://localhost:5001/docs`
 - Health check: `http://localhost:5001/health`
 
-Use `make up-d` or `make full-up-d` for detached startup, `make health` to check the services, and `make full-down` to stop them. SQLite, its WAL files, and uploaded documents are retained in the Docker volume `rekakebijakan_backend_data` across shutdowns and image rebuilds.
+Use `make up-d` or `make full-up-d` for detached startup, `make health` to check the services, and `make full-down` to stop them. PostgreSQL data and uploaded documents are retained in separate Docker volumes across shutdowns and image rebuilds.
 
 `make down` and `make full-down` never delete application data. To remove the database and uploaded documents intentionally, run `make reset` and then the displayed confirmation command.
 
@@ -83,7 +83,7 @@ npm run lint
 npm run build
 ```
 
-Backend tests cover deterministic generation, all four document types, SQLite persistence and job recovery, upload validation, round configuration, simulation control, cited reports, all interaction tools, and the complete API workflow.
+Backend tests cover deterministic generation, all four document types, PostgreSQL persistence and job recovery, upload validation, round configuration, simulation control, cited reports, all interaction tools, and the complete API workflow.
 
 Authentication uses seven-day opaque server sessions in an HTTP-only cookie. Register at `/register` with name, email, and a password of at least 6 characters. Backend projects and workflow artifacts are private to their creator; legacy unowned rows remain inaccessible.
 

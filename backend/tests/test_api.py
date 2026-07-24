@@ -8,10 +8,10 @@ from app import create_app
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, database_url):
     application = create_app({
         "TESTING": True,
-        "DATABASE_PATH": tmp_path / "test.sqlite3",
+        "DATABASE_URL": database_url,
         "UPLOAD_DIR": tmp_path / "uploads",
         "JOB_DELAY": 0.001,
         "MAX_UPLOAD_BYTES": 1024 * 1024,
@@ -75,8 +75,8 @@ def test_full_frontend_workflow(client):
     assert client.get("/api/health").json()["status"] == "ok"
 
 
-def test_round_validation_and_pause_resume(tmp_path):
-    application = create_app({"TESTING": True, "DATABASE_PATH": tmp_path / "pause.sqlite3", "UPLOAD_DIR": tmp_path / "uploads", "JOB_DELAY": 0.03})
+def test_round_validation_and_pause_resume(tmp_path, database_url):
+    application = create_app({"TESTING": True, "DATABASE_URL": database_url, "UPLOAD_DIR": tmp_path / "uploads", "JOB_DELAY": 0.03})
     with TestClient(application) as client:
         assert client.post(
             "/api/auth/register",
@@ -114,6 +114,7 @@ def test_environment_patch_and_all_interaction_tools(client):
         assert response.json()["citations"]
     assert len(client.get(f"/api/interactions/{simulation_id}").json()["messages"]) == 12
     assert client.get("/health").status_code == 200
+    assert client.get("/ready").json() == {"status": "ok", "database": "postgresql"}
 
 
 def test_validation_errors_and_stage_conflict(client):
@@ -153,8 +154,8 @@ def test_cors_aliases_multiple_files_and_event_cursor(client):
     assert len(cursor["events"]) == 16
 
 
-def test_upload_limit_returns_json_without_creating_project(tmp_path):
-    application = create_app({"TESTING": True, "DATABASE_PATH": tmp_path / "limit.sqlite3", "UPLOAD_DIR": tmp_path / "uploads", "MAX_UPLOAD_BYTES": 300})
+def test_upload_limit_returns_json_without_creating_project(tmp_path, database_url):
+    application = create_app({"TESTING": True, "DATABASE_URL": database_url, "UPLOAD_DIR": tmp_path / "uploads", "MAX_UPLOAD_BYTES": 300})
     with TestClient(application) as client:
         assert client.post(
             "/api/auth/register",

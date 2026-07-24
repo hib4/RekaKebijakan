@@ -8,6 +8,8 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 FROM base AS production
 
