@@ -8,7 +8,7 @@ from app.database import metadata
 
 
 config = context.config
-if database_url := os.getenv("DATABASE_URL"):
+if not config.get_main_option("sqlalchemy.url") and (database_url := os.getenv("DATABASE_URL")):
     config.set_main_option("sqlalchemy.url", database_url)
 if config.config_file_name:
     fileConfig(config.config_file_name)

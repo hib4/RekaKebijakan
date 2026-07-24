@@ -11,7 +11,7 @@ type ApiErrorPayload = {
 };
 
 export type ApiStageName = "graph" | "environment" | "simulation" | "report" | "interaction";
-export type ApiRunStatus = "locked" | "ready" | "queued" | "processing" | "running" | "paused" | "failed" | "completed";
+export type ApiRunStatus = "locked" | "ready" | "queued" | "processing" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed";
 
 export type ApiStageDto = {
   status?: ApiRunStatus;
@@ -20,6 +20,8 @@ export type ApiStageDto = {
   started_at?: string;
   completed_at?: string;
   error?: string;
+  stale?: boolean;
+  stale_reason?: string;
 };
 
 export type ApiCitationDto = {
@@ -143,6 +145,8 @@ export type ApiSimulationSnapshot = {
   interactions?: { messages?: ApiInteractionMessageDto[] } | ApiInteractionMessageDto[];
   logs?: { id?: string; time?: string; level?: string; message: string }[];
   updated_at?: string;
+  stale?: boolean;
+  stale_reason?: string;
   ontology?: {
     version?: number;
     entity_types?: { name: string; description?: string }[];
@@ -173,7 +177,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { ...init, credentials: "include" });
   const payload = await response.json().catch(() => null) as ApiErrorPayload | T | null;
   if (!response.ok) {
@@ -273,9 +277,177 @@ export const pauseSimulation = (simulationId: string) =>
 export const resumeSimulation = (simulationId: string) =>
   request<ApiSimulationSnapshot>(`/api/simulations/${encodeURIComponent(simulationId)}/resume`, { method: "POST" });
 
+export const cancelSimulation = (simulationId: string) =>
+  request<ApiSimulationSnapshot>(`/api/simulations/${encodeURIComponent(simulationId)}/cancel`, { method: "POST" });
+
 export const sendInteraction = (simulationId: string, input: { tool: string; question: string; personaGroup?: string }) =>
   request<ApiInteractionMessageDto>(`/api/simulations/${encodeURIComponent(simulationId)}/interactions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tool: input.tool, question: input.question, persona_group: input.personaGroup }),
   });
+
+export type ProjectLifecycleStatus = "draft" | "active" | "archived" | "pending_delete" | "deleted";
+
+export type ApiProject = {
+  id: string;
+  name: string;
+  project_name: string;
+  institution: string;
+  objective: string;
+  status: ProjectLifecycleStatus;
+  version: number;
+  simulation_id: string;
+  current_stage: ApiStageName;
+  workflow_status: ApiRunStatus;
+  highest_risk: "Rendah" | "Sedang" | "Tinggi";
+  report_available: boolean;
+  scenario_count: number;
+  updated_at: string;
+  created_at: string;
+  archived_at: string | null;
+};
+
+export type ApiDocument = {
+  id: string;
+  name: string;
+  media_type?: string | null;
+  size_bytes?: number;
+  page_count?: number | null;
+  status?: string;
+  created_at?: string;
+};
+
+export type ApiProjectDetail = ApiProject & {
+  documents: ApiDocument[];
+  snapshot: ApiSimulationSnapshot;
+};
+
+export type ApiProjectList = {
+  items: ApiProject[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ApiDashboard = {
+  generated_at: string;
+  metrics: {
+    active_projects: number;
+    running_simulations: number;
+    review_items: number;
+    available_reports: number;
+  };
+  recent_projects: ApiProject[];
+  active_runs: ApiProject[];
+  attention: ApiProject[];
+};
+
+export type ApiScenario = {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  kind: "baseline" | "revision" | "custom";
+  config: Record<string, unknown>;
+  persona_overrides: Record<string, Partial<ApiPersonaDto>>;
+  base_environment_revision: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type ProjectListParams = {
+  q?: string;
+  status?: ProjectLifecycleStatus | "all";
+  limit?: number;
+  offset?: number;
+};
+
+export type UpdateProjectInput = {
+  name?: string;
+  institution?: string;
+  objective?: string;
+  expected_version: number;
+};
+
+export type CreateScenarioInput = {
+  name: string;
+  description?: string;
+  kind?: ApiScenario["kind"];
+  config?: Record<string, unknown>;
+};
+
+export type UpdateScenarioInput = Partial<Omit<CreateScenarioInput, "config">> & {
+  config?: Record<string, unknown>;
+  expected_version: number;
+};
+
+const jsonRequest = <T>(path: string, method: string, body?: unknown) => request<T>(path, {
+  method,
+  headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+export function listProjects(params: ProjectListParams = {}) {
+  const search = new URLSearchParams();
+  if (params.q) search.set("q", params.q);
+  if (params.status) search.set("status", params.status);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  if (params.offset !== undefined) search.set("offset", String(params.offset));
+  const query = search.toString();
+  return request<ApiProjectList>(`/api/v1/projects${query ? `?${query}` : ""}`);
+}
+
+export const getProject = (projectId: string) =>
+  request<ApiProjectDetail>(`/api/v1/projects/${encodeURIComponent(projectId)}`);
+
+export const getDashboard = () => request<ApiDashboard>("/api/v1/dashboard");
+
+export const updateProject = (projectId: string, input: UpdateProjectInput) =>
+  jsonRequest<ApiProject>(`/api/v1/projects/${encodeURIComponent(projectId)}`, "PATCH", input);
+
+export const archiveProject = (projectId: string) =>
+  jsonRequest<ApiProject>(`/api/v1/projects/${encodeURIComponent(projectId)}/archive`, "POST");
+
+export const restoreProject = (projectId: string) =>
+  jsonRequest<ApiProject>(`/api/v1/projects/${encodeURIComponent(projectId)}/restore`, "POST");
+
+export const deleteProject = (projectId: string) =>
+  jsonRequest<ApiProject>(`/api/v1/projects/${encodeURIComponent(projectId)}`, "DELETE");
+
+export const listScenarios = (projectId: string) =>
+  request<{ items: ApiScenario[] }>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios`);
+
+export const createScenario = (projectId: string, input: CreateScenarioInput) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios`, "POST", input);
+
+export const getScenario = (projectId: string, scenarioId: string) =>
+  request<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}`);
+
+export const updateScenario = (projectId: string, scenarioId: string, input: UpdateScenarioInput) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}`, "PATCH", input);
+
+export const archiveScenario = (projectId: string, scenarioId: string) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/archive`, "POST");
+
+export const restoreScenario = (projectId: string, scenarioId: string) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/restore`, "POST");
+
+export const deleteScenario = (projectId: string, scenarioId: string) =>
+  jsonRequest<{ ok: true }>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}`, "DELETE");
+
+export const listEffectivePersonas = (projectId: string, scenarioId: string) =>
+  request<{ items: ApiPersonaDto[] }>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/personas`);
+
+export const putPersonaOverride = (
+  projectId: string,
+  scenarioId: string,
+  personaId: string,
+  input: { expected_version: number; base_environment_revision: number; patch: Partial<ApiPersonaDto> },
+) => jsonRequest<ApiScenario>(
+  `/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/persona-overrides/${encodeURIComponent(personaId)}`,
+  "PUT",
+  input,
+);

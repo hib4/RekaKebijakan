@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
 import "./PersonaStudio.css";
+
+// Demo-only prototype. This page intentionally has no application route.
 
 type Stance = "Mendukung" | "Netral" | "Khawatir" | "Menolak";
 type Level = "Rendah" | "Sedang" | "Tinggi";
@@ -172,11 +175,6 @@ type Notice = { id: number; message: string } | null;
 type StatusFilter = "Semua" | "Aktif" | "Nonaktif";
 type SortKey = "Pengaruh" | "Risiko narasi" | "Nama" | "Stakeholder";
 
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 function NoticeRegion({ notice }: { notice: Notice }) {
   return <div className="toast-region" aria-live="polite">{notice && <div className="toast">{notice.message}</div>}</div>;
 }
@@ -188,6 +186,7 @@ function StatusBadge() {
 const rank: Record<string, number> = { Rendah: 1, Sedang: 2, Tinggi: 3 };
 
 export default function PersonaStudioPage() {
+  const navigate = useNavigate();
   const [personas, setPersonas] = useState<Persona[]>(initialPersonas);
   const [selectedGroup, setSelectedGroup] = useState("Semua kelompok");
   const [status, setStatus] = useState<StatusFilter>("Semua");

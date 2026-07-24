@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { createProject } from "../../api/client";
 import { AppShell } from "../../components/AppShell/AppShell";
 import { saveProjectIntake } from "../SimulationWorkflow/projectIntake";
@@ -13,15 +14,12 @@ const workflow = [
   ["05", "Interaction", "Meninjau laporan dan mewawancarai persona."],
 ] as const;
 
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 export default function ProjectWizardPage() {
-  const [projectName, setProjectName] = useState("Registrasi Digital UMKM");
-  const [institution, setInstitution] = useState("Dinas Koperasi dan UMKM");
-  const [objective, setObjective] = useState("Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital, dan narasi risiko apa yang perlu diklarifikasi?");
+  const navigate = useNavigate();
+  const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
+  const [projectName, setProjectName] = useState(demoMode ? "Registrasi Digital UMKM" : "");
+  const [institution, setInstitution] = useState(demoMode ? "Dinas Koperasi dan UMKM" : "");
+  const [objective, setObjective] = useState(demoMode ? "Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital, dan narasi risiko apa yang perlu diklarifikasi?" : "");
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -42,7 +40,7 @@ export default function ProjectWizardPage() {
       const result = await createProject({ projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files });
       const simulationId = result.simulation_id || result.id;
       if (!simulationId) throw new Error("Backend tidak mengembalikan simulation_id.");
-      if (import.meta.env.VITE_DEMO_MODE === "true") {
+      if (demoMode) {
         saveProjectIntake({ simulationId, projectName: projectName.trim(), institution: institution.trim(), domain: "Kebijakan publik", region: "Indonesia", period: "2026", purpose: objective.trim(), question: objective.trim(), policySource: files.map((file) => file.name).join(", "), framing: {}, createdAt: new Date().toISOString() });
       }
       navigate(`/simulation/${simulationId}`);

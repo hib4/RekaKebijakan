@@ -25,7 +25,7 @@ services:
       target: production
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}}
     depends_on:
       database:
         condition: service_healthy
@@ -39,7 +39,7 @@ services:
       HOST: 0.0.0.0
       PORT: 5001
       DATA_DIR: /app/data
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}}
       UPLOAD_DIR: /app/data/uploads
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-rk_session}
@@ -47,6 +47,14 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       JOB_DELAY: ${JOB_DELAY:-0.08}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-16777216}
+      MAX_FILE_UPLOAD_BYTES: ${MAX_FILE_UPLOAD_BYTES:-16777216}
+      MAX_TOTAL_UPLOAD_BYTES: ${MAX_TOTAL_UPLOAD_BYTES:-1073741824}
+      MAX_FILES_PER_PROJECT: ${MAX_FILES_PER_PROJECT:-20}
+      MAX_ACTIVE_PROJECTS_PER_USER: ${MAX_ACTIVE_PROJECTS_PER_USER:-100}
+      PROJECT_RETENTION_DAYS: ${PROJECT_RETENTION_DAYS:-30}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-200}
+      MAX_EXTRACTED_CHARS: ${MAX_EXTRACTED_CHARS:-2000000}
+      MAX_CHUNKS_PER_DOCUMENT: ${MAX_CHUNKS_PER_DOCUMENT:-5000}
       POLICY_PROVIDER: ${POLICY_PROVIDER:-deterministic}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -56,6 +64,18 @@ services:
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-120}
       EMBEDDED_WORKER: "false"
       WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-180}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_PATH: ${STORAGE_PATH:-/app/data/uploads}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-rekakebijakan}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1}
+      PRODUCTION: ${PRODUCTION:-false}
+      AUTH_MAX_FAILURES: ${AUTH_MAX_FAILURES:-10}
+      AUTH_WINDOW_SECONDS: ${AUTH_WINDOW_SECONDS:-300}
     ports:
       - "${BACKEND_PORT:-5001}:5001"
     depends_on:
@@ -83,7 +103,7 @@ services:
     command: ["python", "worker.py"]
     environment:
       DATA_DIR: /app/data
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}}
       UPLOAD_DIR: /app/data/uploads
       POLICY_PROVIDER: ${POLICY_PROVIDER:-deterministic}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -95,6 +115,22 @@ services:
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-0.5}
       WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-180}
       JOB_DELAY: ${JOB_DELAY:-0.08}
+      MAX_FILE_UPLOAD_BYTES: ${MAX_FILE_UPLOAD_BYTES:-16777216}
+      MAX_TOTAL_UPLOAD_BYTES: ${MAX_TOTAL_UPLOAD_BYTES:-1073741824}
+      MAX_FILES_PER_PROJECT: ${MAX_FILES_PER_PROJECT:-20}
+      MAX_ACTIVE_PROJECTS_PER_USER: ${MAX_ACTIVE_PROJECTS_PER_USER:-100}
+      PROJECT_RETENTION_DAYS: ${PROJECT_RETENTION_DAYS:-30}
+      MAX_PDF_PAGES: ${MAX_PDF_PAGES:-200}
+      MAX_EXTRACTED_CHARS: ${MAX_EXTRACTED_CHARS:-2000000}
+      MAX_CHUNKS_PER_DOCUMENT: ${MAX_CHUNKS_PER_DOCUMENT:-5000}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_PATH: ${STORAGE_PATH:-/app/data/uploads}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-rekakebijakan}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     volumes:
       - backend_data:/app/data
     depends_on:
@@ -109,10 +145,12 @@ services:
       context: ./backend
       target: test
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-rekakebijakan}:${POSTGRES_PASSWORD:-rekakebijakan}@database:5432/${POSTGRES_DB:-rekakebijakan}}
     depends_on:
       database:
         condition: service_healthy
+    volumes:
+      - ./evaluations:/evaluations:ro
 
 volumes:
   backend_data:

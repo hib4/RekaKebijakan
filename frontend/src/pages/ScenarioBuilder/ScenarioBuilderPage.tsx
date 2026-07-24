@@ -1,6 +1,9 @@
 import { useId, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
 import "./ScenarioBuilder.css";
+
+// Demo-only prototype. This page intentionally has no application route.
 
 type Outreach = "Rendah" | "Sedang" | "Tinggi";
 type Response = "Diam" | "Klarifikasi" | "Revisi kebijakan";
@@ -41,11 +44,6 @@ const revisedDefault: ScenarioConfig = {
   focus: ["Dukungan", "Kekhawatiran", "Kebutuhan informasi"],
   assumptions: "Pemerintah menyediakan pendampingan, penjelasan perlindungan data, dan kanal bantuan.",
 };
-
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 function StatusBadge() {
   return <span className="project-badge project-status project-status-persiapan"><i aria-hidden="true" />Persiapan</span>;
@@ -133,6 +131,7 @@ function ConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm
 }
 
 export default function ScenarioBuilderPage() {
+  const navigate = useNavigate();
   const projectFound = true;
   const activePersonas: number = 30;
   const [baseline, setBaseline] = useState<ScenarioConfig>(baselineDefault);

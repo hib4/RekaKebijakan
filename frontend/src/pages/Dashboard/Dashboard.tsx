@@ -1,190 +1,34 @@
-import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
-import {
-  attentionRows,
-  overviewMetrics,
-  projectStatuses,
-  recentProjects,
-} from "../../data/dashboard";
+import { useDashboard } from "../../api/queries";
 import "./Dashboard.css";
-
-type Toast = { id: number; message: string };
-
-function navigatePlaceholder(target: string, setToast: (message: string) => void) {
-  window.history.pushState({}, "", target);
-  setToast(`Membuka ${target}. Halaman ini masih berupa placeholder prototipe.`);
-}
-
-function navigate(target: string) {
-  window.history.pushState(null, "", target);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 function RiskLabel({ value }: { value: string }) {
   const key = value.toLowerCase().replaceAll(" ", "-");
   return <span className={`dash-risk dash-risk-${key}`}>{value}</span>;
 }
 
-function MetricCard({ metric }: { metric: (typeof overviewMetrics)[number] }) {
-  return (
-    <article className="metric-card">
-      <p>{metric[0]}</p>
-      <strong>{metric[1]}</strong>
-      <span>{metric[2]}</span>
-      <small>{metric[3]}</small>
-    </article>
-  );
-}
-
-function AttentionList({ onAction }: { onAction: (label: string) => void }) {
-  return (
-    <section className="dashboard-panel span-2" aria-labelledby="attention-title">
-      <div className="panel-heading">
-        <h2 id="attention-title">Perlu Ditinjau</h2>
-        <span>3 prioritas aktif</span>
-      </div>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr><th>Prioritas</th><th>Proyek</th><th>Temuan</th><th>Sumber</th><th>Diperbarui</th><th>Aksi</th></tr>
-          </thead>
-          <tbody>
-            {attentionRows.map((row) => (
-              <tr key={`${row.project}-${row.action}`}>
-                <td><RiskLabel value={row.severity} /></td>
-                <td>{row.project}</td>
-                <td>{row.finding}</td>
-                <td>{row.source}</td>
-                <td>{row.updated}</td>
-                <td><button className="text-button inline-action" onClick={() => onAction(row.action)}>{row.action}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function ActiveSimulationPanel({ onOpen }: { onOpen: () => void }) {
-  const [paused, setPaused] = useState(false);
-  return (
-    <section className="dashboard-panel active-simulation" aria-labelledby="active-sim-title">
-      <div className="panel-heading">
-        <div>
-          <h2 id="active-sim-title">Simulasi Berjalan</h2>
-          <p>Registrasi Digital UMKM</p>
-        </div>
-        <span className="status-badge">{paused ? "Dijeda" : "Berjalan"}</span>
-      </div>
-      <div className="simulation-summary">
-        <div><span>Ronde</span><b>3 dari 5</b></div>
-        <div><span>Persona selesai</span><b>16 dari 20 persona</b></div>
-        <div><span>Risiko narasi</span><b>Sedang</b></div>
-        <div><span>Estimasi selesai</span><b>± 2 menit</b></div>
-      </div>
-      <div className="dashboard-progress"><span style={{ width: paused ? "60%" : "60%" }} /></div>
-      <div className="simulation-visual">
-        <svg viewBox="0 0 320 140" aria-hidden="true">
-          <path d="M42 72 L115 38 L168 78 L252 42 M115 38 L128 112 L168 78 L258 110 M168 78 L292 74" />
-          <circle cx="42" cy="72" r="8" /><circle cx="115" cy="38" r="10" /><circle cx="128" cy="112" r="8" /><circle cx="168" cy="78" r="13" /><circle cx="252" cy="42" r="9" /><circle cx="258" cy="110" r="9" /><circle cx="292" cy="74" r="8" />
-        </svg>
-        <ol>
-          <li>Rina mengajukan pertanyaan mengenai biaya pendaftaran.</li>
-          <li>Budi membagikan klarifikasi dari Dinas Koperasi.</li>
-          <li>Narasi 'registrasi akan berbayar' meningkat.</li>
-        </ol>
-      </div>
-      <div className="actions">
-        <button className="button primary" onClick={onOpen}>Buka Simulasi</button>
-        <button className="button secondary" onClick={() => setPaused(!paused)}>{paused ? "Lanjutkan" : "Jeda"}</button>
-      </div>
-    </section>
-  );
-}
-
-function ProjectsTable({ onAction }: { onAction: (label: string) => void }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("Semua status");
-  const filtered = useMemo(() => recentProjects.filter((project) => {
-    const matchesQuery = `${project[0]} ${project[1]}`.toLowerCase().includes(query.toLowerCase());
-    const matchesStatus = status === "Semua status" || project[2] === status;
-    return matchesQuery && matchesStatus;
-  }), [query, status]);
-
-  return (
-    <section className="dashboard-panel span-2" aria-labelledby="projects-title">
-      <div className="panel-heading">
-        <h2 id="projects-title">Proyek Terbaru</h2>
-        <button className="text-button inline-action" onClick={() => onAction("Lihat semua proyek")}>Lihat semua proyek</button>
-      </div>
-      <div className="project-tools">
-        <label>Cari proyek<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama atau institusi" /></label>
-        <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}>{projectStatuses.map((item) => <option key={item}>{item}</option>)}</select></label>
-      </div>
-      {filtered.length === 0 ? (
-        <div className="state-block"><h3>Tidak ada proyek yang sesuai.</h3><p>Ubah kata kunci atau filter status untuk melihat proyek lain.</p></div>
-      ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead><tr><th>Nama proyek</th><th>Institusi</th><th>Status</th><th>Skenario</th><th>Risiko tertinggi</th><th>Terakhir diperbarui</th><th>Aksi</th></tr></thead>
-            <tbody>
-              {filtered.map((project) => (
-                <tr key={project[0]}>
-                  <td>{project[0]}</td><td>{project[1]}</td><td>{project[2]}</td><td>{project[3]}</td><td><RiskLabel value={project[4]} /></td><td>{project[5]}</td>
-                  <td><button className="text-button inline-action" onClick={() => onAction(project[6])}>{project[6]}</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-
-function ToastRegion({ toast }: { toast: Toast | null }) {
-  return <div className="toast-region" aria-live="polite">{toast && <div className="toast">{toast.message}</div>}</div>;
-}
-
 export default function Dashboard() {
-  const [toast, setToast] = useState<Toast | null>(null);
-  const showToast = (message: string) => {
-    setToast({ id: Date.now(), message });
-    window.setTimeout(() => setToast(null), 3200);
-  };
-  const action = (label: string) => {
-    if (label.toLowerCase().includes("semua proyek")) {
-      window.history.pushState(null, "", "/projects");
-      window.dispatchEvent(new PopStateEvent('popstate'));
-      return;
-    }
-    if (label.toLowerCase().includes("simulasi")) {
-      navigate("/projects/registrasi-digital-umkm");
-      return;
-    }
-    if (label.toLowerCase().includes("laporan")) {
-      navigate("/reports");
-      return;
-    }
-    navigatePlaceholder(`/dashboard/${label.toLowerCase().replaceAll(" ", "-")}`, showToast);
-  };
+  const navigate = useNavigate();
+  const dashboard = useDashboard();
+  const data = dashboard.data;
+  const metrics = data ? [
+    ["Proyek aktif", data.metrics.active_projects, "Ruang kerja saat ini"],
+    ["Simulasi berjalan", data.metrics.running_simulations, "Pekerjaan aktif"],
+    ["Perlu ditinjau", data.metrics.review_items, "Risiko tinggi"],
+    ["Laporan tersedia", data.metrics.available_reports, "Siap dibuka"],
+  ] as const : [];
 
-  return (
-    <AppShell
-      title="Dashboard"
-      subtitle="Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan."
-      eyebrow="Ringkasan kerja"
-      actions={<><button className="button primary" onClick={() => navigate("/projects")}>Buka Proyek Kebijakan</button><button className="button secondary" onClick={() => navigate("/reports")}>Lihat Laporan</button></>}
-    >
-        <section className="metrics-grid" aria-label="Ringkasan metrik">{overviewMetrics.map((metric) => <MetricCard metric={metric} key={metric[0]} />)}</section>
-        <div className="dashboard-grid">
-          <AttentionList onAction={action} />
-          <ActiveSimulationPanel onOpen={() => action("Buka Simulasi")} />
-          <ProjectsTable onAction={action} />
-        </div>
-      <ToastRegion toast={toast} />
-    </AppShell>
-  );
+  return <AppShell title="Dashboard" subtitle="Pantau proyek kebijakan, simulasi, dan temuan yang memerlukan peninjauan." eyebrow="Ringkasan kerja" actions={<><button className="button primary" onClick={() => navigate("/projects")}>Buka Proyek Kebijakan</button><button className="button secondary" onClick={() => navigate("/reports")}>Lihat Laporan</button></>}>
+    {dashboard.isLoading && <div className="state-block"><h3>Memuat dashboard...</h3><p>Menyusun ringkasan terbaru dari ruang kerja.</p></div>}
+    {dashboard.isError && <div className="state-block"><h3>Dashboard tidak dapat dimuat</h3><p>Periksa koneksi lalu coba kembali.</p><button className="button primary" onClick={() => dashboard.refetch()}>Muat ulang</button></div>}
+    {data && <>
+      <section className="metrics-grid" aria-label="Ringkasan metrik">{metrics.map(([label, value, detail]) => <article className="metric-card" key={label}><p>{label}</p><strong>{value}</strong><span>{detail}</span><small>Diperbarui {new Date(data.generated_at).toLocaleTimeString("id-ID")}</small></article>)}</section>
+      {data.recent_projects.length === 0 ? <div className="state-block"><h3>Belum ada proyek kebijakan</h3><p>Buat proyek pertama untuk mulai membangun graph dan simulasi.</p><button className="button primary" onClick={() => navigate("/projects/new")}>Buat Proyek</button></div> : <div className="dashboard-grid">
+        <section className="dashboard-panel span-2" aria-labelledby="attention-title"><div className="panel-heading"><h2 id="attention-title">Perlu Ditinjau</h2><span>{data.attention.length} prioritas aktif</span></div>{data.attention.length === 0 ? <div className="state-block"><h3>Tidak ada prioritas tinggi</h3><p>Semua proyek berada dalam batas risiko saat ini.</p></div> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Prioritas</th><th>Proyek</th><th>Institusi</th><th>Diperbarui</th><th>Aksi</th></tr></thead><tbody>{data.attention.map((item) => <tr key={item.id}><td><RiskLabel value={item.highest_risk} /></td><td>{item.name}</td><td>{item.institution}</td><td>{new Date(item.updated_at).toLocaleDateString("id-ID")}</td><td><button className="text-button inline-action" onClick={() => navigate(`/projects/${item.id}`)}>Tinjau</button></td></tr>)}</tbody></table></div>}</section>
+        {data.active_runs[0] && <section className="dashboard-panel active-simulation" aria-labelledby="active-sim-title"><div className="panel-heading"><div><h2 id="active-sim-title">Simulasi Berjalan</h2><p>{data.active_runs[0].name}</p></div><span className="status-badge">{data.active_runs[0].workflow_status}</span></div><div className="simulation-summary"><div><span>Tahap</span><b>{data.active_runs[0].current_stage}</b></div><div><span>Risiko</span><b>{data.active_runs[0].highest_risk}</b></div></div><div className="actions"><button className="button primary" onClick={() => navigate(`/simulation/${data.active_runs[0].simulation_id}`)}>Buka Simulasi</button></div></section>}
+        <section className="dashboard-panel span-2" aria-labelledby="projects-title"><div className="panel-heading"><h2 id="projects-title">Proyek Terbaru</h2><button className="text-button inline-action" onClick={() => navigate("/projects")}>Lihat semua proyek</button></div><div className="table-wrap"><table className="data-table"><thead><tr><th>Nama proyek</th><th>Institusi</th><th>Status</th><th>Risiko tertinggi</th><th>Diperbarui</th><th>Aksi</th></tr></thead><tbody>{data.recent_projects.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.institution}</td><td>{item.workflow_status}</td><td><RiskLabel value={item.highest_risk} /></td><td>{new Date(item.updated_at).toLocaleDateString("id-ID")}</td><td><button className="text-button inline-action" onClick={() => navigate(`/projects/${item.id}`)}>Buka</button></td></tr>)}</tbody></table></div></section>
+      </div>}
+    </>}
+  </AppShell>;
 }

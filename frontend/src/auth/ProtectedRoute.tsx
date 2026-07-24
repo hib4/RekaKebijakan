@@ -1,16 +1,10 @@
-import { useEffect } from "react";
 import type { ReactNode } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./useAuth";
-import { navigate } from "./navigation";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { loading, user } = useAuth();
-
-  useEffect(() => {
-    if (loading || user) return;
-    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    navigate(`/login?next=${encodeURIComponent(next)}`, true);
-  }, [loading, user]);
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -22,7 +16,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return null;
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
   }
 
   return children;

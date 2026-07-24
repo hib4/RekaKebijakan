@@ -1,8 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import type { FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
-import { navigate, safeNext } from "../../auth/navigation";
+import { safeNext } from "../../auth/navigation";
 import { Brand } from "../../components/Header/Header";
 import "./AuthPage.css";
 
@@ -22,20 +23,18 @@ function errorMessage(error: unknown) {
 
 export default function AuthPage({ mode }: AuthPageProps) {
   const { loading, user, login, register } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const errorId = useId();
   const isRegister = mode === "register";
-  const params = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(location.search);
   const next = safeNext(params.get("next"));
 
-  useEffect(() => {
-    if (!loading && user) navigate(next, true);
-  }, [loading, next, user]);
-
   if (!loading && user) {
-    return null;
+    return <Navigate to={next} replace />;
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -57,7 +56,7 @@ export default function AuthPage({ mode }: AuthPageProps) {
       } else {
         await login({ email, password });
       }
-      navigate(next, true);
+      navigate(next, { replace: true });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -81,9 +80,9 @@ export default function AuthPage({ mode }: AuthPageProps) {
       </section>
       <section className="auth-form-panel" aria-labelledby="auth-title">
         <div className="auth-form-wrap">
-          <a className="auth-back" href="/" onClick={(event) => { event.preventDefault(); navigate("/"); }}>
+          <Link className="auth-back" to="/">
             ← Kembali ke beranda
-          </a>
+          </Link>
           <p className="eyebrow">{isRegister ? "Buat akun" : "Akses ruang kerja"}</p>
           <h2 id="auth-title">{isRegister ? "Daftar ke RekaKebijakan" : "Masuk ke RekaKebijakan"}</h2>
           <p className="auth-intro">
@@ -144,13 +143,9 @@ export default function AuthPage({ mode }: AuthPageProps) {
           </form>
           <p className="auth-switch">
             {isRegister ? "Sudah memiliki akun?" : "Belum memiliki akun?"}{" "}
-            <a href={isRegister ? "/login" : "/register"} onClick={(event) => {
-              event.preventDefault();
-              const destination = isRegister ? "/login" : "/register";
-              navigate(params.has("next") ? `${destination}?next=${encodeURIComponent(next)}` : destination);
-            }}>
+            <Link to={`${isRegister ? "/login" : "/register"}${params.has("next") ? `?next=${encodeURIComponent(next)}` : ""}`}>
               {isRegister ? "Masuk" : "Daftar"}
-            </a>
+            </Link>
           </p>
         </div>
       </section>

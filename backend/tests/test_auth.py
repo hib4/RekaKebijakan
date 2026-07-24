@@ -66,7 +66,7 @@ def test_register_cookie_me_logout_login_duplicate_and_invalid_credentials(tmp_p
         assert client.get("/api/auth/me").status_code == 200
 
 
-def test_password_minimum_is_six_characters(tmp_path, database_url):
+def test_registration_requires_six_character_password(tmp_path, database_url):
     with TestClient(make_app(tmp_path, database_url)) as client:
         too_short = client.post(
             "/api/auth/register",
@@ -78,6 +78,63 @@ def test_password_minimum_is_six_characters(tmp_path, database_url):
             json={"name": "Pengguna Enam", "email": "six@example.com", "password": "123456"},
         )
         assert accepted.status_code == 201
+
+
+def test_login_failures_are_rate_limited_and_success_resets_limit(tmp_path, database_url):
+    app = make_app(tmp_path, database_url, AUTH_MAX_FAILURES=2, AUTH_WINDOW_SECONDS=60)
+    with TestClient(app) as client:
+        register(client)
+        client.post("/api/auth/logout")
+        credentials = {"email": "user@example.com", "password": "kata-sandi-salah"}
+        assert client.post("/api/auth/login", json=credentials).status_code == 401
+        assert client.post("/api/auth/login", json=credentials).status_code == 401
+
+        limited = client.post("/api/auth/login", json=credentials)
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"] == "60"
+        assert limited.json()["error"]["code"] == "rate_limit_exceeded"
+
+    reset_app = make_app(tmp_path, database_url, AUTH_MAX_FAILURES=2, AUTH_WINDOW_SECONDS=60)
+    with TestClient(reset_app) as client:
+        bad = {"email": "user@example.com", "password": "kata-sandi-salah"}
+        good = {"email": "user@example.com", "password": "kata-sandi-kuat"}
+        assert client.post("/api/auth/login", json=bad).status_code == 401
+        assert client.post("/api/auth/login", json=good).status_code == 200
+        client.post("/api/auth/logout")
+        assert client.post("/api/auth/login", json=bad).status_code == 401
+        assert client.post("/api/auth/login", json=good).status_code == 200
+
+
+def test_registration_is_rate_limited_per_client(tmp_path, database_url):
+    app = make_app(tmp_path, database_url, AUTH_MAX_FAILURES=2, AUTH_WINDOW_SECONDS=60)
+    with TestClient(app) as client:
+        assert register(client, "first-register@example.com").status_code == 201
+        client.post("/api/auth/logout")
+        assert register(client, "second-register@example.com").status_code == 201
+        client.post("/api/auth/logout")
+        limited = register(client, "third-register@example.com")
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"] == "60"
+
+
+def test_request_ids_and_security_headers_are_applied(tmp_path, database_url):
+    with TestClient(make_app(tmp_path, database_url)) as client:
+        response = client.get("/health", headers={"X-Request-ID": "trace-123"})
+        assert response.headers["x-request-id"] == "trace-123"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+
+        generated = client.get("/health", headers={"X-Request-ID": "invalid request id"})
+        assert generated.headers["x-request-id"] != "invalid request id"
+        assert generated.headers["x-request-id"]
+
+        metrics = client.get("/metrics")
+        assert metrics.status_code == 200
+        assert "rekakebijakan_http_requests_total" in metrics.text
+        assert 'route="/health"' in metrics.text
+        assert "rekakebijakan_oldest_queued_job_age_seconds" in metrics.text
 
 
 def test_session_and_user_persist_across_app_restart(tmp_path, database_url):

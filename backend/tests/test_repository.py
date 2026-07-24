@@ -38,5 +38,20 @@ def test_worker_lease_allows_only_one_claim(database_url):
     claimed = repository.claim_next_job("worker-a", lease_seconds=60)
     assert claimed and claimed["id"] == "job-lease"
     assert repository.claim_next_job("worker-b", lease_seconds=60) is None
-    assert not repository.finish_job("job-lease", "worker-b")
-    assert repository.finish_job("job-lease", "worker-a")
+    assert not repository.finish_job("job-lease", "worker-b", claimed["execution_token"])
+    assert repository.renew_job_lease("job-lease", "worker-a", claimed["execution_token"], 60)
+    assert not repository.finish_job("job-lease", "worker-a", "stale-token")
+    assert repository.finish_job("job-lease", "worker-a", claimed["execution_token"])
+
+
+def test_full_text_chunk_search_is_scoped(database_url):
+    repository = Repository(database_url)
+    repository.create({"id": "sim-search", "project": {"id": "project-search"}, "updated_at": datetime.now(timezone.utc).isoformat()})
+    document = {"id": "doc-search", "simulation_id": "sim-search", "name": "policy.txt", "path": "/tmp/policy.txt", "text": "akses pelabuhan untuk nelayan"}
+    repository.add_document_with_chunks(document, [{
+        "id": "chunk-search", "document_id": "doc-search", "ordinal": 0, "text": document["text"],
+        "char_start": 0, "char_end": len(document["text"]), "content_sha256": "a" * 64, "metadata": {},
+    }])
+    matches = repository.search_chunks("sim-search", "pelabuhan nelayan")
+    assert [item["id"] for item in matches] == ["chunk-search"]
+    assert repository.search_chunks("sim-search", "rumah sakit") == []

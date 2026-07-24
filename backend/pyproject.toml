@@ -26,6 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8.3,<9", "httpx>=0.28,<1"]
 llm = ["openai>=1.0,<3"]
+s3 = ["boto3>=1.35,<2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import re
 from collections import Counter
-from typing import Protocol
+from functools import wraps
+from typing import Callable, Protocol
+
+from pydantic import ValidationError
+
+from .provider_contracts import PROVIDER_INPUTS, PROVIDER_OUTPUTS, FallbackPolicy
+from .provider_errors import (
+    ProviderError,
+    ProviderInputError,
+    ProviderOutputError,
+    ProviderResponseError,
+    ProviderTransportError,
+)
 
 
 GROUPS = ["Pemerintah daerah", "Pelaku usaha", "Warga terdampak", "Akademisi", "Masyarakat sipil", "Media lokal"]
@@ -12,6 +25,32 @@ STOPWORDS = {
     "yang", "dan", "atau", "dengan", "untuk", "dari", "pada", "dalam", "adalah", "akan", "ini", "itu",
     "harus", "dapat", "oleh", "sebagai", "ke", "di", "lebih", "agar", "serta", "kebijakan",
 }
+
+
+def validated(operation: str):
+    input_model = PROVIDER_INPUTS[operation]
+    output_model = PROVIDER_OUTPUTS[operation]
+
+    def decorate(function: Callable):
+        signature = inspect.signature(function)
+
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            values = dict(signature.bind(*args, **kwargs).arguments)
+            values.pop("self", None)
+            try:
+                input_model.model_validate(values, strict=True)
+            except ValidationError as error:
+                raise ProviderInputError(operation, "input contract rejected payload", details=error.errors()) from error
+            result = function(*args, **kwargs)
+            try:
+                return output_model.model_validate(result, strict=True).model_dump(mode="python", exclude_none=True)
+            except ValidationError as error:
+                raise ProviderOutputError(operation, "output contract rejected payload", details=error.errors()) from error
+
+        return wrapped
+
+    return decorate
 
 
 def citation(chunk: dict) -> dict:
@@ -61,6 +100,7 @@ class DeterministicPolicyProvider:
         words = re.findall(r"[A-Za-zÀ-ÿ]{4,}", " ".join(chunk["text"].lower() for chunk in chunks))
         return [word for word, _ in Counter(word for word in words if word not in STOPWORDS).most_common(limit)]
 
+    @validated("ontology")
     def ontology(self, project: dict, chunks: list[dict]) -> dict:
         terms = self._terms(chunks)
         return {
@@ -85,6 +125,7 @@ class DeterministicPolicyProvider:
             "generated_by": self.name,
         }
 
+    @validated("graph")
     def graph(self, project: dict, ontology: dict, chunks: list[dict]) -> dict:
         terms = self._terms(chunks, 6) or ["implementasi", "akses", "dampak"]
         nodes = [{
@@ -116,6 +157,7 @@ class DeterministicPolicyProvider:
             ])
         return {"revision": 1, "ontology_version": ontology["version"], "nodes": nodes, "edges": edges, "generated_by": self.name}
 
+    @validated("environment")
     def environment(self, simulation_id: str, graph: dict, config: dict) -> dict:
         issues = [node for node in graph["nodes"] if node["type"] == "Issue"]
         stakeholders = [node for node in graph["nodes"] if node["type"] == "Stakeholder"]
@@ -144,6 +186,7 @@ class DeterministicPolicyProvider:
         }
         return {"personas": personas, "persona_count": len(personas), "config": resolved}
 
+    @validated("simulate")
     def simulate(self, simulation_id: str, graph: dict, personas: list[dict], config: dict) -> dict:
         events = []
         rounds = config["rounds"]
@@ -166,6 +209,7 @@ class DeterministicPolicyProvider:
                 })
         return {"id": f"run_{hashlib.sha256(simulation_id.encode()).hexdigest()[:12]}", "events": events, "event_count": len(events)}
 
+    @validated("report")
     def report(self, project: dict, chunks: list[dict], events: list[dict]) -> dict:
         critical = [event for event in events if event["stance"] == "Kritis"]
         evidence_chunks = retrieve_chunks(f"{project['objective']} risiko akses dampak implementasi", chunks, 3)
@@ -187,6 +231,7 @@ class DeterministicPolicyProvider:
             "citations": source_citations,
         }
 
+    @validated("answer")
     def answer(self, payload: dict, state: dict, chunks: list[dict]) -> dict:
         events = state["simulation"].get("events", [])
         selected = [item for item in events if not payload.get("persona_group") or item["group"] == payload["persona_group"]]
@@ -199,6 +244,7 @@ class DeterministicPolicyProvider:
             "evidence_citations": [evidence] if evidence else [],
         }
 
+    @validated("interview")
     def interview(self, question: str, personas: list[dict], events: list[dict]) -> dict:
         answers = []
         for persona in personas:
@@ -210,6 +256,7 @@ class DeterministicPolicyProvider:
             })
         return {"answers": answers, "summary": f"Wawancara merangkum {len(answers)} perspektif persona sintetis."}
 
+    @validated("graph_memory")
     def graph_memory(self, graph: dict, events: list[dict]) -> dict:
         critical = [event for event in events if event["stance"] == "Kritis"]
         memory_nodes = []
@@ -228,7 +275,10 @@ class DeterministicPolicyProvider:
             })
         existing_nodes = [node for node in graph["nodes"] if not node["id"].startswith("memory-risk-")]
         existing_edges = [edge for edge in graph["edges"] if not edge["id"].startswith("memory-edge-")]
-        return graph | {
+        return {
+            "revision": graph["revision"],
+            "ontology_version": graph.get("ontology_version"),
+            "generated_by": graph.get("generated_by"),
             "nodes": existing_nodes + memory_nodes,
             "edges": existing_edges + memory_edges,
             "memory_revision": graph.get("memory_revision", 0) + 1,
@@ -236,45 +286,134 @@ class DeterministicPolicyProvider:
         }
 
 
-class OpenAICompatiblePolicyProvider(DeterministicPolicyProvider):
+class OpenAICompatiblePolicyProvider:
     name = "openai-compatible"
+    _LOCAL_FIELDS = {
+        "id", "source_id", "chunk_id", "document_id", "source", "target",
+        "source_node_ids", "event_ids", "memory_event_ids", "citations",
+    }
 
-    def __init__(self, api_key: str, model: str, base_url: str | None = None, timeout: float = 120):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
+        timeout: float = 120,
+        fallback_policy: FallbackPolicy = "deterministic",
+        *,
+        client=None,
+    ):
+        if fallback_policy not in {"deterministic", "raise"}:
+            raise ValueError("fallback_policy must be 'deterministic' or 'raise'")
+        self.fallback_policy = fallback_policy
+        self.fallback_provider = DeterministicPolicyProvider()
+        self.model = model
+        if client is not None:
+            self.client = client
+            return
         try:
             from openai import OpenAI
         except ImportError as error:
             raise RuntimeError("Install backend dengan extra [llm] untuk POLICY_PROVIDER=openai") from error
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
-        self.model = model
 
-    def _json(self, task: str, context: dict, fallback: dict) -> dict:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "Anda adalah analis kebijakan Indonesia. Jawab hanya JSON valid dan jangan membuat ID sumber baru."},
-                {"role": "user", "content": json.dumps({"task": task, "context": context}, ensure_ascii=False)},
-            ],
-        )
-        value = json.loads(response.choices[0].message.content or "{}")
-        return value if isinstance(value, dict) and value else fallback
+    @staticmethod
+    def _local_provenance(value, fallback):
+        if isinstance(value, dict) and isinstance(fallback, dict):
+            result = dict(value)
+            for key, fallback_value in fallback.items():
+                if key in OpenAICompatiblePolicyProvider._LOCAL_FIELDS:
+                    result[key] = fallback_value
+                elif key in result:
+                    result[key] = OpenAICompatiblePolicyProvider._local_provenance(result[key], fallback_value)
+            return result
+        if isinstance(value, list) and isinstance(fallback, list):
+            return [
+                OpenAICompatiblePolicyProvider._local_provenance(item, fallback[min(index, len(fallback) - 1)])
+                if fallback else item
+                for index, item in enumerate(value)
+            ]
+        return value
 
+    def _json(self, operation: str, task: str, context: dict) -> dict:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "Anda adalah analis kebijakan Indonesia. Jawab hanya JSON lengkap yang mengikuti struktur konteks fallback. Jangan membuat ID sumber atau sitasi baru."},
+                    {"role": "user", "content": json.dumps({"task": task, "context": context}, ensure_ascii=False, default=str)},
+                ],
+            )
+        except Exception as error:
+            raise ProviderTransportError(operation, str(error)) from error
+        try:
+            content = response.choices[0].message.content
+            value = json.loads(content or "")
+        except (AttributeError, IndexError, TypeError, json.JSONDecodeError) as error:
+            raise ProviderResponseError(operation, "response did not contain a valid JSON object") from error
+        if not isinstance(value, dict) or not value:
+            raise ProviderResponseError(operation, "response JSON object was empty")
+        return value
+
+    def _generate(self, operation: str, task: str, context: dict, fallback: dict) -> dict:
+        try:
+            generated = self._local_provenance(self._json(operation, task, context), fallback)
+            if "generated_by" in generated:
+                generated["generated_by"] = self.name
+            return PROVIDER_OUTPUTS[operation].model_validate(generated, strict=True).model_dump(
+                mode="python", exclude_none=True
+            )
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                operation, "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            return fallback
+        raise failure
+
+    @validated("ontology")
     def ontology(self, project: dict, chunks: list[dict]) -> dict:
-        fallback = super().ontology(project, chunks)
-        generated = self._json("Buat ontology entity_types, relation_types, analysis_summary untuk kebijakan", {"project": project, "chunks": chunks[:12]}, fallback)
-        return generated | {"version": 1, "citations": fallback["citations"], "generated_by": self.name}
+        fallback = self.fallback_provider.ontology(project, chunks)
+        return self._generate("ontology", "Buat ontology kebijakan", {"project": project, "chunks": chunks[:12], "fallback": fallback}, fallback)
 
+    @validated("graph")
+    def graph(self, project: dict, ontology: dict, chunks: list[dict]) -> dict:
+        fallback = self.fallback_provider.graph(project, ontology, chunks)
+        return self._generate("graph", "Buat graph kebijakan", {"project": project, "ontology": ontology, "chunks": chunks[:12], "fallback": fallback}, fallback)
+
+    @validated("environment")
+    def environment(self, simulation_id: str, graph: dict, config: dict) -> dict:
+        fallback = self.fallback_provider.environment(simulation_id, graph, config)
+        return self._generate("environment", "Buat lingkungan dan persona simulasi", {"graph": graph, "config": config, "fallback": fallback}, fallback)
+
+    @validated("simulate")
+    def simulate(self, simulation_id: str, graph: dict, personas: list[dict], config: dict) -> dict:
+        fallback = self.fallback_provider.simulate(simulation_id, graph, personas, config)
+        return self._generate("simulate", "Jalankan simulasi respons kebijakan", {"graph": graph, "personas": personas, "config": config, "fallback": fallback}, fallback)
+
+    @validated("report")
     def report(self, project: dict, chunks: list[dict], events: list[dict]) -> dict:
-        fallback = super().report(project, chunks, events)
-        generated = self._json("Buat laporan dengan title, sections, risks berdasarkan bukti", {"project": project, "chunks": chunks[:12], "events": events[:60]}, fallback)
-        # Source provenance is resolved locally; model-provided source IDs are never trusted.
-        generated["id"] = fallback["id"]
-        generated["citations"] = fallback["citations"]
-        for index, section in enumerate(generated.get("sections", [])):
-            section["citations"] = fallback["sections"][min(index, len(fallback["sections"]) - 1)]["citations"]
-        for index, risk in enumerate(generated.get("risks", [])):
-            risk["citations"] = fallback["risks"][min(index, len(fallback["risks"]) - 1)]["citations"]
-        return generated | {"version": 1, "generated_by": self.name}
+        fallback = self.fallback_provider.report(project, chunks, events)
+        return self._generate("report", "Buat laporan berdasarkan bukti", {"project": project, "chunks": chunks[:12], "events": events[:60], "fallback": fallback}, fallback)
+
+    @validated("answer")
+    def answer(self, payload: dict, state: dict, chunks: list[dict]) -> dict:
+        fallback = self.fallback_provider.answer(payload, state, chunks)
+        context = {"payload": payload, "state": state, "chunks": chunks[:12], "fallback": fallback}
+        return self._generate("answer", "Jawab pertanyaan berdasarkan state dan bukti", context, fallback)
+
+    @validated("interview")
+    def interview(self, question: str, personas: list[dict], events: list[dict]) -> dict:
+        fallback = self.fallback_provider.interview(question, personas, events)
+        return self._generate("interview", "Jawab wawancara persona", {"question": question, "personas": personas, "events": events[:60], "fallback": fallback}, fallback)
+
+    @validated("graph_memory")
+    def graph_memory(self, graph: dict, events: list[dict]) -> dict:
+        fallback = self.fallback_provider.graph_memory(graph, events)
+        return self._generate("graph_memory", "Perbarui graph memory dari event", {"graph": graph, "events": events[:60], "fallback": fallback}, fallback)
 
 
 def make_provider(settings) -> PolicyProvider:

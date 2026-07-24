@@ -1,17 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
 import {
   pageSizeOptions,
-  policyProjects,
-  projectInstitutionOptions,
   projectRiskOptions,
   projectSortOptions,
   projectStatusOptions,
-  projectSummary,
 } from "../../data/projects";
 import type { PolicyProject, ProjectRisk, ProjectStatus } from "../../data/projects";
-import { getWorkspaceProject, listWorkspaceProjects } from "../../data/localWorkspace";
-import type { WorkspaceProject } from "../../data/localWorkspace";
+import type { ApiProject } from "../../api/client";
+import { useArchiveProject, useProjects } from "../../api/queries";
 import "./ProjectsPage.css";
 
 type Toast = { id: number; message: string };
@@ -24,31 +22,25 @@ const riskRank: Record<ProjectRisk, number> = {
   "Belum dihitung": 1,
 };
 
-function workspaceStatus(project: WorkspaceProject): ProjectStatus {
-  if (project.stage >= 4) return "Laporan tersedia";
-  if (project.stage === 3) return "Simulasi berjalan";
-  if (project.stage >= 1) return "Persiapan";
+function apiStatus(project: ApiProject): ProjectStatus {
+  if (project.report_available) return "Laporan tersedia";
+  if (["processing", "running", "paused"].includes(project.workflow_status)) return "Simulasi berjalan";
+  if (project.current_stage !== "graph") return "Persiapan";
   return "Draft";
 }
 
-function workspaceProject(project: WorkspaceProject, index: number): PolicyProject {
+function apiProject(project: ApiProject, index: number): PolicyProject {
   return {
-    id: project.projectId,
-    name: project.projectName,
+    id: project.id,
+    name: project.name,
     institution: project.institution,
-    status: workspaceStatus(project),
-    scenarios: project.stage >= 2 ? 1 : 0,
-    lastSimulation: project.stage >= 4 ? "Laporan selesai" : project.stage === 3 ? "Simulasi selesai" : project.stage === 2 ? "Environment siap" : project.stage === 1 ? "Graph selesai" : "Belum dijalankan",
-    risk: project.highestRisk ?? "Belum dihitung",
-    updated: new Date(project.updatedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }),
+    status: apiStatus(project),
+    scenarios: project.scenario_count,
+    lastSimulation: project.report_available ? "Laporan selesai" : project.current_stage,
+    risk: project.highest_risk ?? "Belum dihitung",
+    updated: new Date(project.updated_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }),
     updatedRank: index + 1,
   };
-}
-
-function goTo(path: string, setToast?: (message: string) => void) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-  setToast?.(`Membuka ${path}. Halaman detail masih berupa placeholder prototipe.`);
 }
 
 function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
@@ -78,7 +70,7 @@ function ArchiveProjectModal({ project, onCancel, onConfirm }: { project: Policy
         <button className="dialog-close" onClick={onCancel} aria-label="Tutup dialog">X</button>
         <p className="eyebrow">ARSIPKAN PROYEK</p>
         <h2 id={titleId}>Arsipkan {project.name}?</h2>
-        <p className="dialog-copy">Proyek akan dipindahkan dari daftar aktif pada prototipe lokal ini. Data mock tidak disimpan permanen.</p>
+        <p className="dialog-copy">Proyek akan dipindahkan dari daftar aktif. Seluruh dokumen dan hasil tetap tersimpan dan dapat dipulihkan.</p>
         <div className="actions">
           <button className="button primary" onClick={onConfirm}>Arsipkan proyek</button>
           <button className="button secondary" onClick={onCancel}>Batal</button>
@@ -129,6 +121,7 @@ function ProjectFilters({
   setSort,
   hasFilters,
   reset,
+  institutions,
 }: {
   query: string;
   setQuery: (value: string) => void;
@@ -142,13 +135,14 @@ function ProjectFilters({
   setSort: (value: string) => void;
   hasFilters: boolean;
   reset: () => void;
+  institutions: string[];
 }) {
   return (
     <section className="project-list-toolbar" aria-label="Filter proyek">
       <label className="project-search">Cari proyek<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama proyek atau institusi" /></label>
       <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}>{projectStatusOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Risiko<select value={risk} onChange={(event) => setRisk(event.target.value)}>{projectRiskOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
-      <label>Institusi<select value={institution} onChange={(event) => setInstitution(event.target.value)}>{projectInstitutionOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label>Institusi<select value={institution} onChange={(event) => setInstitution(event.target.value)}><option>Semua institusi</option>{institutions.map((item) => <option key={item}>{item}</option>)}</select></label>
       <label>Urutkan<select value={sort} onChange={(event) => setSort(event.target.value)}>{projectSortOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
       {hasFilters && <button className="text-button inline-action" onClick={reset}>Reset filter</button>}
     </section>
@@ -222,37 +216,37 @@ function ProjectListState({ type, onReset, onCreate, onReload }: { type: "empty"
   return <div className="state-block"><h3>Tidak ada proyek yang sesuai</h3><p>Ubah kata kunci atau filter untuk menemukan proyek yang Anda cari.</p><div className="actions"><button className="button secondary" onClick={onReset}>Reset filter</button><button className="button primary" onClick={onCreate}>Buat Proyek</button></div></div>;
 }
 
-function Pagination({ pageSize, setPageSize, total }: { pageSize: number; setPageSize: (value: number) => void; total: number }) {
+function Pagination({ page, setPage, pageSize, setPageSize, total }: { page: number; setPage: (value: number) => void; pageSize: number; setPageSize: (value: number) => void; total: number }) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="pagination-bar">
-      <span>Halaman 1 dari 1 · {total} proyek</span>
+      <span>Halaman {page} dari {pageCount} · {total} proyek</span>
       <div>
-        <label>Baris per halaman<select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>{pageSizeOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
-        <button className="button secondary" disabled>Sebelumnya</button>
-        <button className="button secondary" disabled>Berikutnya</button>
+        <label>Baris per halaman<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{pageSizeOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <button className="button secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Sebelumnya</button>
+        <button className="button secondary" disabled={page >= pageCount} onClick={() => setPage(page + 1)}>Berikutnya</button>
       </div>
     </div>
   );
 }
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState(() => {
-    const stored = listWorkspaceProjects().map(workspaceProject);
-    const storedIds = new Set(stored.map((project) => project.id));
-    return [...stored, ...policyProjects.filter((project) => !storedIds.has(project.id))];
-  });
+  const navigate = useNavigate();
+  const projectsQuery = useProjects({ status: "active", limit: 100 });
+  const archiveMutation = useArchiveProject();
+  const goTo = (path: string) => navigate(path);
+  const projects = useMemo(() => (projectsQuery.data?.items ?? []).map(apiProject), [projectsQuery.data]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Semua status");
   const [risk, setRisk] = useState("Semua risiko");
   const [institution, setInstitution] = useState("Semua institusi");
   const [sort, setSort] = useState("Terakhir diperbarui");
   const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [menu, setMenu] = useState<MenuState>(null);
   const [archiveProject, setArchiveProject] = useState<PolicyProject | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setMenu(null);
@@ -270,6 +264,7 @@ export default function ProjectsPage() {
     setRisk("Semua risiko");
     setInstitution("Semua institusi");
     setSort("Terakhir diperbarui");
+    setPage(1);
   };
   const hasFilters = query !== "" || status !== "Semua status" || risk !== "Semua risiko" || institution !== "Semua institusi" || sort !== "Terakhir diperbarui";
   const filtered = useMemo(() => {
@@ -287,27 +282,22 @@ export default function ProjectsPage() {
       return a.updatedRank - b.updatedRank;
     });
   }, [institution, projects, query, risk, sort, status]);
-  const paged = filtered.slice(0, pageSize);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const institutions = [...new Set(projects.map((project) => project.institution))].toSorted();
   const openProject = (project: PolicyProject) => {
     setMenu(null);
-    const workspace = getWorkspaceProject(project.id);
-    if (workspace?.stage && workspace.stage >= 4) {
-      goTo(`/simulation/${workspace.simulationId}?step=report&mode=workbench`);
-      return;
-    }
-    if (workspace && workspace.projectId !== "registrasi-digital-umkm") {
-      goTo(`/simulation/${workspace.simulationId}`);
-      return;
-    }
-    goTo(`/projects/${project.id}`, showToast);
+    goTo(`/projects/${project.id}`);
   };
   const duplicate = (project: PolicyProject) => {
     setMenu(null);
-    showToast(`Skenario pada ${project.name} siap diduplikasi dalam prototipe.`);
+    navigate(`/projects/${project.id}`);
+    showToast(`Tambahkan skenario pembanding dari workspace ${project.name}.`);
   };
-  const confirmArchive = () => {
+  const confirmArchive = async () => {
     if (!archiveProject) return;
-    setProjects(projects.map((project) => project.id === archiveProject.id ? { ...project, archived: true } : project));
+    await archiveMutation.mutateAsync(archiveProject.id);
     setArchiveProject(null);
     setMenu(null);
     showToast(`${archiveProject.name} telah diarsipkan.`);
@@ -320,18 +310,18 @@ export default function ProjectsPage() {
       eyebrow="Ruang kerja kebijakan"
       actions={<button className="button primary" onClick={() => goTo("/projects/new")}>Buat Proyek</button>}
     >
-        <section className="metrics-grid" aria-label="Ringkasan proyek">{projectSummary.map((metric) => <article className="metric-card" key={metric[0]}><p>{metric[0]}</p><strong>{metric[1]}</strong><span>{metric[2]}</span></article>)}</section>
+        <section className="metrics-grid" aria-label="Ringkasan proyek"><article className="metric-card"><p>Total proyek</p><strong>{projectsQuery.data?.total ?? 0}</strong><span>Proyek aktif dalam ruang kerja</span></article><article className="metric-card"><p>Simulasi berjalan</p><strong>{projects.filter((item) => item.status === "Simulasi berjalan").length}</strong><span>Eksperimen aktif saat ini</span></article><article className="metric-card"><p>Laporan tersedia</p><strong>{projects.filter((item) => item.status === "Laporan tersedia").length}</strong><span>Siap dibuka dan ditinjau</span></article></section>
         <section className="dashboard-panel project-list-panel" aria-labelledby="project-table-title">
           <div className="panel-heading"><div><h2 id="project-table-title">Daftar Proyek</h2><p>Tampilan tersimpan: Semua proyek aktif</p></div>{selected.length > 0 && <span className="bulk-note">{selected.length} proyek dipilih · Aksi massal belum aktif</span>}</div>
-          <ProjectFilters query={query} setQuery={setQuery} status={status} setStatus={setStatus} risk={risk} setRisk={setRisk} institution={institution} setInstitution={setInstitution} sort={sort} setSort={setSort} hasFilters={hasFilters} reset={reset} />
-          {loading && <ProjectListState type="loading" />}
-          {error && <ProjectListState type="error" onReload={() => { setError(false); setLoading(true); window.setTimeout(() => setLoading(false), 500); }} />}
-          {!loading && !error && paged.length === 0 && <ProjectListState type="empty" onReset={reset} onCreate={() => goTo("/projects/new")} />}
-          {!loading && !error && paged.length > 0 && (
+          <ProjectFilters query={query} setQuery={(value) => { setQuery(value); setPage(1); }} status={status} setStatus={(value) => { setStatus(value); setPage(1); }} risk={risk} setRisk={(value) => { setRisk(value); setPage(1); }} institution={institution} setInstitution={(value) => { setInstitution(value); setPage(1); }} sort={sort} setSort={setSort} hasFilters={hasFilters} reset={reset} institutions={institutions} />
+          {projectsQuery.isLoading && <ProjectListState type="loading" />}
+          {projectsQuery.isError && <ProjectListState type="error" onReload={() => projectsQuery.refetch()} />}
+          {!projectsQuery.isLoading && !projectsQuery.isError && paged.length === 0 && <ProjectListState type="empty" onReset={reset} onCreate={() => goTo("/projects/new")} />}
+          {!projectsQuery.isLoading && !projectsQuery.isError && paged.length > 0 && (
             <>
               <ProjectTable projects={paged} selected={selected} setSelected={setSelected} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} />
               <ProjectCards projects={paged} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} />
-              <Pagination pageSize={pageSize} setPageSize={setPageSize} total={filtered.length} />
+              <Pagination page={currentPage} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={filtered.length} />
             </>
           )}
         </section>

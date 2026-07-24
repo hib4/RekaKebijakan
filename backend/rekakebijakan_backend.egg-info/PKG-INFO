@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: rekakebijakan-backend
 Version: 0.1.0
-Summary: Credential-free FastAPI policy simulation backend
+Summary: Authenticated FastAPI policy simulation backend
 Requires-Python: >=3.11
 Requires-Dist: fastapi<1,>=0.139
 Requires-Dist: uvicorn<1,>=0.51
@@ -9,10 +9,17 @@ Requires-Dist: python-multipart<1,>=0.0.22
 Requires-Dist: Werkzeug<4,>=3.1
 Requires-Dist: pydantic<3,>=2.10
 Requires-Dist: PyMuPDF<2,>=1.25
-Requires-Dist: python-docx<2,>=1.1
+Requires-Dist: python-docx==1.2.0
+Requires-Dist: lxml<7,>=6.0
 Requires-Dist: python-dotenv<2,>=1.0
+Requires-Dist: pwdlib[argon2]<1,>=0.3
+Requires-Dist: SQLAlchemy<3,>=2.0
+Requires-Dist: psycopg[binary]<4,>=3.2
+Requires-Dist: alembic<2,>=1.14
 Provides-Extra: test
 Requires-Dist: pytest<9,>=8.3; extra == "test"
 Requires-Dist: httpx<1,>=0.28; extra == "test"
 Provides-Extra: llm
 Requires-Dist: openai<3,>=1.0; extra == "llm"
+Provides-Extra: s3
+Requires-Dist: boto3<2,>=1.35; extra == "s3"

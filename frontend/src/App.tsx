@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { Route, Routes, useLocation, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
@@ -272,8 +274,9 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function App() {
-  const [path, setPath] = useState(window.location.pathname);
+function LandingPage() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [caraKerjaVisible, setCaraKerjaVisible] = useState(false);
   const [autoPlay, setAutoPlay] = useState(true);
@@ -290,12 +293,7 @@ function App() {
     [scenario, round],
   );
   useEffect(() => {
-    const updatePath = () => setPath(window.location.pathname);
-    window.addEventListener("popstate", updatePath);
-    return () => window.removeEventListener("popstate", updatePath);
-  }, []);
-  useEffect(() => {
-    if (path !== "/") {
+    if (pathname !== "/") {
       const resetTimer = window.setTimeout(() => {
         setCaraKerjaVisible(false);
         setActiveStep(0);
@@ -315,7 +313,7 @@ function App() {
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [path]);
+  }, [pathname]);
   useEffect(
     () => () => {
       if (simulationTimer.current)
@@ -384,30 +382,6 @@ function App() {
       });
     }, 1000);
   };
-  if (path === "/login") {
-    return <AuthPage mode="login" />;
-  }
-  if (path === "/register") {
-    return <AuthPage mode="register" />;
-  }
-  if (path.startsWith("/dashboard")) {
-    return <ProtectedRoute><Dashboard /></ProtectedRoute>;
-  }
-  if (path.match(/^\/simulation\/[^/]+$/)) {
-    return <ProtectedRoute><WorkflowErrorBoundary simulationId={path.split("/")[2] ?? ""}><SimulationWorkflowPage /></WorkflowErrorBoundary></ProtectedRoute>;
-  }
-  if (path === "/projects/new") {
-    return <ProtectedRoute><ProjectWizardPage /></ProtectedRoute>;
-  }
-  if (path.startsWith("/projects/")) {
-    return <ProtectedRoute><ProjectDetailPage /></ProtectedRoute>;
-  }
-  if (path.startsWith("/projects")) {
-    return <ProtectedRoute><ProjectsPage /></ProtectedRoute>;
-  }
-  if (path.startsWith("/reports")) {
-    return <ProtectedRoute><ReportsPage /></ProtectedRoute>;
-  }
   return (
     <div id="utama">
       <Header />
@@ -753,8 +727,8 @@ function App() {
                 <p>persona sintetis</p>
               </div>
               <div>
-                <b>3 mode</b>
-                <p>demo, cached, live</p>
+                <b>4 tahap</b>
+                <p>graf, persona, simulasi, laporan</p>
               </div>
               <div>
                 <b>SDG 16</b>
@@ -824,10 +798,7 @@ function App() {
               </button>
               <button
                 className="button outline-white"
-                onClick={() => {
-                  window.history.pushState(null, "", "/projects");
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }}
+                onClick={() => navigate("/projects")}
               >
                 Buka daftar proyek
               </button>
@@ -870,6 +841,37 @@ function App() {
       </footer>
       {dialogOpen && <ContactDialog onClose={() => setDialogOpen(false)} />}
     </div>
+  );
+}
+
+function Protected({ children }: { children: React.ReactNode }) {
+  return <ProtectedRoute>{children}</ProtectedRoute>;
+}
+
+function SimulationRoute() {
+  const { simulationId = "" } = useParams();
+  return (
+    <Protected>
+      <WorkflowErrorBoundary simulationId={simulationId}>
+        <SimulationWorkflowPage />
+      </WorkflowErrorBoundary>
+    </Protected>
+  );
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<AuthPage mode="login" />} />
+      <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/dashboard/*" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/simulation/:simulationId" element={<SimulationRoute />} />
+      <Route path="/projects/new" element={<Protected><ProjectWizardPage /></Protected>} />
+      <Route path="/projects/:projectId" element={<Protected><ProjectDetailPage /></Protected>} />
+      <Route path="/projects" element={<Protected><ProjectsPage /></Protected>} />
+      <Route path="/reports/*" element={<Protected><ReportsPage /></Protected>} />
+      <Route path="*" element={<LandingPage />} />
+    </Routes>
   );
 }
 

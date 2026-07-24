@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { drag } from "d3-drag";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from "d3-force";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
@@ -9,22 +10,19 @@ import type { ConsoleLog, DemoCase, PolicyGraphNode, ViewMode, WorkflowStep, Wor
 import type { StepRunStatus, WorkflowSession } from "./workflowSession";
 import { workflowStatus } from "./workflowSession";
 import { useAuth } from "../../auth/useAuth";
+import { CitationDrawer } from "../../components/CitationDrawer/CitationDrawer";
 
 const stepNames: Record<WorkflowStep, string> = { 1: "Graph Build", 2: "Env Setup", 3: "Simulation", 4: "Report", 5: "Interaction" };
 
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 export function WorkflowTopBar({ session, onStep, onViewMode }: { session: WorkflowSession; onStep: (step: WorkflowStep) => void; onViewMode: (mode: ViewMode) => void }) {
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const status = workflowStatus(session);
   return <>
     <header className="workflow-topbar">
       <div className="workflow-brand"><button className="workflow-back" onClick={() => navigate("/projects")} aria-label="Kembali ke proyek kebijakan">←</button><button className="workflow-wordmark" onClick={() => navigate("/projects")}>RekaKebijakan</button></div>
       <div className="view-modes" aria-label="Mode tampilan">{(["graph", "split", "workbench"] as ViewMode[]).map((mode) => <button key={mode} aria-pressed={session.viewMode === mode} onClick={() => onViewMode(mode)}>{mode === "graph" ? "Graph" : mode === "split" ? "Split" : "Workbench"}</button>)}</div>
-      <div className="workflow-meta"><span className="workflow-user" title={user?.email}>{user?.name || user?.email}</span><button className="workflow-logout" onClick={() => logout().then(() => navigate("/login")).catch(() => undefined)}>Keluar</button><span className="workflow-step-label"><b>Step {session.currentStep}/5</b><small>{stepNames[session.currentStep]}</small></span><span className={`workflow-status ${status}`} role="status" aria-live="polite"><i />{status === "processing" ? "Processing" : status === "completed" ? "Completed" : "Ready"}</span></div>
+      <div className="workflow-meta"><span className="workflow-user" title={user?.email}>{user?.name || user?.email}</span><button className="workflow-logout" onClick={() => logout().then(() => navigate("/login")).catch(() => undefined)}>Keluar</button><span className="workflow-step-label"><b>Step {session.currentStep}/5</b><small>{stepNames[session.currentStep]}</small></span><span className={`workflow-status ${status}`} role="status" aria-live="polite"><i />{status === "processing" ? "Processing" : status === "completed" ? "Completed" : status === "stale" ? "Stale" : status === "cancelled" ? "Cancelled" : status === "failed" ? "Failed" : "Ready"}</span></div>
     </header>
     <nav className="workflow-stepper" aria-label="Tahap workflow">{([1, 2, 3, 4, 5] as WorkflowStep[]).map((step) => { const state = session.steps[step]; return <button key={step} className={`${state.status} ${session.currentStep === step ? "active" : ""}`} disabled={state.status === "locked"} onClick={() => onStep(step)} aria-current={session.currentStep === step ? "step" : undefined}><span>{String(step).padStart(2, "0")}</span><b>{stepNames[step]}</b><small>{state.status === "processing" ? `${state.progress}%` : state.status}</small></button>; })}</nav>
   </>;
@@ -94,7 +92,7 @@ export function PolicyGraph({ demo, nodeCount, edgeCount, activeNodeId, selected
 
   return <section className="policy-graph-panel" aria-labelledby="graph-title"><header className="graph-toolbar"><div><p>POLICY KNOWLEDGE GRAPH</p><h2 id="graph-title">{demo.title}</h2></div><div className="graph-actions"><button onClick={() => { setLayoutKey((value) => value + 1); onLog("Graph layout refreshed"); }}>↻ <span>Refresh</span></button><button onClick={fit}>⊙ <span>Fit</span></button></div></header><div className="graph-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari entity..." aria-label="Cari entity graph" /><select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter tipe entity"><option>Semua</option>{Object.keys(graphColors).map((type) => <option key={type}>{type}</option>)}</select><label><input type="checkbox" checked={showLabels} onChange={(event) => setShowLabels(event.target.checked)} /> Label relasi</label></div><div className="graph-stage">
     {visibleNodes.length === 0 ? <div className="graph-waiting"><i /><h3>Graph menunggu proses build</h3><p>Entity dan relasi akan muncul secara bertahap.</p></div> : <svg ref={svgRef} role="group" aria-label={`Graf stakeholder dan kebijakan ${demo.title}`} onClick={(event) => { if (event.target === event.currentTarget) onSelect(null); }}><g ref={viewportRef}><g className="graph-edges">{visibleEdges.map((edge) => { const connected = selectedNodeId && (edge.source === selectedNodeId || edge.target === selectedNodeId); return <g key={edge.id}><line className={connected ? "selected" : ""} />{showLabels && <text>{edge.type}</text>}</g>; })}</g><g className="graph-nodes">{visibleNodes.map((node) => <g key={node.id} className={`${activeNodeId === node.id ? "active" : ""} ${selectedNodeId === node.id ? "selected" : ""}`} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }} tabIndex={0} role="button" aria-label={`${node.label}, ${node.type}. ${node.summary}`} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(node.id); }}><circle r={node.type === "PolicyIssue" ? 15 : 11} fill={graphColors[node.type]} /><text x="18" y="4">{node.label}</text></g>)}</g></g></svg>}
-    {selected && <aside className="graph-inspector" aria-label="Detail entity"><div><span style={{ background: graphColors[selected.type] }} />{selected.type}</div><h3>{selected.label}</h3><p>{selected.summary}</p>{selected.group && <dl><dt>Kelompok</dt><dd>{selected.group}</dd></dl>}<button onClick={() => onSelect(null)}>Tutup detail</button></aside>}
+    {selected && <aside className="graph-inspector" aria-label="Detail entity"><div><span style={{ background: graphColors[selected.type] }} />{selected.type}</div><h3>{selected.label}</h3><p>{selected.summary}</p>{selected.group && <dl><dt>Kelompok</dt><dd>{selected.group}</dd></dl>}<CitationDrawer citations={selected.citations} label="Lihat sumber entity" /><button onClick={() => onSelect(null)}>Tutup detail</button></aside>}
     <div className="graph-legend" aria-label="Legenda entity">{Object.entries(graphColors).map(([type, color]) => <button key={type} className={filter === type ? "active" : ""} onClick={() => setFilter(filter === type ? "Semua" : type)}><i style={{ background: color }} />{type}</button>)}</div>
   </div></section>;
 }
@@ -111,6 +109,6 @@ export function SystemConsole({ logs }: { logs: ConsoleLog[] }) {
 }
 
 export function StepCard({ number, task, state, progress = 0, children }: { number: number; task: WorkflowTask; state: StepRunStatus; progress?: number; children?: React.ReactNode }) {
-  const label = state === "processing" ? `${progress}%` : state === "completed" ? "Complete" : state === "failed" ? "Failed" : state === "locked" ? "Locked" : "Ready";
-  return <article className={`workflow-task ${state}`}><header><span className="task-number">{String(number).padStart(2, "0")}</span><h3>{task.title}</h3><span className={`task-badge ${state}`}>{label}</span></header><code>{task.endpoint}</code><p>{task.description}</p>{state === "processing" && <div className="task-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div>}{children}</article>;
+  const label = state === "processing" ? `${progress}%` : state === "completed" ? "Complete" : state === "failed" ? "Failed" : state === "cancelled" ? "Cancelled" : state === "stale" ? "Stale" : state === "locked" ? "Locked" : state === "paused" ? "Paused" : "Ready";
+  return <article className={`workflow-task ${state}`}><header><span className="task-number">{String(number).padStart(2, "0")}</span><h3>{task.title}</h3><span className={`task-badge ${state}`}>{label}</span></header><code>{task.operation}</code><p>{task.description}</p>{state === "processing" && <div className="task-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div>}{children}</article>;
 }

@@ -94,3 +94,7 @@ Containerized verification is also available:
 ```sh
 make test
 ```
+
+Run the deterministic, network-free quality gate with `make evaluation`. It emits JSON and enforces `EVALUATION_FAIL_THRESHOLD` (default `0.8`) for required-concept recall, citation validity, and citation coverage; fixture format and versioning are documented in `evaluations/README.md`.
+
+After `make full-up-d`, run `make smoke` to exercise the production frontend proxy, register/login cookie flow, document upload, all workflow stages, report generation, and citations. The smoke uses bounded timeouts and only attempts to remove the project it creates; set `BASE_URL` to target another deployment.

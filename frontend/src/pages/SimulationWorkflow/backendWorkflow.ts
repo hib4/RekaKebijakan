@@ -1,5 +1,5 @@
 import type { ApiInteractionMessageDto, ApiRunStatus, ApiSimulationSnapshot, ApiStageDto } from "../../api/client";
-import type { DemoCase, ReportSection, RiskNarrative, WorkflowStep } from "./workflowTypes";
+import type { Citation, DemoCase, ReportSection, RiskNarrative, WorkflowStep } from "./workflowTypes";
 import { createWorkflowSession, formatTime } from "./workflowSession";
 import type { InteractionMessage, StepRunStatus, WorkflowSession } from "./workflowSession";
 
@@ -8,6 +8,10 @@ const stageNames = ["graph", "environment", "simulation", "report", "interaction
 function status(value?: ApiRunStatus): StepRunStatus {
   if (value === "queued" || value === "running" || value === "processing") return "processing";
   return value ?? "locked";
+}
+
+function citations(values: import("../../api/client").ApiCitationDto[] = []): Citation[] {
+  return values.map((citation) => ({ id: citation.id, sourceType: citation.source_type, sourceId: citation.source_id, documentId: citation.document_id, chunkId: citation.chunk_id, locator: citation.locator, quote: citation.quote, label: citation.label }));
 }
 
 function stage(snapshot: ApiSimulationSnapshot, index: number): ApiStageDto {
@@ -35,10 +39,7 @@ export function mapInteractionMessage(message: ApiInteractionMessageDto, index =
     author: message.author ?? (message.role === "user" ? "Anda" : "Report Agent"),
     tool: message.tool ?? "report",
     text: message.text ?? message.content ?? "",
-    citations: [
-      ...(message.citations ?? []),
-      ...(message.evidence_citations ?? []).map((citation) => citation.label ?? citation.quote ?? citation.source_id),
-    ],
+    citations: citations(message.evidence_citations ?? (message.citations ?? []).map((label, citationIndex) => ({ source_type: "report_section", source_id: `citation-${citationIndex + 1}`, label }))),
   };
 }
 
@@ -52,12 +53,14 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     group: node.group,
     x: node.x ?? 100 + (index % 4) * 180,
     y: node.y ?? 90 + Math.floor(index / 4) * 130,
+    citations: citations(node.citations),
   }));
   const graphEdges = (snapshot.graph?.edges ?? []).map((edge, index) => ({
     id: edge.id ?? `edge-${index}`,
     source: edge.source,
     target: edge.target,
     type: edge.type ?? edge.relation_type ?? "RELATED_TO",
+    citations: citations(edge.citations),
   }));
   const personas = (snapshot.environment?.personas ?? []).map((persona) => ({
     id: persona.id,
@@ -68,6 +71,7 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     concern: persona.concern ?? persona.concerns?.join(", ") ?? "Belum ada kekhawatiran tercatat.",
     topics: persona.topics ?? [],
     count: persona.count ?? 1,
+    citations: citations(persona.citations),
   }));
   const events = (snapshot.simulation?.events ?? []).map((event) => ({
     id: event.id,
@@ -82,11 +86,13 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     concerns: event.concerns ?? [],
     riskNarrative: event.risk_narrative ?? "Belum diklasifikasikan",
     influenceSource: event.influence_source ?? "Graph kebijakan",
+    citations: citations(event.citations),
   }));
   const reportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
     id: section.id ?? `section-${index}`,
     title: section.title,
     content: section.paragraphs ?? (Array.isArray(section.content) ? section.content : section.content ? [section.content] : []),
+    citations: citations(section.citations),
   }));
   const risks = (snapshot.report?.risks ?? []).map((risk, index) => ({
     id: risk.id ?? `risk-${index}`,
@@ -94,6 +100,7 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     level: level(risk.level),
     trend: trend(risk.trend),
     evidence: risk.evidence ?? "Jejak tersedia pada laporan backend.",
+    citations: citations(risk.citations),
   }));
   const demo: DemoCase = {
     id: simulationId,
@@ -120,6 +127,8 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
       activeTask: dto.active_task ?? null,
       startedAt: dto.started_at,
       completedAt: dto.completed_at,
+      staleReason: dto.stale_reason ?? (dto.stale ? snapshot.stale_reason : undefined),
+      error: dto.error,
     };
   });
   const explicitStage = typeof snapshot.current_stage === "number"
@@ -138,9 +147,11 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   };
   const simulationStatus = snapshot.simulation?.status;
   session.simulation = {
-    status: simulationStatus === "running" || simulationStatus === "processing" || simulationStatus === "queued" ? "running" : simulationStatus === "paused" ? "paused" : simulationStatus === "completed" ? "completed" : "ready",
+    status: simulationStatus === "running" || simulationStatus === "processing" || simulationStatus === "queued" ? "running" : simulationStatus === "paused" ? "paused" : simulationStatus === "stale" || snapshot.simulation?.stale ? "stale" : simulationStatus === "cancelled" ? "cancelled" : simulationStatus === "failed" ? "failed" : simulationStatus === "completed" ? "completed" : "ready",
     eventCount: snapshot.simulation?.event_count ?? events.length,
     speed: previous?.simulation.speed ?? 1,
+    staleReason: snapshot.simulation?.stale_reason ?? snapshot.stale_reason,
+    error: snapshot.simulation?.error,
   };
   session.report = {
     progress: snapshot.report?.progress ?? (snapshot.report?.status === "completed" ? 100 : 0),

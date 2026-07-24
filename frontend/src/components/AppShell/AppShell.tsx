@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Brand } from "../Header/Header";
 import { useAuth } from "../../auth/useAuth";
 import { authStorageKey } from "../../auth/storageNamespace";
@@ -19,50 +20,39 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children }: AppShellProps) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const { pathname: path } = useLocation();
   const sidebarKey = authStorageKey("sidebar-collapsed");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(sidebarKey) === "true");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => {
-    const handlePopState = () => setCurrentPath(window.location.pathname);
     const close = (event: KeyboardEvent) => event.key === "Escape" && setDrawerOpen(false);
-    window.addEventListener("popstate", handlePopState);
     window.addEventListener("keydown", close);
     return () => {
-      window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("keydown", close);
     };
   }, []);
-
-  const path = currentPath;
 
   const nav = (
     <nav className="app-sidebar-nav" aria-label="Navigasi produk">
       {productNav.map(([href, label, icon]) => {
         const active = path === href || (href !== "/dashboard" && path.startsWith(`${href}/`));
         return (
-          <a
+          <NavLink
             className={active ? "active" : ""}
-            href={href}
+            to={href}
             key={href}
-            onClick={(event) => {
-              event.preventDefault();
+            onClick={() => {
               setDrawerOpen(false);
-              navigate(href);
             }}
           >
             <span aria-hidden="true">{icon}</span>
             <b>{label}</b>
-          </a>
+          </NavLink>
         );
       })}
     </nav>
@@ -105,7 +95,7 @@ export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children 
             <span /><span /><span />
           </button>
           <div className="breadcrumb" aria-label="Breadcrumb">
-            <a href="/dashboard" onClick={(event) => { event.preventDefault(); navigate("/dashboard"); }}>Menu</a>
+            <Link to="/dashboard">Menu</Link>
             <span aria-hidden="true">/</span>
             <span>{title}</span>
           </div>
@@ -146,7 +136,7 @@ export function PlaceholderPage({ title, subtitle }: { title: string; subtitle: 
         <div className="state-block">
           <h2>{title} belum memiliki konten rinci.</h2>
           <p>Halaman ini disiapkan sebagai ruang kerja prototipe untuk pengembangan fitur berikutnya.</p>
-          <button className="button primary" onClick={() => navigate("/dashboard")}>Kembali ke Dashboard</button>
+          <Link className="button primary" to="/dashboard">Kembali ke Dashboard</Link>
         </div>
       </section>
     </AppShell>

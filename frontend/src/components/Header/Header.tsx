@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { navigation } from "../../data/content";
 import { useAuth } from "../../auth/useAuth";
-import { navigate } from "../../auth/navigation";
 import "./Header.css";
 
 const scrollTo = (id: string) => {
@@ -12,6 +12,7 @@ const scrollTo = (id: string) => {
 };
 
 export function Brand() {
+  const navigate = useNavigate();
   return (
     <a
       className="brand"
@@ -19,8 +20,7 @@ export function Brand() {
       aria-label="RekaKebijakan, kembali ke awal"
       onClick={(e) => {
         e.preventDefault();
-        window.history.pushState(null, "", "/");
-        window.dispatchEvent(new PopStateEvent("popstate"));
+        navigate("/");
         scrollTo("utama");
       }}
     >
@@ -35,6 +35,7 @@ interface HeaderProps {
 }
 
 export default function Header({ isDashboard = false }: HeaderProps) {
+  const navigate = useNavigate();
   const { loading, user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("");
@@ -74,8 +75,7 @@ export default function Header({ isDashboard = false }: HeaderProps) {
   const handleProjectsClick = (e: React.MouseEvent) => {
     e.preventDefault();
     setMenuOpen(false);
-    window.history.pushState(null, "", "/projects");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    navigate("/projects");
   };
 
   return (
@@ -115,8 +115,8 @@ export default function Header({ isDashboard = false }: HeaderProps) {
               <a className="button primary nav-action" href="/dashboard" onClick={handleDashboardClick}>Dashboard</a>
             ) : (
               <>
-                <a href="/login" onClick={(event) => { event.preventDefault(); navigate("/login"); }}>Masuk</a>
-                <a className="button primary nav-action" href="/register" onClick={(event) => { event.preventDefault(); navigate("/register"); }}>Daftar</a>
+               <Link to="/login">Masuk</Link>
+               <Link className="button primary nav-action" to="/register">Daftar</Link>
               </>
             )}
           </div>

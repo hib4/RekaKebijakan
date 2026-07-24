@@ -2,8 +2,9 @@ SHELL := /bin/sh
 
 COMPOSE := docker compose -f compose.yaml
 FULL_COMPOSE := docker compose -f compose.yaml -f compose.full.yaml
+BACKEND_PYTHON ?= .venv/bin/python
 
-.PHONY: help up up-d full-up full-up-d down full-down logs full-logs ps build full-build test backend-test frontend-test health reset
+.PHONY: help up up-d full-up full-up-d down full-down logs full-logs ps build full-build test backend-test frontend-test evaluation smoke health reset
 
 help:
 	@printf '%s\n' \
@@ -16,6 +17,8 @@ help:
 		'make logs           Follow backend logs' \
 		'make full-logs      Follow all full-stack logs' \
 		'make test           Run backend and frontend container checks' \
+		'make evaluation     Run deterministic formal evaluation' \
+		'make smoke          Exercise a running production full stack' \
 		'make health         Check backend and optional frontend health' \
 		'make reset          Delete containers and persistent PostgreSQL/uploads'
 
@@ -60,6 +63,12 @@ backend-test:
 frontend-test:
 	docker build --target test --tag rekakebijakan-frontend-test ./frontend
 	docker run --rm rekakebijakan-frontend-test
+
+evaluation:
+	cd backend && $(BACKEND_PYTHON) -m app.evaluation
+
+smoke:
+	sh scripts/production-smoke.sh
 
 health:
 	@curl --fail --silent http://localhost:$${BACKEND_PORT:-5001}/health

@@ -52,4 +52,5 @@ Auth endpoints are `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/
 ```sh
 .venv/bin/python -m pytest -vv
 .venv/bin/python -m compileall -q app
+.venv/bin/python -m app.evaluation
 ```

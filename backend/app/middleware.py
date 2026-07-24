@@ -1,8 +1,65 @@
 from __future__ import annotations
 
+import logging
+import re
+import time
+import uuid
+
 from starlette.datastructures import Headers
+from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from .metrics import metrics
+
+logger = logging.getLogger("rekakebijakan.access")
+request_id_pattern = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class RequestSecurityMiddleware:
+    def __init__(self, app: ASGIApp, production: bool):
+        self.app = app
+        self.production = production
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        supplied_id = Headers(scope=scope).get("x-request-id", "")
+        request_id = supplied_id if request_id_pattern.fullmatch(supplied_id) else uuid.uuid4().hex
+        scope.setdefault("state", {})["request_id"] = request_id
+        started = time.perf_counter()
+        status_code = 500
+
+        async def secure_send(message: Message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = request_id
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+                headers["Referrer-Policy"] = "no-referrer"
+                headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+                headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+                if self.production:
+                    headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            await send(message)
+
+        try:
+            await self.app(scope, receive, secure_send)
+        finally:
+            duration_seconds = time.perf_counter() - started
+            duration_ms = duration_seconds * 1000
+            metrics.observe_request(scope["method"], scope.get("path", ""), status_code, duration_seconds)
+            logger.info(
+                "%s %s %s %.2fms request_id=%s",
+                scope["method"],
+                scope.get("path", ""),
+                status_code,
+                duration_ms,
+                request_id,
+            )
 
 
 def too_large_response() -> JSONResponse:

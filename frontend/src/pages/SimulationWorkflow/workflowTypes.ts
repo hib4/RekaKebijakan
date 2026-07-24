@@ -2,7 +2,18 @@ export type WorkflowStep = 1 | 2 | 3 | 4 | 5;
 
 export type ViewMode = "graph" | "split" | "workbench";
 
-export type SimulationStatus = "ready" | "processing" | "completed";
+export type SimulationStatus = "ready" | "processing" | "stale" | "cancelled" | "failed" | "completed";
+
+export type Citation = {
+  id?: string;
+  sourceType: "document_chunk" | "event" | "graph_node" | "interview_answer" | "report_section";
+  sourceId: string;
+  documentId?: string;
+  chunkId?: string;
+  locator?: Record<string, unknown>;
+  quote?: string;
+  label?: string;
+};
 
 export type PolicyGraphNode = {
   id: string;
@@ -12,6 +23,7 @@ export type PolicyGraphNode = {
   y: number;
   summary: string;
   group?: string;
+  citations?: Citation[];
 };
 
 export type PolicyGraphEdge = {
@@ -19,6 +31,7 @@ export type PolicyGraphEdge = {
   source: string;
   target: string;
   type: string;
+  citations?: Citation[];
 };
 
 export type Persona = {
@@ -30,6 +43,7 @@ export type Persona = {
   concern: string;
   topics: string[];
   count: number;
+  citations?: Citation[];
 };
 
 export type SimulationChannel = {
@@ -54,6 +68,7 @@ export type SimulationEvent = {
   concerns: string[];
   riskNarrative: string;
   influenceSource: string;
+  citations?: Citation[];
 };
 
 export type RiskNarrative = {
@@ -62,12 +77,14 @@ export type RiskNarrative = {
   level: "Rendah" | "Sedang" | "Tinggi";
   trend: "Menurun" | "Stabil" | "Meningkat";
   evidence: string;
+  citations?: Citation[];
 };
 
 export type ReportSection = {
   id: string;
   title: string;
   content: string[];
+  citations?: Citation[];
 };
 
 export type ConsoleLog = {
@@ -79,7 +96,7 @@ export type ConsoleLog = {
 
 export type WorkflowTask = {
   title: string;
-  endpoint: string;
+  operation: string;
   description: string;
 };
 

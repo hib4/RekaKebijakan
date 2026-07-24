@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-import shutil
+import logging
 import threading
 import time
 import uuid
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from werkzeug.utils import secure_filename
 
-from .documents import chunk_text, extract_text
+from .documents import chunk_text, extract_document
+from .errors import UploadQuotaExceeded
+from .provider_errors import ProviderError
 from .providers import PolicyProvider
 from .repository import Repository
+from .storage import LocalStorageBackend, StorageBackend
+
+logger = logging.getLogger("rekakebijakan.worker")
 
 
 STAGES = ("graph", "environment", "simulation", "report", "interaction")
@@ -50,6 +56,14 @@ class WorkflowService:
         chunk_overlap: int = 150,
         embedded_worker: bool = False,
         lease_seconds: int = 180,
+        storage: StorageBackend | None = None,
+        max_active_projects_per_user: int = 100,
+        max_files_per_project: int = 20,
+        max_file_upload_bytes: int = 16 * 1024 * 1024,
+        max_total_upload_bytes: int = 1024 * 1024 * 1024,
+        max_pdf_pages: int = 200,
+        max_extracted_chars: int = 2_000_000,
+        max_chunks_per_document: int = 5000,
     ):
         self.repository = repository
         self.provider = provider
@@ -59,6 +73,14 @@ class WorkflowService:
         self.chunk_overlap = chunk_overlap
         self.embedded_worker = embedded_worker
         self.lease_seconds = lease_seconds
+        self.storage = storage or LocalStorageBackend(upload_dir)
+        self.max_active_projects_per_user = max_active_projects_per_user
+        self.max_files_per_project = max_files_per_project
+        self.max_file_upload_bytes = max_file_upload_bytes
+        self.max_total_upload_bytes = max_total_upload_bytes
+        self.max_pdf_pages = max_pdf_pages
+        self.max_extracted_chars = max_extracted_chars
+        self.max_chunks_per_document = max_chunks_per_document
         self.worker_id = f"worker_{uuid.uuid4().hex[:12]}"
         self.threads: dict[str, threading.Thread] = {}
         self.thread_lock = threading.RLock()
@@ -67,6 +89,9 @@ class WorkflowService:
     def create_project(self, project: dict, files: list, owner_user_id: str | None = None) -> dict:
         if not files or not any(upload.filename for upload in files):
             raise ValueError("Minimal satu dokumen kebijakan diperlukan")
+        files = [upload for upload in files if upload.filename]
+        if len(files) > self.max_files_per_project:
+            raise UploadQuotaExceeded("Jumlah berkas per proyek melebihi batas")
         project_id, simulation_id = identifier("project"), identifier("sim")
         timestamp = now()
         state = upgrade_state({
@@ -85,33 +110,75 @@ class WorkflowService:
             "provider": {"name": self.provider.name},
         })
         self._sync_stages(state)
-        target_dir = self.upload_dir / simulation_id
-        target_dir.mkdir(parents=True, exist_ok=True)
         ingested = []
+        saved_keys: list[str] = []
         try:
+            incoming_bytes = 0
             for upload in files:
-                if not upload.filename:
-                    continue
                 document_id = identifier("doc")
                 filename = secure_filename(upload.filename) or f"document{Path(upload.filename).suffix.lower()}"
-                path = target_dir / f"{document_id}_{filename}"
+                storage_key = f"{simulation_id}/{document_id}_{filename}"
                 upload.file.seek(0)
-                with path.open("wb") as destination:
-                    shutil.copyfileobj(upload.file, destination)
-                text = extract_text(path)
-                document = {"id": document_id, "simulation_id": simulation_id, "name": filename, "path": str(path), "text": text}
-                ingested.append((document, chunk_text(document_id, text, self.chunk_size, self.chunk_overlap)))
+                suffix = Path(filename).suffix
+                with tempfile.NamedTemporaryFile(suffix=suffix) as temporary:
+                    file_bytes = 0
+                    while chunk := upload.file.read(1024 * 1024):
+                        file_bytes += len(chunk)
+                        incoming_bytes += len(chunk)
+                        if file_bytes > self.max_file_upload_bytes:
+                            raise UploadQuotaExceeded(f"Berkas {filename} melebihi batas ukuran")
+                        if incoming_bytes > self.max_total_upload_bytes:
+                            raise UploadQuotaExceeded("Kuota penyimpanan pengguna telah terlampaui")
+                        temporary.write(chunk)
+                    temporary.flush()
+                    extraction = extract_document(
+                        Path(temporary.name), self.max_pdf_pages, self.max_extracted_chars,
+                    )
+                    temporary.seek(0)
+                    metadata = self.storage.save(storage_key, temporary)
+                    saved_keys.append(storage_key)
+                checksum = self.storage.checksum(storage_key)
+                document = {
+                    "id": document_id, "simulation_id": simulation_id, "name": filename, "path": storage_key, "text": extraction.text,
+                    "media_type": getattr(upload, "content_type", None) or metadata.content_type, "size_bytes": metadata.size, "sha256": checksum,
+                    "page_count": max((segment.page or 0 for segment in extraction.segments), default=0) or None,
+                    "language": "id", "extraction_version": "2", "status": "ready",
+                }
+                pages = []
+                page_numbers = sorted({segment.page for segment in extraction.segments if segment.page is not None})
+                for page_number in page_numbers:
+                    segments = [segment for segment in extraction.segments if segment.page == page_number]
+                    pages.append({
+                        "page_number": page_number, "text": " ".join(segment.text for segment in segments),
+                        "char_start": min(segment.char_start for segment in segments),
+                        "char_end": max(segment.char_end for segment in segments), "metadata": {},
+                    })
+                ingested.append((document, chunk_text(
+                    document_id, extraction, self.chunk_size, self.chunk_overlap, self.max_chunks_per_document,
+                ), pages))
         except Exception:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            for key in saved_keys:
+                self.storage.delete(key)
             raise
-        self.repository.create(state, owner_user_id)
         try:
-            for document, chunks in ingested:
-                self.repository.add_document_with_chunks(document, chunks)
+            if owner_user_id:
+                self.repository.create_project_bundle(
+                    state, owner_user_id, ingested, self.max_active_projects_per_user,
+                    self.max_files_per_project, self.max_total_upload_bytes,
+                )
+            else:
+                self.repository.create(state, owner_user_id)
+                for document, chunks, pages in ingested:
+                    self.repository.add_document_with_chunks(document, chunks)
+                    self.repository.add_document_pages(simulation_id, document["id"], pages)
         except Exception:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            for key in saved_keys:
+                self.storage.delete(key)
             raise
         return state
+
+    def purge_due_projects(self, limit: int = 100) -> int:
+        return self.repository.purge_due_projects(self.storage.delete, limit)
 
     def start(self, simulation_id: str, stage: str, config: dict | None = None, owner_user_id: str | None = None) -> dict | None:
         state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
@@ -154,26 +221,60 @@ class WorkflowService:
         job = self.repository.claim_next_job(self.worker_id, self.lease_seconds, job_id)
         if not job:
             return False
+        logger.info(
+            "job_claimed job_id=%s simulation_id=%s stage=%s attempt=%s worker_id=%s",
+            job["id"], job["simulation_id"], job["stage"], job["attempts"], self.worker_id,
+        )
         try:
-            self._execute(job)
-            self.repository.finish_job(job["id"], self.worker_id, {"stage": job["stage"]})
+            heartbeat_stop = threading.Event()
+            heartbeat = threading.Thread(target=self._heartbeat, args=(job, heartbeat_stop), daemon=True)
+            heartbeat.start()
+            published = self._execute(job)
+            if published and not self.repository.finish_job(job["id"], self.worker_id, job["execution_token"], {"stage": job["stage"]}):
+                raise RuntimeError("Job lease was lost before completion")
+            if published:
+                logger.info(
+                    "job_completed job_id=%s simulation_id=%s stage=%s worker_id=%s",
+                    job["id"], job["simulation_id"], job["stage"], self.worker_id,
+                )
         except Exception as error:
             retry = job["attempts"] < job["max_attempts"]
-            self.repository.fail_job(job["id"], self.worker_id, str(error), retry_delay=min(60, 2 ** job["attempts"]) if retry else None)
+            retry = retry and (not isinstance(error, ProviderError) or error.retryable)
+            code = error.category if isinstance(error, ProviderError) else "worker_error"
+            self.repository.fail_job(
+                job["id"], self.worker_id, job["execution_token"], str(error),
+                retry_delay=min(60, 2 ** job["attempts"]) if retry else None, error_code=code,
+            )
+            logger.error(
+                "job_failed job_id=%s simulation_id=%s stage=%s retry=%s error_code=%s error=%s",
+                job["id"], job["simulation_id"], job["stage"], retry, code, error,
+                exc_info=True,
+            )
             if retry:
                 self.repository.mutate(job["simulation_id"], lambda state: self._retry(state, job["stage"], str(error)))
             else:
                 self.repository.mutate(job["simulation_id"], lambda state: self._fail(state, job["stage"], str(error)))
         finally:
+            if "heartbeat_stop" in locals():
+                heartbeat_stop.set()
+                heartbeat.join(timeout=1)
             with self.thread_lock:
                 self.threads.pop(job["id"], None)
         return True
 
-    def _execute(self, job: dict) -> None:
+    def _heartbeat(self, job: dict, stop: threading.Event) -> None:
+        interval = max(1, self.lease_seconds / 3)
+        while not stop.wait(interval):
+            if not self.repository.renew_job_lease(job["id"], self.worker_id, job["execution_token"], self.lease_seconds):
+                return
+
+    def _execute(self, job: dict) -> bool:
         simulation_id, stage, config = job["simulation_id"], job["stage"], job["config"]
         self.repository.mutate(simulation_id, lambda state: self._progress(state, stage, 15, "Mengumpulkan bukti"))
         state = upgrade_state(self.repository.get(simulation_id))
         chunks = self.repository.chunks(simulation_id)
+        if self.repository.job_control_state(job["id"], job["execution_token"]) != "running":
+            return False
         if stage == "graph":
             ontology = self.provider.ontology(state["project"], chunks)
             graph = self.provider.graph(state["project"], ontology, chunks)
@@ -189,17 +290,19 @@ class WorkflowService:
         else:
             result = {"report": self.provider.report(state["project"], chunks, state["simulation"].get("events", []))}
             self._validate_citations(simulation_id, result["report"].get("citations", []))
-        self.repository.renew_job_lease(job["id"], self.worker_id, self.lease_seconds)
+        if not self.repository.renew_job_lease(job["id"], self.worker_id, job["execution_token"], self.lease_seconds):
+            return False
         self.repository.mutate(simulation_id, lambda current: self._progress(current, stage, 70, "Memvalidasi hasil"))
         if self.delay:
             time.sleep(self.delay)
         current = self.repository.get(simulation_id)
         if self.repository.job_status(job["id"]) != "running":
-            return
+            return False
         if current.get("revision", 1) != job["input_revision"]:
             raise ValueError("Workflow changed while the job was running")
         self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
         self._persist_result_citations(simulation_id, stage, result)
+        return True
 
     def _persist_result_citations(self, simulation_id: str, stage: str, result: dict) -> None:
         if stage == "graph":

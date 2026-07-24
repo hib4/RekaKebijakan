@@ -13,7 +13,7 @@ COPY migrations ./migrations
 
 FROM base AS production
 
-RUN pip install ".[llm]" && \
+RUN pip install ".[llm,s3]" && \
     groupadd --gid 10001 reka && \
     useradd --uid 10001 --gid reka --create-home reka && \
     mkdir -p /app/data && \

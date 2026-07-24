@@ -2,15 +2,27 @@ from __future__ import annotations
 
 from json import JSONDecodeError
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from .errors import InvalidControl, ResourceNotFound, StageConflict, UnsupportedDocument
+from .errors import InvalidControl, ResourceNotFound, RevisionConflict, StageConflict, UnsupportedDocument
 from .auth import current_user
-from .models import EnvironmentInput, GraphFeedbackInput, InteractionInput, InterviewInput, ProjectInput
+from .models import (
+    EnvironmentInput,
+    GraphFeedbackInput,
+    InteractionInput,
+    InterviewInput,
+    PersonaOverrideDeleteInput,
+    PersonaOverrideInput,
+    ProjectInput,
+    ProjectUpdateInput,
+    ScenarioInput,
+    ScenarioUpdateInput,
+)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
+v1_router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)])
 public_router = APIRouter(prefix="/api")
 
 
@@ -59,6 +71,7 @@ async def health():
 
 
 @router.post("/projects")
+@v1_router.post("/projects", include_in_schema=False)
 async def create_project(request: Request):
     form = await request.form()
     values = {
@@ -77,18 +90,264 @@ async def create_project(request: Request):
 
 @router.get("/projects")
 async def list_projects(request: Request):
-    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
-    return {"projects": [state["project"] | {"simulation_id": state["id"]} for state in states]}
+    result = await run_in_threadpool(repository(request).list_projects, user_id(request), "", "active", 100, 0)
+    return {"projects": [project_summary(row) for row in result["items"]]}
 
 
 @router.get("/projects/{project_id}")
 async def get_project(request: Request, project_id: str):
-    states = await run_in_threadpool(repository(request).list_for_user, user_id(request))
-    state = next((item for item in states if item["project"]["id"] == project_id), None)
-    if not state:
+    row = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+    if not row:
         raise ResourceNotFound()
-    documents = await run_in_threadpool(repository(request).public_documents, state["id"])
-    return state["project"] | {"simulation_id": state["id"], "documents": documents}
+    documents = await run_in_threadpool(repository(request).public_documents, row["simulation_id"])
+    return project_summary(row) | {"documents": documents}
+
+
+def project_summary(row: dict) -> dict:
+    state = row["state"]
+    report = state.get("report", {})
+    risks = report.get("risks", [])
+    risk_order = {"Rendah": 1, "Sedang": 2, "Tinggi": 3}
+    highest = max((item.get("level", "Rendah") for item in risks), key=lambda value: risk_order.get(value, 0), default="Rendah")
+    return {
+        "id": row["id"], "name": row["name"], "project_name": row["name"], "institution": row["institution"],
+        "objective": row["objective"], "status": row["status"], "version": row["version"],
+        "simulation_id": row["simulation_id"], "current_stage": state.get("current_stage", "graph"),
+        "workflow_status": state.get("status", "ready"), "highest_risk": highest,
+        "report_available": bool(report.get("sections")), "updated_at": row["updated_at"],
+        "created_at": row["created_at"], "archived_at": row["archived_at"],
+        "scenario_count": row.get("scenario_count", 0),
+    }
+
+
+@v1_router.get("/projects")
+async def list_projects_v1(
+    request: Request,
+    q: str = Query(default="", max_length=160),
+    status: str = Query(default="active", pattern="^(draft|active|archived|pending_delete|deleted|all)$"),
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    result = await run_in_threadpool(
+        repository(request).list_projects, user_id(request), q, status, limit, offset
+    )
+    return {"items": [project_summary(row) for row in result["items"]], "total": result["total"], "limit": result["limit"], "offset": result["offset"]}
+
+
+@v1_router.get("/projects/{project_id}")
+async def get_project_v1(request: Request, project_id: str):
+    row = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    return project_summary(row) | {
+        "documents": await run_in_threadpool(repository(request).public_documents, row["simulation_id"]),
+        "snapshot": row["state"],
+    }
+
+
+@v1_router.patch("/projects/{project_id}")
+async def update_project_v1(request: Request, project_id: str):
+    model = ProjectUpdateInput.model_validate(await silent_json(request))
+    row = await run_in_threadpool(
+        repository(request).update_project, project_id, user_id(request), model.expected_version,
+        model.model_dump(exclude={"expected_version"}, exclude_none=True),
+    )
+    if not row:
+        existing = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+        if existing:
+            raise RevisionConflict()
+        raise ResourceNotFound()
+    return dict(row)
+
+
+async def project_status(request: Request, project_id: str, status: str):
+    try:
+        row = await run_in_threadpool(repository(request).set_project_status, project_id, user_id(request), status)
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
+@v1_router.post("/projects/{project_id}/archive")
+async def archive_project_v1(request: Request, project_id: str):
+    return await project_status(request, project_id, "archived")
+
+
+@v1_router.post("/projects/{project_id}/restore")
+async def restore_project_v1(request: Request, project_id: str):
+    return await project_status(request, project_id, "active")
+
+
+@v1_router.delete("/projects/{project_id}")
+async def delete_project_v1(request: Request, project_id: str):
+    return await project_status(request, project_id, "pending_delete")
+
+
+@v1_router.get("/projects/{project_id}/scenarios")
+async def list_scenarios_v1(request: Request, project_id: str):
+    items = await run_in_threadpool(repository(request).list_scenarios, project_id, user_id(request))
+    if items is None:
+        raise ResourceNotFound()
+    return {"items": items}
+
+
+@v1_router.post("/projects/{project_id}/scenarios", status_code=201)
+async def create_scenario_v1(request: Request, project_id: str):
+    model = ScenarioInput.model_validate(await silent_json(request))
+    row = await run_in_threadpool(
+        repository(request).create_scenario, project_id, user_id(request), model.model_dump(exclude_none=True)
+    )
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
+@v1_router.get("/projects/{project_id}/scenarios/{scenario_id}")
+async def get_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    row = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
+@v1_router.patch("/projects/{project_id}/scenarios/{scenario_id}")
+async def update_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    model = ScenarioUpdateInput.model_validate(await silent_json(request))
+    row = await run_in_threadpool(
+        repository(request).update_scenario,
+        project_id,
+        scenario_id,
+        user_id(request),
+        model.expected_version,
+        model.model_dump(exclude={"expected_version"}, exclude_none=True),
+    )
+    if row:
+        return row
+    if await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request)):
+        raise RevisionConflict()
+    raise ResourceNotFound()
+
+
+async def scenario_archive_status(request: Request, project_id: str, scenario_id: str, archived: bool):
+    row = await run_in_threadpool(
+        repository(request).set_scenario_archived, project_id, scenario_id, user_id(request), archived
+    )
+    if row:
+        return row
+    if await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request)):
+        raise StageConflict("Skenario sudah berada pada status tersebut atau proyek tidak aktif")
+    raise ResourceNotFound()
+
+
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/archive")
+async def archive_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    return await scenario_archive_status(request, project_id, scenario_id, True)
+
+
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/restore")
+async def restore_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    return await scenario_archive_status(request, project_id, scenario_id, False)
+
+
+@v1_router.delete("/projects/{project_id}/scenarios/{scenario_id}")
+async def delete_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    removed = await run_in_threadpool(
+        repository(request).delete_scenario, project_id, scenario_id, user_id(request)
+    )
+    if not removed:
+        raise ResourceNotFound()
+    return {"ok": True}
+
+
+@v1_router.get("/projects/{project_id}/scenarios/{scenario_id}/personas")
+async def effective_personas_v1(request: Request, project_id: str, scenario_id: str):
+    items = await run_in_threadpool(
+        repository(request).effective_personas, project_id, scenario_id, user_id(request)
+    )
+    if items is None:
+        raise ResourceNotFound()
+    return {"items": items}
+
+
+@v1_router.put("/projects/{project_id}/scenarios/{scenario_id}/persona-overrides/{persona_id}")
+async def put_persona_override_v1(request: Request, project_id: str, scenario_id: str, persona_id: str):
+    model = PersonaOverrideInput.model_validate(await silent_json(request))
+    try:
+        row = await run_in_threadpool(
+            repository(request).put_persona_override,
+            project_id,
+            scenario_id,
+            persona_id,
+            user_id(request),
+            model.expected_version,
+            model.base_environment_revision,
+            model.patch.model_dump(exclude_none=True),
+        )
+    except ValueError as error:
+        raise RevisionConflict() from error
+    except KeyError as error:
+        raise ResourceNotFound() from error
+    if row:
+        return row
+    if await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request)):
+        raise RevisionConflict()
+    raise ResourceNotFound()
+
+
+@v1_router.delete("/projects/{project_id}/scenarios/{scenario_id}/persona-overrides/{persona_id}")
+async def delete_persona_override_v1(request: Request, project_id: str, scenario_id: str, persona_id: str):
+    model = PersonaOverrideDeleteInput.model_validate(await silent_json(request))
+    try:
+        row = await run_in_threadpool(
+            repository(request).put_persona_override,
+            project_id,
+            scenario_id,
+            persona_id,
+            user_id(request),
+            model.expected_version,
+            model.base_environment_revision,
+            None,
+        )
+    except ValueError as error:
+        raise RevisionConflict() from error
+    except KeyError as error:
+        raise ResourceNotFound() from error
+    if not row:
+        raise RevisionConflict()
+    return row
+
+
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/run")
+async def run_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    try:
+        simulation_id = await run_in_threadpool(
+            repository(request).apply_scenario, project_id, scenario_id, user_id(request)
+        )
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
+    if not simulation_id:
+        raise ResourceNotFound()
+    return await start_stage(request, simulation_id, "simulation")
+
+
+@v1_router.get("/dashboard")
+async def dashboard_v1(request: Request):
+    rows = await run_in_threadpool(repository(request).dashboard_projects, user_id(request))
+    items = [project_summary(row) for row in rows]
+    return {
+        "generated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+        "metrics": {
+            "active_projects": len(items),
+            "running_simulations": sum(item["workflow_status"] in {"processing", "running", "paused"} for item in items),
+            "review_items": sum(item["highest_risk"] == "Tinggi" for item in items),
+            "available_reports": sum(item["report_available"] for item in items),
+        },
+        "recent_projects": items[:10],
+        "active_runs": [item for item in items if item["workflow_status"] in {"processing", "running", "paused"}][:10],
+        "attention": [item for item in items if item["highest_risk"] == "Tinggi"][:10],
+    }
 
 
 @router.get("/simulations/{simulation_id}")

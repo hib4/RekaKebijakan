@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "../../components/AppShell/AppShell";
 import "./SimulationMonitor.css";
 
+// Demo-only prototype. This page intentionally has no application route.
+
 type Status = "running" | "paused" | "completed" | "stopped";
 type Level = "Rendah" | "Sedang" | "Tinggi";
 type Node = { id: string; label: string; x: number; y: number; r: number; personas: number; stance: string; concern: string; influence: Level };

@@ -4,11 +4,19 @@ python-multipart<1,>=0.0.22
 Werkzeug<4,>=3.1
 pydantic<3,>=2.10
 PyMuPDF<2,>=1.25
-python-docx<2,>=1.1
+python-docx==1.2.0
+lxml<7,>=6.0
 python-dotenv<2,>=1.0
+pwdlib[argon2]<1,>=0.3
+SQLAlchemy<3,>=2.0
+psycopg[binary]<4,>=3.2
+alembic<2,>=1.14
 
 [llm]
 openai<3,>=1.0
+
+[s3]
+boto3<2,>=1.35
 
 [test]
 pytest<9,>=8.3

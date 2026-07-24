@@ -122,20 +122,20 @@
   border: 1px solid var(--line);
 }
 .n1 {
-  left: 0;
-  top: 46%;
+  left: 2%;
+  top: 54%;
 }
 .n2 {
-  left: 18%;
+  left: 20%;
   top: 4%;
 }
 .n3 {
   left: 29%;
-  top: 78%;
+  top: 82%;
 }
 .n4 {
   right: 3%;
-  top: 44%;
+  top: 54%;
 }
 .preview-rounds {
   display: grid;
@@ -1085,4 +1085,3 @@ footer {
     justify-content: center;
   }
 }
-

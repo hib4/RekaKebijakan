@@ -1,7 +1,7 @@
 import type { ConsoleLog, ReportSection, SimulationStatus, ViewMode, WorkflowStep } from "./workflowTypes";
 import { authStorageKey } from "../../auth/storageNamespace";
 
-export type StepRunStatus = "locked" | "ready" | "processing" | "paused" | "failed" | "completed";
+export type StepRunStatus = "locked" | "ready" | "processing" | "paused" | "stale" | "cancelled" | "failed" | "completed";
 
 export type WorkflowStepState = {
   status: StepRunStatus;
@@ -9,6 +9,8 @@ export type WorkflowStepState = {
   activeTask: string | null;
   startedAt?: string;
   completedAt?: string;
+  staleReason?: string;
+  error?: string;
 };
 
 export type InteractionMessage = {
@@ -17,7 +19,7 @@ export type InteractionMessage = {
   author: string;
   tool: string;
   text: string;
-  citations?: string[];
+  citations?: import("./workflowTypes").Citation[];
 };
 
 export type WorkflowSession = {
@@ -28,7 +30,7 @@ export type WorkflowSession = {
   steps: Record<WorkflowStep, WorkflowStepState>;
   graph: { nodeCount: number; edgeCount: number; selectedNodeId: string | null };
   environment: { personaCount: number; rounds: 3 | 5 | 8; socialization: "Rendah" | "Sedang" | "Tinggi"; responseMode: "Klarifikasi" | "Responsif" | "Revisi" };
-  simulation: { status: "ready" | "running" | "paused" | "completed"; eventCount: number; speed: 0.5 | 1 | 2 };
+  simulation: { status: "ready" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed"; eventCount: number; speed: 0.5 | 1 | 2; staleReason?: string; error?: string };
   report: { progress: number; sections: ReportSection[]; timestamps: string[]; completedAt?: string };
   interaction: { messages: InteractionMessage[]; revisionNotes: string[] };
   logs: ConsoleLog[];
@@ -79,7 +81,7 @@ export function loadWorkflowSession(simulationId: string): WorkflowSession | nul
     const step = (value: unknown, defaultValue: WorkflowStepState): WorkflowStepState => {
       if (!value || typeof value !== "object") return defaultValue;
       const candidate = value as Partial<WorkflowStepState>;
-      const statuses: StepRunStatus[] = ["locked", "ready", "processing", "paused", "failed", "completed"];
+      const statuses: StepRunStatus[] = ["locked", "ready", "processing", "paused", "stale", "cancelled", "failed", "completed"];
       return {
         ...defaultValue,
         ...candidate,
@@ -155,6 +157,7 @@ export function appendSessionLog(session: WorkflowSession, message: string, leve
 export function workflowStatus(session: WorkflowSession): SimulationStatus {
   const status = session.steps[session.currentStep].status;
   if (status === "processing") return "processing";
+  if (status === "stale" || status === "cancelled" || status === "failed") return status;
   if (status === "completed") return "completed";
   return "ready";
 }

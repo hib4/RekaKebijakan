@@ -114,7 +114,11 @@ def test_environment_patch_and_all_interaction_tools(client):
         assert response.json()["citations"]
     assert len(client.get(f"/api/interactions/{simulation_id}").json()["messages"]) == 12
     assert client.get("/health").status_code == 200
-    assert client.get("/ready").json() == {"status": "ok", "database": "postgresql"}
+    readiness = client.get("/ready").json()
+    assert readiness["status"] == "ok"
+    assert readiness["database"] == "postgresql"
+    assert readiness["storage"] == "local"
+    assert readiness["schema_revision"] == "0006_scenario_persona_overrides"
 
 
 def test_validation_errors_and_stage_conflict(client):

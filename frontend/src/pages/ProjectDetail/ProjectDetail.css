@@ -181,6 +181,48 @@
   background: var(--surface);
   margin: 0;
 }
+.scenario-create-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.4fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 20px 24px;
+  border-top: 1px solid var(--line);
+}
+.scenario-create-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.scenario-create-form input,
+.scenario-create-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 10px 12px;
+  font: inherit;
+  resize: vertical;
+}
+.scenario-create-form .form-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #9b2c2c;
+  font-size: 13px;
+}
+.project-detail-skeleton {
+  display: grid;
+  gap: 16px;
+  margin-top: 32px;
+}
+.project-detail-skeleton span {
+  display: block;
+  min-height: 120px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
 .activity-timeline {
   display: grid;
   gap: 0;
@@ -226,6 +268,10 @@
   }
   .workspace-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .scenario-create-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 
