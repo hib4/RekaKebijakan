@@ -20,15 +20,11 @@
   white-space: nowrap;
   font-size: 18px;
 }
-.brand span {
-  display: grid;
-  place-items: center;
+.brand-mark {
+  display: block;
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
-  background: var(--blue);
-  color: #fff;
-  font-weight: 600;
-  font-size: 12px;
 }
 .brand b {
   font-weight: 600;

@@ -24,7 +24,12 @@ export function Brand() {
         scrollTo("utama");
       }}
     >
-      <span aria-hidden="true">RK</span>
+      <img
+        className="brand-mark"
+        src="/reka-kebijakan-mark.svg"
+        alt=""
+        aria-hidden="true"
+      />
       <b>RekaKebijakan</b>
     </a>
   );

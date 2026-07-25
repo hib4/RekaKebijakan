@@ -9,7 +9,12 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <main className="auth-loading" aria-live="polite">
-        <span className="auth-loading-mark" aria-hidden="true">RK</span>
+        <img
+          className="auth-loading-mark"
+          src="/reka-kebijakan-mark.svg"
+          alt=""
+          aria-hidden="true"
+        />
         <p>Memeriksa sesi Anda...</p>
       </main>
     );

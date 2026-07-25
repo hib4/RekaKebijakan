@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">RekaKebijakan</title>
+  <path fill="#0f62fe" d="M0 0h48v48H0z"/>
+  <g fill="none" stroke="#fff" stroke-linecap="square" stroke-linejoin="miter" stroke-width="3">
+    <path d="M12 39V9h12.5C31 9 35 12.4 35 18s-4 9-10.5 9H12"/>
+    <path d="m35 9-23 18 24 12"/>
+  </g>
+  <g fill="#fff">
+    <circle cx="12" cy="9" r="2.5"/>
+    <circle cx="12" cy="27" r="2.5"/>
+    <circle cx="35" cy="9" r="2.5"/>
+    <circle cx="36" cy="39" r="2.5"/>
+  </g>
+</svg>
