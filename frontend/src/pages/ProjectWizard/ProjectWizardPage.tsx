@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { createProject } from "../../api/client";
@@ -14,6 +14,20 @@ const workflow = [
   ["05", "Interaction", "Meninjau laporan dan mewawancarai persona."],
 ] as const;
 
+const acceptedExtensions = new Set(["pdf", "md", "txt", "docx"]);
+const maxFiles = 20;
+const maxFileBytes = 16 * 1024 * 1024;
+
+type SubmitPhase = "idle" | "preparing" | "uploading" | "processing" | "opening";
+
+const phaseLabels: Record<SubmitPhase, string> = {
+  idle: "",
+  preparing: "Memvalidasi input...",
+  uploading: "Mengunggah dokumen...",
+  processing: "Membuat proyek dan menyiapkan graf...",
+  opening: "Proyek siap. Membuka Graph Build...",
+};
+
 export default function ProjectWizardPage() {
   const navigate = useNavigate();
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
@@ -23,30 +37,90 @@ export default function ProjectWizardPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
+  const [fileError, setFileError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    submitLockRef.current = false;
+    requestRef.current?.abort();
+  }, []);
+
+  const markFormChanged = () => {
+    idempotencyKeyRef.current = null;
+    setError("");
+  };
 
   const addFiles = (list: FileList | null) => {
-    if (!list) return;
-    const valid = Array.from(list).filter((file) => ["pdf", "md", "txt", "docx"].includes(file.name.split(".").pop()?.toLowerCase() ?? ""));
-    setFiles((current) => [...current, ...valid.filter((file) => !current.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified))]);
+    if (!list || submitting) return;
+    const rejected: string[] = [];
+    const candidates = Array.from(list).filter((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!acceptedExtensions.has(extension)) {
+        rejected.push(`${file.name}: tipe berkas tidak didukung`);
+        return false;
+      }
+      if (file.size > maxFileBytes) {
+        rejected.push(`${file.name}: ukuran melebihi 16 MB`);
+        return false;
+      }
+      return true;
+    });
+    const unique = candidates.filter((file) => !files.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified));
+    const available = Math.max(0, maxFiles - files.length);
+    if (unique.length > available) rejected.push(`Maksimal ${maxFiles} berkas per proyek; ${unique.length - available} berkas tidak ditambahkan`);
+    setFiles([...files, ...unique.slice(0, available)]);
+    setFileError(rejected.join(". "));
+    idempotencyKeyRef.current = null;
+    setError("");
+    if (inputRef.current) inputRef.current.value = "";
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0 || submitting) return;
+    if (submitLockRef.current || !projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0) return;
+    submitLockRef.current = true;
     setSubmitting(true);
+    setSubmitPhase("preparing");
+    setUploadProgress(0);
     setError("");
+    const controller = new AbortController();
+    requestRef.current = controller;
+    idempotencyKeyRef.current ??= globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
     try {
-      const result = await createProject({ projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files });
+      const result = await createProject(
+        { projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files },
+        {
+          idempotencyKey: idempotencyKeyRef.current,
+          signal: controller.signal,
+          onUploadProgress: (progress) => {
+            setSubmitPhase("uploading");
+            setUploadProgress(progress);
+          },
+          onUploadComplete: () => {
+            setUploadProgress(100);
+            setSubmitPhase("processing");
+          },
+        },
+      );
       const simulationId = result.simulation_id || result.id;
       if (!simulationId) throw new Error("Backend tidak mengembalikan simulation_id.");
       if (demoMode) {
         saveProjectIntake({ simulationId, projectName: projectName.trim(), institution: institution.trim(), domain: "Kebijakan publik", region: "Indonesia", period: "2026", purpose: objective.trim(), question: objective.trim(), policySource: files.map((file) => file.name).join(", "), framing: {}, createdAt: new Date().toISOString() });
       }
-      navigate(`/simulation/${simulationId}`);
+      setSubmitPhase("opening");
+      navigate(`/simulation/${encodeURIComponent(simulationId)}?step=graph&mode=split`);
     } catch (cause) {
+      if (controller.signal.aborted) return;
       setError(cause instanceof Error ? cause.message : "Proyek gagal dibuat. Coba lagi.");
       setSubmitting(false);
+      setSubmitPhase("idle");
+      submitLockRef.current = false;
+      requestRef.current = null;
     }
   };
 
@@ -59,25 +133,27 @@ export default function ProjectWizardPage() {
         <div className="create-workflow-list">{workflow.map(([number, title, description]) => <article key={number}><span>{number}</span><div><b>{title}</b><p>{description}</p></div></article>)}</div>
         <p className="responsible-note">Keluaran merupakan simulasi berbasis asumsi skenario untuk dukungan keputusan, bukan pengganti konsultasi publik.</p>
       </aside>
-      <form className="create-project-console" onSubmit={submit}>
+      <form className="create-project-console" onSubmit={submit} aria-busy={submitting}>
         <div className="create-console-header"><span>PROJECT INPUT</span><span>FLASK API</span></div>
         <div className="create-fields">
-          <label className="field"><span>Nama proyek</span><input value={projectName} onChange={(event) => setProjectName(event.target.value)} required /></label>
-          <label className="field"><span>Instansi/tim</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} required /></label>
+          <label className="field"><span>Nama proyek</span><input value={projectName} onChange={(event) => { setProjectName(event.target.value); markFormChanged(); }} required disabled={submitting} /></label>
+          <label className="field"><span>Instansi/tim</span><input value={institution} onChange={(event) => { setInstitution(event.target.value); markFormChanged(); }} required disabled={submitting} /></label>
         </div>
         <section className="create-console-section">
           <header><b>SUMBER KEBIJAKAN</b><span>PDF, DOCX, MD, TXT</span></header>
-          <button className={`project-upload-zone ${dragging ? "dragging" : ""} ${files.length ? "has-files" : ""}`} type="button" onClick={() => inputRef.current?.click()} onDragOver={(event: DragEvent) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event: DragEvent) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
-            <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.md,.txt" onChange={(event: ChangeEvent<HTMLInputElement>) => addFiles(event.target.files)} />
-            {files.length === 0 ? <><strong>↑</strong><b>Tarik dokumen ke sini atau pilih berkas</b><span>Minimal satu sumber diperlukan untuk membangun graf.</span></> : <div className="project-file-list">{files.map((file) => <span key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name}<i onClick={(event) => { event.stopPropagation(); setFiles((current) => current.filter((item) => item !== file)); }}>×</i></span>)}</div>}
-          </button>
+          <div className={`project-upload-zone ${dragging ? "dragging" : ""} ${files.length ? "has-files" : ""}`} onDragOver={(event: DragEvent) => { event.preventDefault(); if (!submitting) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event: DragEvent) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
+            <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.md,.txt" onChange={(event: ChangeEvent<HTMLInputElement>) => addFiles(event.target.files)} disabled={submitting} aria-describedby="project-file-help project-file-error" />
+            {files.length === 0 ? <><strong aria-hidden="true">↑</strong><button className="project-upload-picker" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Tarik dokumen ke sini atau pilih berkas</button><span id="project-file-help">Maksimal 20 berkas PDF, DOCX, MD, atau TXT; masing-masing hingga 16 MB.</span></> : <><div className="project-file-list">{files.map((file) => <span key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name}<button type="button" disabled={submitting} aria-label={`Hapus ${file.name}`} onClick={() => { setFiles((current) => current.filter((item) => item !== file)); setFileError(""); markFormChanged(); }}>×</button></span>)}</div><button className="project-upload-picker add-more" type="button" onClick={() => inputRef.current?.click()} disabled={submitting || files.length >= maxFiles}>Tambah berkas</button></>}
+          </div>
+          <p id="project-file-error" className="file-rejection" role="alert">{fileError}</p>
         </section>
         <section className="create-console-section">
           <header><b>TUJUAN SIMULASI</b><span>PERTANYAAN ANALISIS</span></header>
-          <textarea value={objective} onChange={(event) => setObjective(event.target.value)} rows={7} required placeholder="Jelaskan hal yang ingin diuji melalui simulasi skenario..." />
+          <textarea value={objective} onChange={(event) => { setObjective(event.target.value); markFormChanged(); }} rows={7} required disabled={submitting} placeholder="Jelaskan hal yang ingin diuji melalui simulasi skenario..." />
         </section>
         {error && <p className="inline-alert error" role="alert">{error}</p>}
-        <button className={`button primary create-project-submit ${submitting ? "loading" : ""}`} type="submit" disabled={submitting || !projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0}>{submitting ? "Membuat proyek..." : "Buat Proyek & Bangun Graf →"}</button>
+        {submitting && <div className="create-submit-status"><div className="create-submit-status-heading" aria-live="polite" aria-atomic="true"><b>{phaseLabels[submitPhase]}</b><span>{submitPhase === "uploading" ? `${uploadProgress}%` : submitPhase === "processing" ? "Memproses" : ""}</span></div><div className={`create-upload-progress ${submitPhase !== "uploading" ? "indeterminate" : ""}`} role="progressbar" aria-label="Progres pembuatan proyek" aria-valuemin={0} aria-valuemax={100} aria-valuenow={submitPhase === "uploading" ? uploadProgress : undefined}><span style={{ width: `${submitPhase === "uploading" ? uploadProgress : 100}%` }} /></div></div>}
+        <button className={`button primary create-project-submit ${submitting ? "loading" : ""}`} type="submit" disabled={submitting || !projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0}><span>Buat Proyek &amp; Bangun Graf →</span>{submitting && <small>{phaseLabels[submitPhase]}</small>}</button>
       </form>
     </section>
   </AppShell>;

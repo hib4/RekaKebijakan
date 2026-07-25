@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from json import JSONDecodeError
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -72,7 +72,10 @@ async def health():
 
 @router.post("/projects")
 @v1_router.post("/projects", include_in_schema=False)
-async def create_project(request: Request):
+async def create_project(
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=255),
+):
     form = await request.form()
     values = {
         "project_name": form.get("project_name") or form.get("name"),
@@ -82,7 +85,10 @@ async def create_project(request: Request):
     model = ProjectInput.model_validate(values)
     files = [item for item in form.getlist("files") if hasattr(item, "file")]
     try:
-        state = await run_in_threadpool(service(request).create_project, model.model_dump(), files, user_id(request))
+        state = await run_in_threadpool(
+            service(request).create_project,
+            model.model_dump(), files, user_id(request), idempotency_key.strip() if idempotency_key else None,
+        )
     except ValueError as error:
         raise UnsupportedDocument(str(error)) from error
     return JSONResponse({"id": state["project"]["id"], "project": state["project"], "simulation_id": state["id"]}, status_code=201)

@@ -86,7 +86,13 @@ class WorkflowService:
         self.thread_lock = threading.RLock()
         self.stopping = threading.Event()
 
-    def create_project(self, project: dict, files: list, owner_user_id: str | None = None) -> dict:
+    def create_project(
+        self, project: dict, files: list, owner_user_id: str | None = None, idempotency_key: str | None = None,
+    ) -> dict:
+        if owner_user_id and idempotency_key:
+            existing = self.repository.project_state_for_idempotency_key(owner_user_id, idempotency_key)
+            if existing:
+                return existing
         if not files or not any(upload.filename for upload in files):
             raise ValueError("Minimal satu dokumen kebijakan diperlukan")
         files = [upload for upload in files if upload.filename]
@@ -131,41 +137,40 @@ class WorkflowService:
                             raise UploadQuotaExceeded("Kuota penyimpanan pengguna telah terlampaui")
                         temporary.write(chunk)
                     temporary.flush()
-                    extraction = extract_document(
-                        Path(temporary.name), self.max_pdf_pages, self.max_extracted_chars,
-                    )
                     temporary.seek(0)
                     metadata = self.storage.save(storage_key, temporary)
                     saved_keys.append(storage_key)
-                checksum = self.storage.checksum(storage_key)
                 document = {
-                    "id": document_id, "simulation_id": simulation_id, "name": filename, "path": storage_key, "text": extraction.text,
-                    "media_type": getattr(upload, "content_type", None) or metadata.content_type, "size_bytes": metadata.size, "sha256": checksum,
-                    "page_count": max((segment.page or 0 for segment in extraction.segments), default=0) or None,
-                    "language": "id", "extraction_version": "2", "status": "ready",
+                    "id": document_id, "simulation_id": simulation_id, "name": filename, "path": storage_key, "text": "",
+                    "media_type": getattr(upload, "content_type", None) or metadata.content_type, "size_bytes": metadata.size,
+                    "sha256": None, "page_count": None, "language": "id", "extraction_version": "2", "status": "processing",
                 }
-                pages = []
-                page_numbers = sorted({segment.page for segment in extraction.segments if segment.page is not None})
-                for page_number in page_numbers:
-                    segments = [segment for segment in extraction.segments if segment.page == page_number]
-                    pages.append({
-                        "page_number": page_number, "text": " ".join(segment.text for segment in segments),
-                        "char_start": min(segment.char_start for segment in segments),
-                        "char_end": max(segment.char_end for segment in segments), "metadata": {},
-                    })
-                ingested.append((document, chunk_text(
-                    document_id, extraction, self.chunk_size, self.chunk_overlap, self.max_chunks_per_document,
-                ), pages))
+                ingested.append((document, [], []))
         except Exception:
             for key in saved_keys:
                 self.storage.delete(key)
             raise
+        graph_job_id = identifier("job")
+        state["stages"]["graph"].update(
+            status="queued", progress=0, active_task="Menyiapkan graph", started_at=now(), job_id=graph_job_id,
+        )
+        state["status"] = "processing"
+        self._touch(state, "Tahap graph masuk antrean")
+        self._sync_stages(state)
         try:
             if owner_user_id:
-                self.repository.create_project_bundle(
+                stored_state = self.repository.create_project_bundle(
                     state, owner_user_id, ingested, self.max_active_projects_per_user,
-                    self.max_files_per_project, self.max_total_upload_bytes,
+                    self.max_files_per_project, self.max_total_upload_bytes, idempotency_key,
+                    {
+                        "id": graph_job_id, "simulation_id": simulation_id, "stage": "graph", "status": "queued",
+                        "config": {}, "input_revision": state["revision"],
+                    },
                 )
+                if stored_state["id"] != simulation_id:
+                    for key in saved_keys:
+                        self.storage.delete(key)
+                    return stored_state
             else:
                 self.repository.create(state, owner_user_id)
                 for document, chunks, pages in ingested:
@@ -175,6 +180,8 @@ class WorkflowService:
             for key in saved_keys:
                 self.storage.delete(key)
             raise
+        if self.embedded_worker:
+            self._spawn(graph_job_id)
         return state
 
     def purge_due_projects(self, limit: int = 100) -> int:
@@ -187,6 +194,8 @@ class WorkflowService:
         state = upgrade_state(state)
         if stage != "graph" and state["stages"][stage]["status"] == "locked":
             raise ValueError("Tahap sebelumnya belum selesai")
+        if stage == "graph" and state["stages"][stage]["status"] in {"queued", "running", "paused"}:
+            return state
         if state["stages"][stage]["status"] in {"queued", "running", "paused"}:
             raise ValueError("Tahap sedang diproses")
         job_id = identifier("job")
@@ -270,6 +279,9 @@ class WorkflowService:
 
     def _execute(self, job: dict) -> bool:
         simulation_id, stage, config = job["simulation_id"], job["stage"], job["config"]
+        if stage == "graph":
+            self.repository.mutate(simulation_id, lambda state: self._progress(state, stage, 5, "Memproses dokumen"))
+            self._ingest_pending_documents(simulation_id)
         self.repository.mutate(simulation_id, lambda state: self._progress(state, stage, 15, "Mengumpulkan bukti"))
         state = upgrade_state(self.repository.get(simulation_id))
         chunks = self.repository.chunks(simulation_id)
@@ -303,6 +315,39 @@ class WorkflowService:
         self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
         self._persist_result_citations(simulation_id, stage, result)
         return True
+
+    def _ingest_pending_documents(self, simulation_id: str) -> None:
+        for document in self.repository.documents(simulation_id):
+            if document.get("status") == "ready":
+                continue
+            suffix = Path(document["name"]).suffix
+            with self.storage.open(document["path"]) as stored, tempfile.NamedTemporaryFile(suffix=suffix) as temporary:
+                while chunk := stored.read(1024 * 1024):
+                    temporary.write(chunk)
+                temporary.flush()
+                extraction = extract_document(
+                    Path(temporary.name), self.max_pdf_pages, self.max_extracted_chars,
+                )
+            pages = []
+            page_numbers = sorted({segment.page for segment in extraction.segments if segment.page is not None})
+            for page_number in page_numbers:
+                segments = [segment for segment in extraction.segments if segment.page == page_number]
+                pages.append({
+                    "page_number": page_number, "text": " ".join(segment.text for segment in segments),
+                    "char_start": min(segment.char_start for segment in segments),
+                    "char_end": max(segment.char_end for segment in segments), "metadata": {},
+                })
+            self.repository.complete_document_ingestion(
+                document["id"],
+                {
+                    "text": extraction.text,
+                    "sha256": self.storage.checksum(document["path"]),
+                    "page_count": max((segment.page or 0 for segment in extraction.segments), default=0) or None,
+                    "status": "ready",
+                },
+                chunk_text(document["id"], extraction, self.chunk_size, self.chunk_overlap, self.max_chunks_per_document),
+                pages,
+            )
 
     def _persist_result_citations(self, simulation_id: str, stage: str, result: dict) -> None:
         if stage == "graph":

@@ -28,6 +28,8 @@ dist-ssr
 # Python backend runtime
 backend/.venv/
 backend/data/
+backend/secrets/
+secrets/
 backend/__pycache__/
 backend/.pytest_cache/
 backend/**/*.pyc

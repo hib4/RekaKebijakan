@@ -33,6 +33,8 @@ def test_v1_project_lifecycle_dashboard_and_scenarios(tmp_path, database_url):
             files=[("files", ("policy.txt", io.BytesIO(b"Akses layanan publik"), "text/plain"))],
         ).json()
         project_id = created["id"]
+        simulation_id = created["simulation_id"]
+        assert wait_for_stage(client, simulation_id, "graph")["stages"]["graph"]["status"] == "completed"
 
         listing = client.get("/api/v1/projects").json()
         assert listing["total"] == 1

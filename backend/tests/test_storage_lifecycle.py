@@ -1,4 +1,5 @@
 import io
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -35,6 +36,15 @@ def create_project(client, name="Project", files=None):
         data={"project_name": name, "institution": "Instansi", "objective": "Tujuan kebijakan"},
         files=files or [("files", ("policy.txt", io.BytesIO(b"valid policy text"), "text/plain"))],
     )
+
+
+def wait_for_graph(client, simulation_id):
+    for _ in range(200):
+        state = client.get(f"/api/simulations/{simulation_id}").json()
+        if state["stages"]["graph"]["status"] in {"completed", "failed"}:
+            return state
+        time.sleep(0.01)
+    raise AssertionError("graph did not finish")
 
 
 def test_enforces_project_file_file_size_and_total_byte_quotas(tmp_path, database_url):
@@ -125,11 +135,12 @@ def test_archived_project_rejects_workflow_mutation(tmp_path, database_url):
     with TestClient(app) as client:
         register(client)
         created = create_project(client).json()
+        wait_for_graph(client, created["simulation_id"])
         assert client.post(f"/api/v1/projects/{created['id']}/archive").status_code == 200
         response = client.post(f"/api/simulations/{created['simulation_id']}/graph-build")
         assert response.status_code == 409
         state = client.get(f"/api/simulations/{created['simulation_id']}").json()
-        assert state["stages"]["graph"]["status"] == "ready"
+        assert state["stages"]["graph"]["status"] == "completed"
 
 
 def test_purge_is_retry_safe_and_removes_objects_and_database_data(tmp_path, database_url):
@@ -137,6 +148,7 @@ def test_purge_is_retry_safe_and_removes_objects_and_database_data(tmp_path, dat
     with TestClient(app) as client:
         register(client)
         created = create_project(client).json()
+        wait_for_graph(client, created["simulation_id"])
         assert client.delete(f"/api/v1/projects/{created['id']}").status_code == 200
         engine = create_engine(database_url)
         with engine.begin() as db:

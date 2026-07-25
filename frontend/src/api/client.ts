@@ -163,6 +163,13 @@ export type CreateProjectInput = {
   files: File[];
 };
 
+export type CreateProjectOptions = {
+  idempotencyKey?: string;
+  signal?: AbortSignal;
+  onUploadProgress?: (percentage: number) => void;
+  onUploadComplete?: () => void;
+};
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -177,23 +184,29 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorFromPayload(payload: ApiErrorPayload | null, status: number) {
+  const detailMessage = typeof payload?.detail === "string" ? payload.detail : null;
+  const nestedError = typeof payload?.error === "object" ? payload.error : null;
+  return new ApiError(
+    payload?.message || nestedError?.message || (typeof payload?.error === "string" ? payload.error : null) || detailMessage || `Permintaan gagal (${status})`,
+    status,
+    payload?.code ?? nestedError?.code ?? null,
+    payload?.details ?? nestedError?.details ?? payload?.detail ?? null,
+  );
+}
+
+function notifyExpiredSession(path: string, status: number) {
+  if (status === 401 && path !== "/api/auth/me" && path !== "/api/auth/login") {
+    window.dispatchEvent(new Event("auth-session-expired"));
+  }
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { ...init, credentials: "include" });
   const payload = await response.json().catch(() => null) as ApiErrorPayload | T | null;
   if (!response.ok) {
-    const error = payload as ApiErrorPayload | null;
-    const detailMessage = typeof error?.detail === "string" ? error.detail : null;
-    const nestedError = typeof error?.error === "object" ? error.error : null;
-    const apiError = new ApiError(
-      error?.message || nestedError?.message || (typeof error?.error === "string" ? error.error : null) || detailMessage || `Permintaan gagal (${response.status})`,
-      response.status,
-      error?.code ?? nestedError?.code ?? null,
-      error?.details ?? nestedError?.details ?? error?.detail ?? null,
-    );
-    if (response.status === 401 && path !== "/api/auth/me" && path !== "/api/auth/login") {
-      window.dispatchEvent(new Event("auth-session-expired"));
-    }
-    throw apiError;
+    notifyExpiredSession(path, response.status);
+    throw apiErrorFromPayload(payload as ApiErrorPayload | null, response.status);
   }
   return payload as T;
 }
@@ -241,13 +254,57 @@ async function requestFirst<T>(paths: string[], init?: RequestInit): Promise<T> 
   throw lastError;
 }
 
-export async function createProject(input: CreateProjectInput) {
+export function createProject(input: CreateProjectInput, options: CreateProjectOptions = {}) {
   const body = new FormData();
   body.append("project_name", input.projectName);
   body.append("institution", input.institution);
   body.append("objective", input.objective);
   input.files.forEach((file) => body.append("files", file, file.name));
-  return request<{ simulation_id: string; id?: string }>("/api/projects", { method: "POST", body });
+  const path = "/api/projects";
+
+  return new Promise<{ simulation_id: string; id?: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    xhr.open("POST", `${API_URL}${path}`);
+    xhr.withCredentials = true;
+    if (options.idempotencyKey) xhr.setRequestHeader("Idempotency-Key", options.idempotencyKey);
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        options.onUploadProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    });
+    xhr.upload.addEventListener("load", () => options.onUploadComplete?.());
+    xhr.addEventListener("load", () => {
+      options.signal?.removeEventListener("abort", abort);
+      const payload: ApiErrorPayload | { simulation_id: string; id?: string } | null = (() => {
+        try {
+          return xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (xhr.status < 200 || xhr.status >= 300) {
+        notifyExpiredSession(path, xhr.status);
+        reject(apiErrorFromPayload(payload as ApiErrorPayload | null, xhr.status));
+        return;
+      }
+      resolve(payload as { simulation_id: string; id?: string });
+    });
+    xhr.addEventListener("error", () => {
+      options.signal?.removeEventListener("abort", abort);
+      reject(new Error("Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi."));
+    });
+    xhr.addEventListener("abort", () => {
+      options.signal?.removeEventListener("abort", abort);
+      reject(new DOMException("Permintaan dibatalkan.", "AbortError"));
+    });
+    if (options.signal?.aborted) {
+      reject(new DOMException("Permintaan dibatalkan.", "AbortError"));
+      return;
+    }
+    options.signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(body);
+  });
 }
 
 export const getSimulation = (simulationId: string) =>

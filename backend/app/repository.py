@@ -80,58 +80,99 @@ class Repository:
         max_active_projects: int,
         max_files_per_project: int,
         max_total_upload_bytes: int,
+        idempotency_key: str | None = None,
+        initial_job: dict | None = None,
     ) -> dict:
         """Create all metadata atomically while serializing quota checks per user."""
         if len(document_values) > max_files_per_project:
             raise UploadQuotaExceeded("Jumlah berkas per proyek melebihi batas")
         incoming_bytes = sum(int(document.get("size_bytes") or 0) for document, _, _ in document_values)
-        with self.lock, self.engine.begin() as db:
-            if db.execute(select(users.c.id).where(users.c.id == owner_user_id).with_for_update()).scalar_one_or_none() is None:
-                raise ValueError("Pemilik proyek tidak ditemukan")
-            active_count = db.execute(select(func.count()).select_from(projects).where(
-                projects.c.owner_user_id == owner_user_id,
-                projects.c.status == "active",
-                projects.c.deleted_at.is_(None),
-            )).scalar_one()
-            if active_count >= max_active_projects:
-                raise UploadQuotaExceeded("Batas proyek aktif pengguna telah tercapai")
-            used_bytes = db.execute(
-                select(func.coalesce(func.sum(documents.c.size_bytes), 0))
-                .select_from(documents.join(simulations).join(projects, projects.c.id == simulations.c.project_id))
-                .where(projects.c.owner_user_id == owner_user_id, projects.c.deleted_at.is_(None))
-            ).scalar_one()
-            if used_bytes + incoming_bytes > max_total_upload_bytes:
-                raise UploadQuotaExceeded("Kuota penyimpanan pengguna telah terlampaui")
+        try:
+            with self.lock, self.engine.begin() as db:
+                if db.execute(select(users.c.id).where(users.c.id == owner_user_id).with_for_update()).scalar_one_or_none() is None:
+                    raise ValueError("Pemilik proyek tidak ditemukan")
+                if idempotency_key:
+                    existing = db.execute(
+                        select(simulations.c.state)
+                        .select_from(projects.join(simulations, simulations.c.project_id == projects.c.id))
+                        .where(
+                            projects.c.owner_user_id == owner_user_id,
+                            projects.c.idempotency_key == idempotency_key,
+                        )
+                        .order_by(simulations.c.updated_at.desc())
+                        .limit(1)
+                    ).scalar_one_or_none()
+                    if existing:
+                        return existing
+                active_count = db.execute(select(func.count()).select_from(projects).where(
+                    projects.c.owner_user_id == owner_user_id,
+                    projects.c.status == "active",
+                    projects.c.deleted_at.is_(None),
+                )).scalar_one()
+                if active_count >= max_active_projects:
+                    raise UploadQuotaExceeded("Batas proyek aktif pengguna telah tercapai")
+                used_bytes = db.execute(
+                    select(func.coalesce(func.sum(documents.c.size_bytes), 0))
+                    .select_from(documents.join(simulations).join(projects, projects.c.id == simulations.c.project_id))
+                    .where(projects.c.owner_user_id == owner_user_id, projects.c.deleted_at.is_(None))
+                ).scalar_one()
+                if used_bytes + incoming_bytes > max_total_upload_bytes:
+                    raise UploadQuotaExceeded("Kuota penyimpanan pengguna telah terlampaui")
 
-            project = state["project"]
-            timestamp = parse_timestamp(state["updated_at"])
-            db.execute(insert(projects).values(
-                id=project["id"], owner_user_id=owner_user_id,
-                name=project.get("name") or project["project_name"], institution=project["institution"],
-                objective=project["objective"], status="active", version=state.get("revision", 1),
-                created_at=timestamp, updated_at=timestamp,
-            ))
-            db.execute(insert(simulations).values(
-                id=state["id"], project_id=project["id"], state=state,
-                updated_at=timestamp, owner_user_id=owner_user_id,
-            ))
-            for document, chunks, pages in document_values:
-                db.execute(insert(documents).values(**(document | {"created_at": document.get("created_at", timestamp)})))
-                if chunks:
-                    db.execute(insert(document_chunks), [item | {"simulation_id": state["id"]} for item in chunks])
-                if pages:
-                    rows = []
-                    for item in pages:
-                        key = f"{document['id']}:{item['page_number']}"
-                        rows.append({
-                            "id": f"page_{hashlib.sha256(key.encode()).hexdigest()[:16]}",
-                            "simulation_id": state["id"], "document_id": document["id"], **item,
-                        })
-                    db.execute(insert(document_pages), rows)
-            self._audit(db, owner_user_id, project["id"], "project.created", "project", project["id"], {
-                "file_count": len(document_values), "size_bytes": incoming_bytes,
-            })
+                project = state["project"]
+                timestamp = parse_timestamp(state["updated_at"])
+                db.execute(insert(projects).values(
+                    id=project["id"], owner_user_id=owner_user_id,
+                    name=project.get("name") or project["project_name"], institution=project["institution"],
+                    objective=project["objective"], idempotency_key=idempotency_key,
+                    status="active", version=state.get("revision", 1),
+                    created_at=timestamp, updated_at=timestamp,
+                ))
+                db.execute(insert(simulations).values(
+                    id=state["id"], project_id=project["id"], state=state,
+                    updated_at=timestamp, owner_user_id=owner_user_id,
+                ))
+                for document, chunks, pages in document_values:
+                    db.execute(insert(documents).values(**(document | {"created_at": document.get("created_at", timestamp)})))
+                    if chunks:
+                        db.execute(insert(document_chunks), [item | {"simulation_id": state["id"]} for item in chunks])
+                    if pages:
+                        rows = []
+                        for item in pages:
+                            key = f"{document['id']}:{item['page_number']}"
+                            rows.append({
+                                "id": f"page_{hashlib.sha256(key.encode()).hexdigest()[:16]}",
+                                "simulation_id": state["id"], "document_id": document["id"], **item,
+                            })
+                        db.execute(insert(document_pages), rows)
+                if initial_job:
+                    db.execute(insert(jobs).values(
+                        **initial_job, created_at=timestamp, updated_at=timestamp, available_at=timestamp,
+                    ))
+                self._audit(db, owner_user_id, project["id"], "project.created", "project", project["id"], {
+                    "file_count": len(document_values), "size_bytes": incoming_bytes,
+                })
+        except IntegrityError:
+            existing = self.project_state_for_idempotency_key(owner_user_id, idempotency_key) if idempotency_key else None
+            if existing:
+                return existing
+            raise
         return state
+
+    def project_state_for_idempotency_key(self, owner_user_id: str, idempotency_key: str | None) -> dict | None:
+        if not idempotency_key:
+            return None
+        with self.engine.connect() as db:
+            return db.execute(
+                select(simulations.c.state)
+                .select_from(projects.join(simulations, simulations.c.project_id == projects.c.id))
+                .where(
+                    projects.c.owner_user_id == owner_user_id,
+                    projects.c.idempotency_key == idempotency_key,
+                )
+                .order_by(simulations.c.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
 
     def project(self, project_id: str, user_id: str, include_archived: bool = True) -> dict | None:
         with self.engine.connect() as db:
@@ -213,7 +254,9 @@ class Repository:
             state["updated_at"] = now.isoformat()
             db.execute(update(simulations).where(simulations.c.id == simulation["id"]).values(state=state, updated_at=now))
             self._audit(db, user_id, project_id, "project.updated", "project", project_id, allowed)
-            return dict(row)
+            result = dict(row)
+            result.pop("idempotency_key", None)
+            return result
 
     def set_project_status(self, project_id: str, user_id: str, status: str) -> dict | None:
         now = utc_now()
@@ -242,7 +285,10 @@ class Repository:
             ).values(**values).returning(projects)).mappings().one_or_none()
             if row:
                 self._audit(db, user_id, project_id, f"project.{status}", "project", project_id, {})
-            return dict(row) if row else None
+            result = dict(row) if row else None
+            if result:
+                result.pop("idempotency_key", None)
+            return result
 
     def create_scenario(self, project_id: str, user_id: str, values: dict) -> dict | None:
         timestamp = utc_now()
@@ -582,6 +628,29 @@ class Repository:
                     **item,
                 })
             db.execute(insert(document_pages), values)
+
+    def complete_document_ingestion(
+        self, document_id: str, values: dict, chunks: list[dict], pages: list[dict],
+    ) -> None:
+        """Publish extracted document artifacts atomically and safely on worker retry."""
+        with self.lock, self.engine.begin() as db:
+            simulation_id = db.execute(
+                select(documents.c.simulation_id).where(documents.c.id == document_id).with_for_update()
+            ).scalar_one()
+            db.execute(delete(document_chunks).where(document_chunks.c.document_id == document_id))
+            db.execute(delete(document_pages).where(document_pages.c.document_id == document_id))
+            db.execute(update(documents).where(documents.c.id == document_id).values(**values))
+            if chunks:
+                db.execute(insert(document_chunks), [item | {"simulation_id": simulation_id} for item in chunks])
+            if pages:
+                rows = []
+                for item in pages:
+                    key = f"{document_id}:{item['page_number']}"
+                    rows.append({
+                        "id": f"page_{hashlib.sha256(key.encode()).hexdigest()[:16]}",
+                        "simulation_id": simulation_id, "document_id": document_id, **item,
+                    })
+                db.execute(insert(document_pages), rows)
 
     def documents(self, simulation_id: str) -> list[dict]:
         with self.engine.connect() as db:

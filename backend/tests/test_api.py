@@ -118,7 +118,7 @@ def test_environment_patch_and_all_interaction_tools(client):
     assert readiness["status"] == "ok"
     assert readiness["database"] == "postgresql"
     assert readiness["storage"] == "local"
-    assert readiness["schema_revision"] == "0006_scenario_persona_overrides"
+    assert readiness["schema_revision"] == "0007_project_idempotency"
 
 
 def test_validation_errors_and_stage_conflict(client):
@@ -175,6 +175,7 @@ def test_grounded_artifacts_interviews_and_graph_feedback(client):
     created = project(client, "Kebijakan Pesisir", b"Nelayan membutuhkan akses pelabuhan, subsidi bahan bakar, dan perlindungan abrasi.")
     simulation_id = created.json()["simulation_id"]
     project_id = created.json()["id"]
+    wait_for(client, simulation_id, "graph")
     chunks = client.get(f"/api/projects/{project_id}/chunks").json()["chunks"]
     assert chunks and chunks[0]["text"].startswith("Nelayan")
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { drag } from "d3-drag";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from "d3-force";
@@ -8,7 +8,7 @@ import { zoom, zoomIdentity } from "d3-zoom";
 import { graphColors } from "./workflowData";
 import type { ConsoleLog, DemoCase, PolicyGraphNode, ViewMode, WorkflowStep, WorkflowTask } from "./workflowTypes";
 import type { StepRunStatus, WorkflowSession } from "./workflowSession";
-import { workflowStatus } from "./workflowSession";
+import { formatTime, workflowStatus } from "./workflowSession";
 import { useAuth } from "../../auth/useAuth";
 import { CitationDrawer } from "../../components/CitationDrawer/CitationDrawer";
 
@@ -18,10 +18,11 @@ export function WorkflowTopBar({ session, onStep, onViewMode }: { session: Workf
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const status = workflowStatus(session);
+  const effectiveViewMode = session.currentStep >= 4 ? "workbench" : session.viewMode;
   return <>
     <header className="workflow-topbar">
       <div className="workflow-brand"><button className="workflow-back" onClick={() => navigate("/projects")} aria-label="Kembali ke proyek kebijakan">←</button><button className="workflow-wordmark" onClick={() => navigate("/projects")}>RekaKebijakan</button></div>
-      <div className="view-modes" aria-label="Mode tampilan">{(["graph", "split", "workbench"] as ViewMode[]).map((mode) => <button key={mode} aria-pressed={session.viewMode === mode} onClick={() => onViewMode(mode)}>{mode === "graph" ? "Graph" : mode === "split" ? "Split" : "Workbench"}</button>)}</div>
+      <div className="view-modes" aria-label="Mode tampilan">{(["graph", "split", "workbench"] as ViewMode[]).map((mode) => <button key={mode} aria-pressed={effectiveViewMode === mode} disabled={session.currentStep >= 4 && mode !== "workbench"} onClick={() => onViewMode(mode)}>{mode === "graph" ? "Graph" : mode === "split" ? "Split" : "Workbench"}</button>)}</div>
       <div className="workflow-meta"><span className="workflow-user" title={user?.email}>{user?.name || user?.email}</span><button className="workflow-logout" onClick={() => logout().then(() => navigate("/login")).catch(() => undefined)}>Keluar</button><span className="workflow-step-label"><b>Step {session.currentStep}/5</b><small>{stepNames[session.currentStep]}</small></span><span className={`workflow-status ${status}`} role="status" aria-live="polite"><i />{status === "processing" ? "Processing" : status === "completed" ? "Completed" : status === "stale" ? "Stale" : status === "cancelled" ? "Cancelled" : status === "failed" ? "Failed" : "Ready"}</span></div>
     </header>
     <nav className="workflow-stepper" aria-label="Tahap workflow">{([1, 2, 3, 4, 5] as WorkflowStep[]).map((step) => { const state = session.steps[step]; return <button key={step} className={`${state.status} ${session.currentStep === step ? "active" : ""}`} disabled={state.status === "locked"} onClick={() => onStep(step)} aria-current={session.currentStep === step ? "step" : undefined}><span>{String(step).padStart(2, "0")}</span><b>{stepNames[step]}</b><small>{state.status === "processing" ? `${state.progress}%` : state.status}</small></button>; })}</nav>
@@ -39,15 +40,18 @@ export function PolicyGraph({ demo, nodeCount, edgeCount, activeNodeId, selected
   const [filter, setFilter] = useState("Semua");
   const [layoutKey, setLayoutKey] = useState(0);
   const initialZoomApplied = useRef(false);
+  const getGraphData = useEffectEvent(() => ({ nodes: demo.graphNodes, edges: demo.graphEdges }));
+  const topologyKey = `${demo.graphNodes.slice(0, nodeCount).map((node) => node.id).join("|")}::${demo.graphEdges.slice(0, edgeCount).map((edge) => `${edge.id}:${edge.source}:${edge.target}`).join("|")}`;
   const visibleNodes = demo.graphNodes.slice(0, nodeCount).filter((node) => filter === "Semua" || node.type === filter);
   const ids = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = demo.graphEdges.slice(0, edgeCount).filter((edge) => ids.has(edge.source) && ids.has(edge.target));
   const selected = demo.graphNodes.find((node) => node.id === selectedNodeId) ?? null;
 
   useEffect(() => {
-    const effectNodes = demo.graphNodes.slice(0, nodeCount).filter((node) => filter === "Semua" || node.type === filter);
+    const graphData = getGraphData();
+    const effectNodes = graphData.nodes.slice(0, nodeCount).filter((node) => filter === "Semua" || node.type === filter);
     const effectIds = new Set(effectNodes.map((node) => node.id));
-    const effectEdges = demo.graphEdges.slice(0, edgeCount).filter((edge) => effectIds.has(edge.source) && effectIds.has(edge.target));
+    const effectEdges = graphData.edges.slice(0, edgeCount).filter((edge) => effectIds.has(edge.source) && effectIds.has(edge.target));
     if (!svgRef.current || !viewportRef.current || effectNodes.length === 0) return;
     const svg = select(svgRef.current);
     const viewport = select(viewportRef.current);
@@ -74,7 +78,7 @@ export function PolicyGraph({ demo, nodeCount, edgeCount, activeNodeId, selected
       group.attr("transform", (node) => `translate(${node.x ?? 0},${node.y ?? 0})`);
     });
     return () => { simulation.stop(); svg.on(".zoom", null); };
-  }, [demo, edgeCount, filter, layoutKey, nodeCount]);
+  }, [edgeCount, filter, layoutKey, nodeCount, topologyKey]);
 
   const fit = () => {
     if (!svgRef.current || !viewportRef.current) return;
@@ -104,8 +108,8 @@ export function SystemConsole({ logs }: { logs: ConsoleLog[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const visible = logs.filter((log) => filter === "ALL" || log.level === filter);
   useEffect(() => { if (autoScroll) ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }, [autoScroll, logs]);
-  const copy = () => navigator.clipboard?.writeText(logs.map((log) => `[${log.time}] ${log.level} ${log.message}`).join("\n"));
-  return <section className={`system-console ${collapsed ? "collapsed" : ""}`} aria-label="System console"><div className="console-header"><button onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed}>SYSTEM CONSOLE</button><div>{!collapsed && <><select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter console"><option>ALL</option><option>INFO</option><option>WARN</option><option>DONE</option></select><button onClick={() => setAutoScroll(!autoScroll)}>{autoScroll ? "AUTO" : "PAUSED"}</button><button onClick={copy}>COPY</button></>}<button onClick={() => setCollapsed(!collapsed)}>{logs.length} EVENTS {collapsed ? "⌃" : "⌄"}</button></div></div>{!collapsed && <div className="console-lines" ref={ref}>{visible.map((log) => <div key={log.id} className={log.level.toLowerCase()}><time>{log.time}</time><b>{log.level}</b><span>{log.message}</span></div>)}</div>}<span className="sr-only" aria-live="polite">{logs.at(-1)?.message}</span></section>;
+  const copy = () => navigator.clipboard?.writeText(logs.map((log) => `[${formatTime(log.time)}] ${log.level} ${log.message}`).join("\n"));
+  return <section className={`system-console ${collapsed ? "collapsed" : ""}`} aria-label="System console"><header className="console-header"><button className="console-toggle" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed}><b>System Console</b><span>{logs.length} events</span><i aria-hidden="true">{collapsed ? "▲" : "▼"}</i></button>{!collapsed && <div className="console-controls"><select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter console"><option>ALL</option><option>INFO</option><option>WARN</option><option>DONE</option></select><button aria-pressed={autoScroll} onClick={() => setAutoScroll(!autoScroll)}>{autoScroll ? "Auto-scroll on" : "Auto-scroll off"}</button><button onClick={copy}>Copy log</button></div>}</header>{!collapsed && <div className="console-lines" ref={ref} role="log" aria-label="Log sistem">{visible.length ? visible.map((log) => <div key={log.id} className={log.level.toLowerCase()}><time>{formatTime(log.time)}</time><b>{log.level}</b><span>{log.message}</span></div>) : <p>Tidak ada event untuk filter ini.</p>}</div>}<span className="sr-only" aria-live="polite">{logs.at(-1)?.message}</span></section>;
 }
 
 export function StepCard({ number, task, state, progress = 0, children }: { number: number; task: WorkflowTask; state: StepRunStatus; progress?: number; children?: React.ReactNode }) {

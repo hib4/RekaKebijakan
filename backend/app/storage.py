@@ -133,93 +133,88 @@ class LocalStorageBackend(StorageBackend):
         return digest.hexdigest()
 
 
-class S3StorageBackend(StorageBackend):
+class FirebaseStorageBackend(StorageBackend):
     def __init__(
         self,
         bucket: str,
         *,
         prefix: str = "",
-        endpoint_url: str | None = None,
-        region_name: str | None = None,
-        access_key_id: str | None = None,
-        secret_access_key: str | None = None,
-        client: Any | None = None,
+        bucket_client: Any | None = None,
     ):
         if not bucket:
-            raise ValueError("S3 bucket is required")
-        if client is None:
+            raise ValueError("Firebase Storage bucket is required")
+        if bucket_client is None:
             try:
-                import boto3
+                import firebase_admin
+                from firebase_admin import credentials, storage
             except ImportError as error:
-                raise RuntimeError("Install the 's3' optional dependency to use S3 storage") from error
-            client = boto3.client(
-                "s3",
-                endpoint_url=endpoint_url,
-                region_name=region_name,
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
-            )
-        self.bucket = bucket
+                raise RuntimeError("Install the 'firebase' optional dependency to use Firebase Storage") from error
+            app_name = f"rekakebijakan-storage-{hashlib.sha256(bucket.encode()).hexdigest()[:16]}"
+            try:
+                app = firebase_admin.get_app(app_name)
+            except ValueError:
+                app = firebase_admin.initialize_app(
+                    credentials.ApplicationDefault(),
+                    {"storageBucket": bucket},
+                    name=app_name,
+                )
+            bucket_client = storage.bucket(bucket, app=app)
+        self.bucket_name = bucket
         self.prefix = prefix.strip("/")
-        self.client = client
+        self.bucket = bucket_client
 
-    def _object_key(self, key: str) -> tuple[str, str]:
+    def _blob_name(self, key: str) -> tuple[str, str]:
         normalized = normalize_storage_key(key)
         return normalized, f"{self.prefix}/{normalized}" if self.prefix else normalized
 
     def healthcheck(self) -> None:
-        self.client.head_bucket(Bucket=self.bucket)
+        self.bucket.reload()
 
     def save(self, key: str, data: bytes | bytearray | memoryview | BinaryIO) -> StorageMetadata:
-        normalized, object_key = self._object_key(key)
-        body = bytes(data) if isinstance(data, (bytes, bytearray, memoryview)) else data
-        self.client.put_object(Bucket=self.bucket, Key=object_key, Body=body)
+        normalized, blob_name = self._blob_name(key)
+        blob = self.bucket.blob(blob_name)
+        content_type = mimetypes.guess_type(normalized)[0]
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            blob.upload_from_string(bytes(data), content_type=content_type)
+        else:
+            blob.upload_from_file(data, content_type=content_type)
         return self.metadata(normalized)
 
     def open(self, key: str) -> BinaryIO:
-        _, object_key = self._object_key(key)
-        return self.client.get_object(Bucket=self.bucket, Key=object_key)["Body"]
+        _, blob_name = self._blob_name(key)
+        return self.bucket.blob(blob_name).open("rb")
 
     def delete(self, key: str) -> None:
-        _, object_key = self._object_key(key)
-        self.client.delete_object(Bucket=self.bucket, Key=object_key)
+        _, blob_name = self._blob_name(key)
+        blob = self.bucket.blob(blob_name)
+        if blob.exists():
+            blob.delete()
 
     def copy(self, source_key: str, destination_key: str) -> StorageMetadata:
-        _, source = self._object_key(source_key)
-        destination_normalized, destination = self._object_key(destination_key)
-        self.client.copy_object(
-            Bucket=self.bucket,
-            Key=destination,
-            CopySource={"Bucket": self.bucket, "Key": source},
-        )
+        _, source = self._blob_name(source_key)
+        destination_normalized, destination = self._blob_name(destination_key)
+        source_blob = self.bucket.blob(source)
+        self.bucket.copy_blob(source_blob, self.bucket, new_name=destination)
         return self.metadata(destination_normalized)
 
     def exists(self, key: str) -> bool:
-        _, object_key = self._object_key(key)
-        try:
-            self.client.head_object(Bucket=self.bucket, Key=object_key)
-        except Exception as error:
-            response = getattr(error, "response", {})
-            code = str(response.get("Error", {}).get("Code", ""))
-            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
-                return False
-            raise
-        return True
+        _, blob_name = self._blob_name(key)
+        return bool(self.bucket.blob(blob_name).exists())
 
     def metadata(self, key: str) -> StorageMetadata:
-        normalized, object_key = self._object_key(key)
-        response = self.client.head_object(Bucket=self.bucket, Key=object_key)
-        modified = response["LastModified"]
+        normalized, blob_name = self._blob_name(key)
+        blob = self.bucket.blob(blob_name)
+        blob.reload()
+        modified = blob.updated or datetime.now(timezone.utc)
         if modified.tzinfo is None:
             modified = modified.replace(tzinfo=timezone.utc)
         return StorageMetadata(
             key=normalized,
-            size=response["ContentLength"],
+            size=int(blob.size or 0),
             last_modified=modified,
-            content_type=response.get("ContentType"),
-            etag=response.get("ETag", "").strip('"') or None,
-            custom=response.get("Metadata", {}),
+            content_type=blob.content_type,
+            etag=blob.etag,
+            custom=blob.metadata or {},
         )
 
     def checksum(self, key: str) -> str:
@@ -245,13 +240,9 @@ def make_storage_backend(settings: Any) -> StorageBackend:
         if root is None:
             raise ValueError("Local storage requires storage_path or upload_dir")
         return LocalStorageBackend(root)
-    if backend == "s3":
-        return S3StorageBackend(
-            bucket=setting("s3_bucket", ""),
-            prefix=setting("s3_prefix", ""),
-            endpoint_url=setting("s3_endpoint_url"),
-            region_name=setting("s3_region"),
-            access_key_id=setting("s3_access_key_id"),
-            secret_access_key=setting("s3_secret_access_key"),
+    if backend == "firebase":
+        return FirebaseStorageBackend(
+            bucket=setting("firebase_storage_bucket", ""),
+            prefix=setting("firebase_storage_prefix", ""),
         )
-    raise ValueError("storage_backend must be 'local' or 's3'")
+    raise ValueError("storage_backend must be 'local' or 'firebase'")

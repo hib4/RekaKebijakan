@@ -11,5 +11,6 @@ pwdlib[argon2]>=0.3,<1
 SQLAlchemy>=2.0,<3
 psycopg[binary]>=3.2,<4
 alembic>=1.14,<2
+firebase-admin>=6.6,<8
 pytest>=8.3,<9
 httpx>=0.28,<1

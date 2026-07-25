@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
@@ -117,6 +118,31 @@ function queryStep(value: string | null): WorkflowStep | null {
   ].indexOf(value ?? "");
   return index >= 0 ? ((index + 1) as WorkflowStep) : null;
 }
+function queryViewMode(value: string | null): ViewMode | null {
+  return value && ["graph", "split", "workbench"].includes(value)
+    ? (value as ViewMode)
+    : null;
+}
+function reconcileRoute(session: WorkflowSession, search: string) {
+  const params = new URLSearchParams(search);
+  const requested = queryStep(params.get("step"));
+  const targetStep =
+    requested && requested <= highestUnlockedStep(session)
+      ? requested
+      : session.currentStep;
+  const requestedMode = queryViewMode(params.get("mode"));
+
+  return {
+    ...session,
+    currentStep: targetStep,
+    // Report and Interaction always render as Workbench. A generated
+    // mode=workbench URL must not overwrite the earlier-stage preference.
+    viewMode:
+      requestedMode && (targetStep < 4 || requestedMode !== "workbench")
+        ? requestedMode
+        : session.viewMode,
+  };
+}
 function taskState(progress: number, index: number, running: boolean) {
   const start = index * 33;
   const end = (index + 1) * 33;
@@ -132,10 +158,10 @@ function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
   if (stored) {
     const params = new URLSearchParams(window.location.search);
     const requested = queryStep(params.get("step"));
-    const mode = params.get("mode") as ViewMode | null;
+    const mode = queryViewMode(params.get("mode"));
     if (requested && requested <= highestUnlockedStep(session))
       session.currentStep = requested;
-    if (mode && ["graph", "split", "workbench"].includes(mode))
+    if (mode && (session.currentStep < 4 || mode !== "workbench"))
       session.viewMode = mode;
     return session;
   }
@@ -177,10 +203,10 @@ function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
   session.currentStep = Math.min(5, Math.max(1, stage || 1)) as WorkflowStep;
   const params = new URLSearchParams(window.location.search);
   const requested = queryStep(params.get("step"));
-  const mode = params.get("mode") as ViewMode | null;
+  const mode = queryViewMode(params.get("mode"));
   if (requested && requested <= highestUnlockedStep(session))
     session.currentStep = requested;
-  if (mode && ["graph", "split", "workbench"].includes(mode))
+  if (mode && (session.currentStep < 4 || mode !== "workbench"))
     session.viewMode = mode;
   return session;
 }
@@ -911,7 +937,7 @@ function InteractionStep({
 }: {
   demo: DemoCase;
   session: WorkflowSession;
-  update: (session: WorkflowSession) => void;
+  update: Dispatch<SetStateAction<WorkflowSession>>;
   sendBackend?: (
     tool: string,
     question: string,
@@ -922,7 +948,7 @@ function InteractionStep({
   const [group, setGroup] = useState(demo.personas[0]?.group ?? "Stakeholder");
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
-  const [, setSendError] = useState("");
+  const [sendError, setSendError] = useState("");
   const timer = useRef<number | null>(null);
   const scrollRef = useAutoFollow<HTMLElement>(
     `${tool}-${typing}-${session.interaction.messages.length}`,
@@ -956,31 +982,33 @@ function InteractionStep({
       tool,
       text: question,
     };
-    update({
-      ...session,
+    update((current) => ({
+      ...current,
       interaction: {
-        ...session.interaction,
-        messages: [...session.interaction.messages, user],
+        ...current.interaction,
+        messages: [...current.interaction.messages, user],
       },
-    });
+    }));
     setInput("");
     setTyping(true);
     setSendError("");
     if (sendBackend) {
       try {
         const agent = await sendBackend(tool, question, group);
-        update(
-          appendSessionLog(
+        update((current) => {
+          const messages = current.interaction.messages.some(
+            (message) => message.id === agent.id,
+          )
+            ? current.interaction.messages
+            : [...current.interaction.messages, agent];
+          return appendSessionLog(
             {
-              ...session,
-              interaction: {
-                ...session.interaction,
-                messages: [...session.interaction.messages, user, agent],
-              },
+              ...current,
+              interaction: { ...current.interaction, messages },
             },
             `${agent.author} response generated`,
-          ),
-        );
+          );
+        });
       } catch (cause) {
         setSendError(
           cause instanceof Error ? cause.message : "Interaksi gagal dikirim.",
@@ -1025,13 +1053,13 @@ function InteractionStep({
                 },
               ],
       };
-      update(
+      update((current) =>
         appendSessionLog(
           {
-            ...session,
+            ...current,
             interaction: {
-              ...session.interaction,
-              messages: [...session.interaction.messages, user, agent],
+              ...current.interaction,
+              messages: [...current.interaction.messages, agent],
             },
           },
           `${agent.author} response generated`,
@@ -1171,6 +1199,11 @@ function InteractionStep({
               placeholder="Ajukan pertanyaan berbasis laporan..."
               rows={3}
             />
+            {sendError && (
+              <p className="interaction-send-error" role="alert">
+                {sendError}
+              </p>
+            )}
             <button
               className="button primary"
               type="submit"
@@ -1217,6 +1250,7 @@ export default function SimulationWorkflowPage() {
       : createWorkflowSession(simulationId, "Simulasi kebijakan"),
   );
   const [backendLoading, setBackendLoading] = useState(!localMode);
+  const [backendLoaded, setBackendLoaded] = useState(localMode);
   const [backendError, setBackendError] = useState("");
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
@@ -1230,12 +1264,13 @@ export default function SimulationWorkflowPage() {
       setSession((current) => {
         const mapped = mapBackendSnapshot(snapshot, simulationId, current);
         setResolvedDemo(mapped.demo);
-        return mapped.session;
+        return reconcileRoute(mapped.session, location.search);
       });
       setBackendError("");
       setBackendLoading(false);
+      setBackendLoaded(true);
     },
-    [simulationId],
+    [location.search, simulationId],
   );
   const loadBackend = useCallback(async () => {
     try {
@@ -1260,11 +1295,19 @@ export default function SimulationWorkflowPage() {
     (!localMode && session.simulation.status === "running");
   useEffect(() => {
     if (!backendPolling) return;
-    const timer = window.setInterval(loadBackend, 1500);
-    return () => window.clearInterval(timer);
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      await loadBackend();
+      if (!cancelled) timer = window.setTimeout(poll, 1500);
+    };
+    timer = window.setTimeout(poll, 1500);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [backendPolling, loadBackend]);
 
-  const update = (next: WorkflowSession) => setSession(next);
   const updateWorkflow = (next: WorkflowSession) => {
     if (!localMode && session.simulation.status !== next.simulation.status) {
       const action =
@@ -1311,7 +1354,7 @@ export default function SimulationWorkflowPage() {
   const goStep = (step: WorkflowStep) => {
     if (session.steps[step].status === "locked") return;
     const mode: ViewMode = step >= 4 ? "workbench" : session.viewMode;
-    const next = { ...session, currentStep: step, viewMode: mode };
+    const next = { ...session, currentStep: step };
     setSession(next);
     document.title = `${resolvedDemo.title} · ${stepQuery(step)} · RekaKebijakan`;
     navigate(
@@ -1319,6 +1362,7 @@ export default function SimulationWorkflowPage() {
     );
   };
   const setMode = (mode: ViewMode) => {
+    if (session.currentStep >= 4) return;
     setSession((current) => ({ ...current, viewMode: mode }));
     navigate(
       `/simulation/${simulationId}?step=${stepQuery(session.currentStep)}&mode=${mode}`,
@@ -1326,22 +1370,7 @@ export default function SimulationWorkflowPage() {
     );
   };
   const syncRoute = useEffectEvent(() => {
-    const params = new URLSearchParams(location.search);
-    const requested = queryStep(params.get("step"));
-    const requestedMode = params.get("mode") as ViewMode | null;
-    setSession((current) => {
-      const targetStep =
-        requested && requested <= highestUnlockedStep(current)
-          ? requested
-          : current.currentStep;
-      const targetMode =
-        requestedMode && ["graph", "split", "workbench"].includes(requestedMode)
-          ? requestedMode
-          : current.viewMode;
-      if (targetStep === current.currentStep && targetMode === current.viewMode)
-        return current;
-      return { ...current, currentStep: targetStep, viewMode: targetMode };
-    });
+    setSession((current) => reconcileRoute(current, location.search));
   });
   useEffect(() => {
     const timer = window.setTimeout(syncRoute, 0);
@@ -1640,7 +1669,7 @@ export default function SimulationWorkflowPage() {
         <h1>Mengambil snapshot simulasi...</h1>
       </div>
     );
-  if (backendError && !localMode)
+  if (backendError && !localMode && !backendLoaded)
     return (
       <div className="workflow-not-found">
         <h1>Workflow gagal dimuat</h1>
@@ -1670,6 +1699,8 @@ export default function SimulationWorkflowPage() {
         </button>
       </div>
     );
+  const effectiveViewMode: ViewMode =
+    session.currentStep >= 4 ? "workbench" : session.viewMode;
   return (
     <div className="simulation-workflow">
       <WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} />
@@ -1678,8 +1709,8 @@ export default function SimulationWorkflowPage() {
           {backendError} <button onClick={loadBackend}>Coba lagi</button>
         </p>
       )}
-      <main className={`workflow-content mode-${session.viewMode}`}>
-        {session.viewMode !== "workbench" && (
+      <main className={`workflow-content mode-${effectiveViewMode}`}>
+        {effectiveViewMode !== "workbench" && (
           <div className="graph-column">
             <PolicyGraph
               demo={resolvedDemo}
@@ -1697,7 +1728,7 @@ export default function SimulationWorkflowPage() {
             />
           </div>
         )}
-        {session.viewMode !== "graph" && (
+        {effectiveViewMode !== "graph" && (
           <div className="workbench-column">
             {session.currentStep === 1 && (
               <GraphBuildStep
@@ -1730,51 +1761,27 @@ export default function SimulationWorkflowPage() {
                 demo={resolvedDemo}
                 session={session}
                 start={() => startStep(4)}
-                next={() => {
-                  const next = appendSessionLog(
-                    {
-                      ...session,
-                      currentStep: 5,
-                      viewMode: "workbench",
-                      steps: {
-                        ...session.steps,
-                        5: {
-                          ...session.steps[5],
-                          status: "completed",
-                          progress: 100,
-                          activeTask: null,
-                          completedAt: new Date().toISOString(),
-                        },
-                      },
-                    },
-                    "Interaction tools loaded",
-                    "DONE",
-                  );
-                  setSession(next);
-                  if (localMode) updateProjectStage(simulationId, 5);
-                  navigate(
-                    `/simulation/${simulationId}?step=interaction&mode=workbench`,
-                  );
-                }}
+                next={() => goStep(5)}
               />
             )}
             {session.currentStep === 5 && (
               <InteractionStep
                 demo={resolvedDemo}
                 session={session}
-                update={update}
+                update={setSession}
                 sendBackend={
                   localMode
                     ? undefined
-                    : async (tool, question, group) =>
-                        mapInteractionMessage(
-                          await sendInteraction(simulationId, {
-                            tool,
-                            question,
-                            personaGroup:
-                              tool === "persona" ? group : undefined,
-                          }),
-                        )
+                    : async (tool, question, group) => {
+                        const response = await sendInteraction(simulationId, {
+                          tool,
+                          question,
+                          personaGroup:
+                            tool === "persona" ? group : undefined,
+                        });
+                        await loadBackend();
+                        return mapInteractionMessage(response);
+                      }
                 }
               />
             )}

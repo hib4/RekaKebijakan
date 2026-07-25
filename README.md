@@ -5,7 +5,7 @@ RekaKebijakan is a policy-scenario simulation prototype with a React frontend an
 ## Architecture
 
 - `frontend/`: React 19, TypeScript, and Vite user interface.
-- `backend/`: FastAPI application factory, Pydantic request validation, PostgreSQL persistence, local document storage, and background jobs served by Uvicorn.
+- `backend/`: FastAPI application factory, Pydantic request validation, PostgreSQL persistence, local or Firebase document storage, and background jobs served by Uvicorn.
 
 The backend defaults to a grounded deterministic policy provider. It requires no LLM, graph service, external queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are chunked with stable evidence IDs; ontology, graph, persona, event, interview, report, citation, log, and interaction data remain durable in PostgreSQL.
 
@@ -36,7 +36,9 @@ Use `make up-d` or `make full-up-d` for detached startup, `make health` to check
 
 `make down` and `make full-down` never delete application data. To remove the database and uploaded documents intentionally, run `make reset` and then the displayed confirmation command.
 
-Copy `.env.example` to `.env` to customize host ports, CORS origins, upload limits, job delay, or frontend build variables.
+Copy `.env.example` to `.env` to customize host ports, CORS origins, upload limits, job delay, storage, or frontend build variables.
+
+To use Firebase Storage instead of local uploaded-document storage, set `STORAGE_BACKEND=firebase`, `FIREBASE_STORAGE_BUCKET=<your-bucket-name>`, and point `FIREBASE_CREDENTIALS_HOST_PATH` at a Firebase service-account JSON file on the host. Compose mounts that file at `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/firebase-service-account.json` for the API and worker containers. The `secrets/` directory is git-ignored.
 
 ### Local processes
 

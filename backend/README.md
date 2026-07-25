@@ -1,6 +1,6 @@
 # RekaKebijakan Backend
 
-FastAPI, Pydantic, PostgreSQL, and local-file implementation of the policy workflow. It uses local email/password accounts.
+FastAPI, Pydantic, PostgreSQL, and local/Firebase file storage implementation of the policy workflow. It uses local email/password accounts.
 
 The backend uses a Python application factory and service-oriented structure tailored to policy simulation. PostgreSQL-backed jobs provide leased, retryable task execution, while the grounded deterministic provider supports local use without mandatory AI services.
 
@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Uploaded PDF, DOCX, Markdown, and text documents are stored below `DATA_DIR/uploads`; extracted text and workflow state are durable in PostgreSQL. Set `JOB_DELAY=0` for fast tests. In-progress jobs recover when the app starts.
+Uploaded PDF, DOCX, Markdown, and text documents are stored below `DATA_DIR/uploads` by default, or in Firebase Storage when `STORAGE_BACKEND=firebase`; extracted text and workflow state are durable in PostgreSQL. Set `JOB_DELAY=0` for fast tests. In-progress jobs recover when the app starts.
 
 Run the automated tests with `pytest`. The suite covers authentication and authorization, all document formats, deterministic generation, durable job recovery, validation, simulation controls, and the complete upload-to-report-to-interaction API workflow.
 
@@ -24,6 +24,8 @@ Frontend aliases use `/api/simulations/<id>/stages/<stage>/start`, `/pause`, `/r
 ## Configuration
 
 Copy `.env.example` to `.env` to override defaults. `DATABASE_URL` must be a SQLAlchemy PostgreSQL URL using the psycopg driver. Registration is open and automatically creates a seven-day opaque session in the HTTP-only `rk_session` cookie. `SESSION_COOKIE_NAME`, `SESSION_TTL_SECONDS`, and `SESSION_COOKIE_SECURE` control cookie deployment settings. Set `SESSION_COOKIE_SECURE=true` behind HTTPS.
+
+Set `STORAGE_BACKEND=firebase`, `FIREBASE_STORAGE_BUCKET`, and `FIREBASE_STORAGE_PREFIX` to store uploaded source files in Firebase Storage. Authentication uses Application Default Credentials, so set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON path. In Docker Compose, set `FIREBASE_CREDENTIALS_HOST_PATH` to the host JSON path; it is mounted read-only at `/app/secrets/firebase-service-account.json`.
 
 Compose runs Alembic through a one-shot migration service before the API and worker start. All database timestamps use PostgreSQL `TIMESTAMP WITH TIME ZONE` and application code supplies timezone-aware UTC values. Workflow state and job configuration use `JSONB`.
 

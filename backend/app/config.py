@@ -30,12 +30,8 @@ class Settings:
     worker_lease_seconds: int
     storage_backend: str
     storage_path: Path
-    s3_bucket: str | None
-    s3_prefix: str
-    s3_endpoint_url: str | None
-    s3_region: str | None
-    s3_access_key_id: str | None
-    s3_secret_access_key: str | None
+    firebase_storage_bucket: str | None
+    firebase_storage_prefix: str
     trusted_hosts: list[str]
     production: bool
     auth_max_failures: int
@@ -79,12 +75,8 @@ class Settings:
             "WORKER_LEASE_SECONDS": int(os.getenv("WORKER_LEASE_SECONDS", "180")),
             "STORAGE_BACKEND": os.getenv("STORAGE_BACKEND", "local"),
             "STORAGE_PATH": os.getenv("STORAGE_PATH", os.getenv("UPLOAD_DIR", data_dir / "uploads")),
-            "S3_BUCKET": os.getenv("S3_BUCKET") or None,
-            "S3_PREFIX": os.getenv("S3_PREFIX", "rekakebijakan"),
-            "S3_ENDPOINT_URL": os.getenv("S3_ENDPOINT_URL") or None,
-            "S3_REGION": os.getenv("S3_REGION") or None,
-            "S3_ACCESS_KEY_ID": os.getenv("S3_ACCESS_KEY_ID") or None,
-            "S3_SECRET_ACCESS_KEY": os.getenv("S3_SECRET_ACCESS_KEY") or None,
+            "FIREBASE_STORAGE_BUCKET": os.getenv("FIREBASE_STORAGE_BUCKET") or None,
+            "FIREBASE_STORAGE_PREFIX": os.getenv("FIREBASE_STORAGE_PREFIX", "rekakebijakan"),
             "TRUSTED_HOSTS": os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1,testserver"),
             "PRODUCTION": os.getenv("PRODUCTION", "false"),
             "AUTH_MAX_FAILURES": int(os.getenv("AUTH_MAX_FAILURES", "10")),
@@ -114,10 +106,10 @@ class Settings:
         if provider not in {"deterministic", "openai"}:
             raise ValueError("POLICY_PROVIDER must be deterministic or openai")
         storage_backend = str(values["STORAGE_BACKEND"]).strip().lower()
-        if storage_backend not in {"local", "s3"}:
-            raise ValueError("STORAGE_BACKEND must be local or s3")
-        if storage_backend == "s3" and not values["S3_BUCKET"]:
-            raise ValueError("S3_BUCKET is required for S3 storage")
+        if storage_backend not in {"local", "firebase"}:
+            raise ValueError("STORAGE_BACKEND must be local or firebase")
+        if storage_backend == "firebase" and not values["FIREBASE_STORAGE_BUCKET"]:
+            raise ValueError("FIREBASE_STORAGE_BUCKET is required for Firebase Storage")
         trusted_hosts = values["TRUSTED_HOSTS"]
         if isinstance(trusted_hosts, str):
             trusted_hosts = [item.strip() for item in trusted_hosts.split(",") if item.strip()]
@@ -157,12 +149,8 @@ class Settings:
             worker_lease_seconds=int(values["WORKER_LEASE_SECONDS"]),
             storage_backend=storage_backend,
             storage_path=Path(values["STORAGE_PATH"]),
-            s3_bucket=values["S3_BUCKET"],
-            s3_prefix=str(values["S3_PREFIX"]),
-            s3_endpoint_url=values["S3_ENDPOINT_URL"],
-            s3_region=values["S3_REGION"],
-            s3_access_key_id=values["S3_ACCESS_KEY_ID"],
-            s3_secret_access_key=values["S3_SECRET_ACCESS_KEY"],
+            firebase_storage_bucket=values["FIREBASE_STORAGE_BUCKET"],
+            firebase_storage_prefix=str(values["FIREBASE_STORAGE_PREFIX"]),
             trusted_hosts=list(trusted_hosts),
             production=bool(production),
             auth_max_failures=int(values["AUTH_MAX_FAILURES"]),

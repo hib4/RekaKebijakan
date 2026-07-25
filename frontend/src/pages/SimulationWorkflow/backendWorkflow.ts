@@ -163,7 +163,7 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   session.interaction.messages = rawMessages?.map(mapInteractionMessage) ?? previous?.interaction.messages ?? session.interaction.messages;
   session.logs = snapshot.logs?.map((item, index) => ({
     id: item.id ?? `backend-log-${index}`,
-    time: item.time ?? formatTime(),
+    time: formatTime(item.time ?? undefined),
     level: item.level === "WARN" ? "WARN" : item.level === "DONE" ? "DONE" : "INFO",
     message: item.message,
   })) ?? previous?.logs ?? session.logs;

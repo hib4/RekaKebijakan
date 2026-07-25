@@ -163,8 +163,8 @@ select:focus-visible {
 }
 .button.loading {
   cursor: progress;
-  color: transparent;
   position: relative;
+  padding-right: 42px;
 }
 .button.loading::after {
   content: "";
@@ -173,8 +173,13 @@ select:focus-visible {
   border: 2px solid #fff;
   border-top-color: transparent;
   position: absolute;
-  left: calc(50% - 8px);
+  right: 16px;
   top: calc(50% - 8px);
+  animation: button-spinner 700ms linear infinite;
+}
+@keyframes button-spinner { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .button.loading::after { animation: none; }
 }
 .field,
 .choice-group {

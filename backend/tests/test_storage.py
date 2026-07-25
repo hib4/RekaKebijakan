@@ -7,35 +7,66 @@ from pathlib import Path
 
 import pytest
 
-from app.storage import LocalStorageBackend, S3StorageBackend, make_storage_backend
+from app.storage import FirebaseStorageBackend, LocalStorageBackend, make_storage_backend
 
 
-class FakeS3Client:
+class FakeFirebaseBlob:
+    def __init__(self, bucket: "FakeFirebaseBucket", name: str):
+        self.bucket = bucket
+        self.name = name
+        self.size = None
+        self.updated = None
+        self.content_type = None
+        self.etag = None
+        self.metadata = None
+
+    def _load(self):
+        content, content_type, updated, etag, metadata = self.bucket.objects[self.name]
+        self.size = len(content)
+        self.updated = updated
+        self.content_type = content_type
+        self.etag = etag
+        self.metadata = metadata
+        return content
+
+    def upload_from_string(self, data, content_type=None):
+        self.bucket.objects[self.name] = (
+            bytes(data), content_type, datetime.now(timezone.utc), "etag", {},
+        )
+
+    def upload_from_file(self, data, content_type=None):
+        self.upload_from_string(data.read(), content_type=content_type)
+
+    def open(self, mode):
+        assert mode == "rb"
+        return io.BytesIO(self._load())
+
+    def delete(self):
+        self.bucket.objects.pop(self.name, None)
+
+    def exists(self):
+        return self.name in self.bucket.objects
+
+    def reload(self):
+        self._load()
+
+
+class FakeFirebaseBucket:
     def __init__(self):
         self.objects = {}
-        self.head_bucket_calls = []
+        self.reload_calls = 0
 
-    def head_bucket(self, **values):
-        self.head_bucket_calls.append(values)
+    def blob(self, name):
+        return FakeFirebaseBlob(self, name)
 
-    def put_object(self, Bucket, Key, Body):
-        self.objects[(Bucket, Key)] = Body.read() if hasattr(Body, "read") else bytes(Body)
+    def copy_blob(self, source_blob, destination_bucket, new_name):
+        content, content_type, _updated, etag, metadata = self.objects[source_blob.name]
+        destination_bucket.objects[new_name] = (
+            content, content_type, datetime.now(timezone.utc), etag, metadata,
+        )
 
-    def get_object(self, Bucket, Key):
-        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
-
-    def delete_object(self, Bucket, Key):
-        self.objects.pop((Bucket, Key), None)
-
-    def copy_object(self, Bucket, Key, CopySource):
-        self.objects[(Bucket, Key)] = self.objects[(CopySource["Bucket"], CopySource["Key"])]
-
-    def head_object(self, Bucket, Key):
-        content = self.objects[(Bucket, Key)]
-        return {
-            "ContentLength": len(content), "LastModified": datetime.now(timezone.utc),
-            "ContentType": "application/octet-stream", "ETag": '"etag"', "Metadata": {},
-        }
+    def reload(self):
+        self.reload_calls += 1
 
 
 @pytest.fixture
@@ -97,19 +128,42 @@ def test_factory_uses_settings_mapping(tmp_path: Path):
     assert backend.root == tmp_path.resolve()
 
 
-def test_s3_storage_prefix_lifecycle_checksum_and_healthcheck():
-    client = FakeS3Client()
-    storage = S3StorageBackend("policy-bucket", prefix="tenant/data", client=client)
+def test_firebase_storage_prefix_lifecycle_checksum_and_healthcheck():
+    bucket = FakeFirebaseBucket()
+    storage = FirebaseStorageBackend("policy-bucket", prefix="tenant/data", bucket_client=bucket)
 
     stored = storage.save("documents/policy.txt", b"evidence")
     assert stored.key == "documents/policy.txt"
-    assert ("policy-bucket", "tenant/data/documents/policy.txt") in client.objects
+    assert stored.content_type == "text/plain"
+    assert "tenant/data/documents/policy.txt" in bucket.objects
     assert storage.open("documents/policy.txt").read() == b"evidence"
     assert storage.checksum("documents/policy.txt") == hashlib.sha256(b"evidence").hexdigest()
     copied = storage.copy("documents/policy.txt", "archive/policy.txt")
     assert copied.size == len(b"evidence")
     storage.delete("documents/policy.txt")
-    assert ("policy-bucket", "tenant/data/documents/policy.txt") not in client.objects
+    storage.delete("documents/policy.txt")
+    assert "tenant/data/documents/policy.txt" not in bucket.objects
 
     storage.healthcheck()
-    assert client.head_bucket_calls == [{"Bucket": "policy-bucket"}]
+    assert bucket.reload_calls == 1
+
+
+def test_factory_uses_firebase_settings_mapping(monkeypatch):
+    fake_bucket = FakeFirebaseBucket()
+
+    def fake_init(self, bucket, *, prefix="", bucket_client=None):
+        self.bucket_name = bucket
+        self.prefix = prefix.strip("/")
+        self.bucket = bucket_client or fake_bucket
+
+    monkeypatch.setattr(FirebaseStorageBackend, "__init__", fake_init)
+
+    backend = make_storage_backend({
+        "STORAGE_BACKEND": "firebase",
+        "FIREBASE_STORAGE_BUCKET": "policy-bucket",
+        "FIREBASE_STORAGE_PREFIX": "tenant/data",
+    })
+
+    assert isinstance(backend, FirebaseStorageBackend)
+    assert backend.bucket_name == "policy-bucket"
+    assert backend.prefix == "tenant/data"

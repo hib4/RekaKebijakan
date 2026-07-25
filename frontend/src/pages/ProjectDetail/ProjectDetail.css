@@ -49,6 +49,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   background: var(--line);
+  border-top: 1px solid var(--line);
 }
 .workspace-card-grid article {
   min-height: 112px;
@@ -170,10 +171,6 @@
   color: var(--muted);
   font-size: 14px;
 }
-.persona-summary {
-  margin-top: 0;
-  border-top: 1px solid var(--line);
-}
 .workspace-panel .demo-note {
   display: block;
   border-top: 1px solid var(--line);
@@ -185,9 +182,13 @@
   display: grid;
   grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.4fr) auto;
   gap: 12px;
-  align-items: end;
+  align-items: start;
   padding: 20px 24px;
   border-top: 1px solid var(--line);
+}
+.scenario-create-form button {
+  align-self: start;
+  margin-top: 25px;
 }
 .scenario-create-form label {
   display: grid;

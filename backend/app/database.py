@@ -37,6 +37,7 @@ projects = Table(
     Column("name", String, nullable=False),
     Column("institution", String, nullable=False),
     Column("objective", Text, nullable=False),
+    Column("idempotency_key", String(255), nullable=True),
     Column("status", String, nullable=False, server_default="active"),
     Column("version", Integer, nullable=False, server_default="1"),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -48,6 +49,7 @@ projects = Table(
 )
 Index("projects_owner_updated", projects.c.owner_user_id, projects.c.updated_at.desc())
 Index("projects_owner_status", projects.c.owner_user_id, projects.c.status)
+Index("projects_owner_idempotency_key", projects.c.owner_user_id, projects.c.idempotency_key, unique=True)
 Index(
     "projects_pending_delete_due",
     projects.c.delete_after,
