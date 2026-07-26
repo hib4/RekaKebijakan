@@ -95,6 +95,7 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(await screen.findByRole("heading", { name: "Generate policy report" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Graph" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("region", { name: "System console" })).not.toBeInTheDocument();
 
     const stepper = screen.getByRole("navigation", { name: "Tahap workflow" });
     await user.click(within(stepper).getByRole("button", { name: /Simulation/ }));
@@ -113,9 +114,24 @@ describe("SimulationWorkflowPage live mode", () => {
     await user.click(await screen.findByRole("button", { name: "Go to Interaction →" }));
 
     expect(await screen.findByRole("heading", { name: "Interaksi dengan hasil" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "System console" })).not.toBeInTheDocument();
     const interactionStep = within(screen.getByRole("navigation", { name: "Tahap workflow" })).getByRole("button", { name: /Interaction/ });
     expect(interactionStep).toHaveTextContent("ready");
     expect(interactionStep).not.toHaveTextContent("completed");
+  });
+
+  it("shows a Report navigation button when the simulation is completed", async () => {
+    server.use(
+      http.get("/backend/api/simulations/live-completed", () => HttpResponse.json(snapshot("report"))),
+    );
+    const user = userEvent.setup();
+    renderWorkflow("/simulation/live-completed?step=simulation&mode=split");
+
+    const reportButton = await screen.findByRole("button", { name: "Buka Report →" });
+    await user.click(reportButton);
+
+    expect(await screen.findByRole("heading", { name: "Generate policy report" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("renders interaction send failures in the interaction panel", async () => {

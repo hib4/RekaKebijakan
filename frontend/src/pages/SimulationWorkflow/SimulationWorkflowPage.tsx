@@ -731,11 +731,6 @@ function SimulationStep({
             </button>
           </>
         )}
-        {run.status === "completed" && (
-          <button className="button primary" onClick={report}>
-            Generate Report →
-          </button>
-        )}
       </div>
       <div className="event-feed">
         {events.length ? (
@@ -771,6 +766,13 @@ function SimulationStep({
           </div>
         )}
       </div>
+      {run.status === "completed" && (
+        <div className="simulation-complete-action">
+          <button className="button primary" onClick={report}>
+            Buka Report →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1788,7 +1790,7 @@ export default function SimulationWorkflowPage() {
           </div>
         )}
       </main>
-      <SystemConsole logs={session.logs} />
+      {session.currentStep < 4 && <SystemConsole logs={session.logs} />}
     </div>
   );
 }

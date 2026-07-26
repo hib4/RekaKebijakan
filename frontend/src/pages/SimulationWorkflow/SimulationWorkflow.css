@@ -893,6 +893,17 @@
 .event-feed-item {
   scroll-margin-block: 12px;
 }
+.simulation-complete-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  scroll-margin-block-end: 24px;
+}
+.simulation-complete-action .button {
+  width: fit-content;
+}
 .simulation-event {
   border: 1px solid var(--line);
   padding: 16px;
