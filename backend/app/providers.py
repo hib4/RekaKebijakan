@@ -486,12 +486,213 @@ class OpenAICompatiblePolicyProvider:
     @validated("environment")
     def environment(self, simulation_id: str, graph: dict, config: dict) -> dict:
         fallback = self.fallback_provider.environment(simulation_id, graph, config)
-        return self._generate("environment", "Buat lingkungan dan persona simulasi", {"graph": graph, "config": config, "fallback": fallback}, fallback)
+        nodes_by_id = {node["id"]: node for node in graph["nodes"]}
+        persona_updates = {}
+
+        try:
+            generated_config = self._json(
+                "environment",
+                (
+                    "Perjelas asumsi dan alasan konfigurasi lingkungan simulasi. Kembalikan objek dengan key "
+                    "assumptions berupa array dan generation_reasoning berupa string."
+                ),
+                {
+                    "requested_config": config,
+                    "resolved_config": {
+                        key: fallback["config"][key]
+                        for key in ("rounds", "socialization", "response_mode", "events_per_round")
+                    },
+                    "graph_nodes": [
+                        {key: node.get(key) for key in ("id", "label", "type", "summary")}
+                        for node in graph["nodes"]
+                    ],
+                },
+            )
+            assumptions = generated_config.get("assumptions")
+            reasoning = generated_config.get("generation_reasoning")
+            if not isinstance(assumptions, list) or not isinstance(reasoning, str) or not reasoning.strip():
+                raise ProviderResponseError(
+                    "environment", "config response must contain assumptions and generation_reasoning"
+                )
+
+            for start in range(0, len(fallback["personas"]), 10):
+                personas = fallback["personas"][start:start + 10]
+                node_ids = {
+                    node_id
+                    for persona in personas
+                    for node_id in persona["source_node_ids"]
+                }
+                generated = self._json(
+                    "environment",
+                    (
+                        "Perjelas persona sintetis berdasarkan node graph. Kembalikan objek dengan key personas "
+                        "yang berisi tepat satu item untuk setiap ID input. Setiap item hanya memiliki id, name, "
+                        "role, profile, dan stance. Jangan membuat, menghapus, atau mengubah ID."
+                    ),
+                    {
+                        "requested_config": config,
+                        "personas": [
+                            {
+                                key: persona.get(key)
+                                for key in ("id", "name", "group", "role", "profile", "stance", "concern")
+                            }
+                            for persona in personas
+                        ],
+                        "graph_nodes": [
+                            {
+                                key: node.get(key)
+                                for key in ("id", "label", "type", "summary")
+                            }
+                            for node_id in sorted(node_ids)
+                            if (node := nodes_by_id.get(node_id))
+                        ],
+                    },
+                )
+                updates = generated.get("personas")
+                if not isinstance(updates, list) or any(not isinstance(item, dict) for item in updates):
+                    raise ProviderResponseError("environment", "response JSON must contain a personas array")
+                update_ids = [item.get("id") for item in updates]
+                expected_ids = {persona["id"] for persona in personas}
+                if (
+                    any(not isinstance(persona_id, str) or not persona_id for persona_id in update_ids)
+                    or len(update_ids) != len(set(update_ids))
+                    or set(update_ids) != expected_ids
+                ):
+                    raise ProviderResponseError(
+                        "environment", "response personas must preserve every input persona ID"
+                    )
+                persona_updates.update({item["id"]: item for item in updates})
+
+            result = dict(fallback)
+            result["config"] = fallback["config"] | {
+                "assumptions": assumptions,
+                "generation_reasoning": reasoning.strip(),
+                "generated_by": self.name,
+            }
+            result["personas"] = [
+                persona | {
+                    "name": str(persona_updates[persona["id"]].get("name") or persona["name"]),
+                    "role": str(persona_updates[persona["id"]].get("role") or persona["role"]),
+                    "profile": str(persona_updates[persona["id"]].get("profile") or persona["profile"]),
+                    "stance": str(persona_updates[persona["id"]].get("stance") or persona["stance"]),
+                }
+                for persona in fallback["personas"]
+            ]
+            return PROVIDER_OUTPUTS["environment"].model_validate(result, strict=True).model_dump(
+                mode="python", exclude_none=True
+            )
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "environment", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=environment category=%s message=%s",
+                failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("simulate")
     def simulate(self, simulation_id: str, graph: dict, personas: list[dict], config: dict) -> dict:
         fallback = self.fallback_provider.simulate(simulation_id, graph, personas, config)
-        return self._generate("simulate", "Jalankan simulasi respons kebijakan", {"graph": graph, "personas": personas, "config": config, "fallback": fallback}, fallback)
+        personas_by_id = {persona["id"]: persona for persona in personas}
+        nodes_by_id = {node["id"]: node for node in graph["nodes"]}
+        rounds = sorted({event["round"] for event in fallback["events"]})
+        refined_by_id = {}
+
+        try:
+            for round_number in rounds:
+                events = [event for event in fallback["events"] if event["round"] == round_number]
+                persona_ids = {event["persona_id"] for event in events}
+                node_ids = {
+                    node_id
+                    for event in events
+                    for node_id in event["source_node_ids"]
+                }
+                generated = self._json(
+                    "simulate",
+                    (
+                        "Perjelas respons pada satu putaran simulasi. Kembalikan objek dengan key events yang "
+                        "berisi tepat satu item untuk setiap ID input. Setiap item hanya memiliki id, statement, "
+                        "stance, dan risk_narrative. Jangan membuat, menghapus, atau mengubah ID."
+                    ),
+                    {
+                        "round": round_number,
+                        "response_mode": config.get("response_mode"),
+                        "socialization": config.get("socialization"),
+                        "events": [
+                            {
+                                "id": event["id"],
+                                "persona_id": event["persona_id"],
+                                "group": event["group"],
+                                "concerns": event["concerns"],
+                                "statement": event["statement"],
+                                "stance": event["stance"],
+                                "risk_narrative": event["risk_narrative"],
+                            }
+                            for event in events
+                        ],
+                        "personas": [
+                            {
+                                key: persona.get(key)
+                                for key in ("id", "name", "group", "profile", "stance", "concern")
+                            }
+                            for persona_id in sorted(persona_ids)
+                            if (persona := personas_by_id.get(persona_id))
+                        ],
+                        "graph_nodes": [
+                            {
+                                key: node.get(key)
+                                for key in ("id", "label", "type", "summary")
+                            }
+                            for node_id in sorted(node_ids)
+                            if (node := nodes_by_id.get(node_id))
+                        ],
+                    },
+                )
+                updates = generated.get("events")
+                if not isinstance(updates, list) or any(not isinstance(item, dict) for item in updates):
+                    raise ProviderResponseError("simulate", "response JSON must contain an events array")
+                update_ids = [item.get("id") for item in updates]
+                expected_ids = {event["id"] for event in events}
+                if (
+                    any(not isinstance(event_id, str) or not event_id for event_id in update_ids)
+                    or len(update_ids) != len(set(update_ids))
+                    or set(update_ids) != expected_ids
+                ):
+                    raise ProviderResponseError("simulate", "response events must preserve every input event ID")
+                refined_by_id.update({item["id"]: item for item in updates})
+
+            result = dict(fallback)
+            result["events"] = []
+            for event in fallback["events"]:
+                update = refined_by_id[event["id"]]
+                refined = event | {
+                    "statement": update.get("statement") or event["statement"],
+                    "stance": update.get("stance") or event["stance"],
+                    "risk_narrative": update.get("risk_narrative") or event["risk_narrative"],
+                }
+                refined["content"] = refined["statement"]
+                result["events"].append(refined)
+            return PROVIDER_OUTPUTS["simulate"].model_validate(result, strict=True).model_dump(
+                mode="python", exclude_none=True
+            )
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "simulate", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=simulate category=%s message=%s",
+                failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("report")
     def report(self, project: dict, chunks: list[dict], events: list[dict]) -> dict:
@@ -512,7 +713,70 @@ class OpenAICompatiblePolicyProvider:
     @validated("graph_memory")
     def graph_memory(self, graph: dict, events: list[dict]) -> dict:
         fallback = self.fallback_provider.graph_memory(graph, events)
-        return self._generate("graph_memory", "Perbarui graph memory dari event", {"graph": graph, "events": events[:60], "fallback": fallback}, fallback)
+        memory_nodes = [node for node in fallback["nodes"] if node.get("memory_source")]
+        if not memory_nodes:
+            return fallback
+        events_by_id = {event["id"]: event for event in events}
+        try:
+            generated = self._json(
+                "graph_memory",
+                (
+                    "Perjelas label dan ringkasan node memory berdasarkan event simulasi. Kembalikan objek dengan "
+                    "key nodes yang berisi tepat satu item untuk setiap ID input; setiap item hanya memiliki id, "
+                    "label, dan summary. Jangan membuat, menghapus, atau mengubah ID."
+                ),
+                {
+                    "nodes": [
+                        {key: node.get(key) for key in ("id", "label", "summary", "memory_source")}
+                        for node in memory_nodes
+                    ],
+                    "events": [
+                        {
+                            key: event.get(key)
+                            for key in ("id", "group", "statement", "stance", "concerns")
+                        }
+                        for node in memory_nodes
+                        if (event := events_by_id.get(node["memory_source"]))
+                    ],
+                },
+            )
+            updates = generated.get("nodes")
+            if not isinstance(updates, list) or any(not isinstance(item, dict) for item in updates):
+                raise ProviderResponseError("graph_memory", "response JSON must contain a nodes array")
+            update_ids = [item.get("id") for item in updates]
+            expected_ids = {node["id"] for node in memory_nodes}
+            if (
+                any(not isinstance(node_id, str) or not node_id for node_id in update_ids)
+                or len(update_ids) != len(set(update_ids))
+                or set(update_ids) != expected_ids
+            ):
+                raise ProviderResponseError("graph_memory", "response nodes must preserve every input memory node ID")
+            by_id = {item["id"]: item for item in updates}
+            result = dict(fallback)
+            result["nodes"] = [
+                node | {
+                    "label": str(by_id[node["id"]].get("label") or node["label"]),
+                    "summary": str(by_id[node["id"]].get("summary") or node["summary"]),
+                }
+                if node["id"] in by_id else node
+                for node in fallback["nodes"]
+            ]
+            return PROVIDER_OUTPUTS["graph_memory"].model_validate(result, strict=True).model_dump(
+                mode="python", exclude_none=True
+            )
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "graph_memory", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=graph_memory category=%s message=%s",
+                failure.category, failure,
+            )
+            return fallback
+        raise failure
 
 
 def make_provider(settings) -> PolicyProvider:

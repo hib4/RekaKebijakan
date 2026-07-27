@@ -16,14 +16,14 @@ const stepNames: Record<WorkflowStep, string> = { 1: "Graph Build", 2: "Env Setu
 
 export function WorkflowTopBar({ session, onStep, onViewMode }: { session: WorkflowSession; onStep: (step: WorkflowStep) => void; onViewMode: (mode: ViewMode) => void }) {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const status = workflowStatus(session);
   const effectiveViewMode = session.currentStep >= 4 ? "workbench" : session.viewMode;
   return <>
     <header className="workflow-topbar">
       <div className="workflow-brand"><button className="workflow-back" onClick={() => navigate("/projects")} aria-label="Kembali ke proyek kebijakan">←</button><button className="workflow-wordmark" onClick={() => navigate("/projects")}>RekaKebijakan</button></div>
       <div className="view-modes" aria-label="Mode tampilan">{(["graph", "split", "workbench"] as ViewMode[]).map((mode) => <button key={mode} aria-pressed={effectiveViewMode === mode} disabled={session.currentStep >= 4 && mode !== "workbench"} onClick={() => onViewMode(mode)}>{mode === "graph" ? "Graph" : mode === "split" ? "Split" : "Workbench"}</button>)}</div>
-      <div className="workflow-meta"><span className="workflow-user" title={user?.email}>{user?.name || user?.email}</span><button className="workflow-logout" onClick={() => logout().then(() => navigate("/login")).catch(() => undefined)}>Keluar</button><span className="workflow-step-label"><b>Step {session.currentStep}/5</b><small>{stepNames[session.currentStep]}</small></span><span className={`workflow-status ${status}`} role="status" aria-live="polite"><i />{status === "processing" ? "Processing" : status === "completed" ? "Completed" : status === "stale" ? "Stale" : status === "cancelled" ? "Cancelled" : status === "failed" ? "Failed" : "Ready"}</span></div>
+      <div className="workflow-meta"><span className="workflow-user" title={user?.email}>{user?.name || user?.email}</span><span className="workflow-step-label"><b>Step {session.currentStep}/5</b><small>{stepNames[session.currentStep]}</small></span><span className={`workflow-status ${status}`} role="status" aria-live="polite"><i />{status === "processing" ? "Processing" : status === "completed" ? "Completed" : status === "stale" ? "Stale" : status === "cancelled" ? "Cancelled" : status === "failed" ? "Failed" : "Ready"}</span></div>
     </header>
     <nav className="workflow-stepper" aria-label="Tahap workflow">{([1, 2, 3, 4, 5] as WorkflowStep[]).map((step) => { const state = session.steps[step]; return <button key={step} className={`${state.status} ${session.currentStep === step ? "active" : ""}`} disabled={state.status === "locked"} onClick={() => onStep(step)} aria-current={session.currentStep === step ? "step" : undefined}><span>{String(step).padStart(2, "0")}</span><b>{stepNames[step]}</b><small>{state.status === "processing" ? `${state.progress}%` : state.status}</small></button>; })}</nav>
   </>;

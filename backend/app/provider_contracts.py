@@ -240,6 +240,9 @@ class EnvironmentOutput(Contract):
     def valid_count(self):
         if self.persona_count != len(self.personas):
             raise ValueError("persona_count must equal the number of personas")
+        persona_ids = [persona.id for persona in self.personas]
+        if len(persona_ids) != len(set(persona_ids)):
+            raise ValueError("environment persona IDs must be unique")
         return self
 
 
@@ -276,6 +279,12 @@ class SimulationOutput(Contract):
     def valid_count(self):
         if self.event_count != len(self.events):
             raise ValueError("event_count must equal the number of events")
+        event_ids = [event.id for event in self.events]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("simulation event IDs must be unique")
+        sequences = [event.sequence for event in self.events]
+        if sequences != list(range(1, self.event_count + 1)):
+            raise ValueError("simulation event sequences must be contiguous and ordered")
         return self
 
 

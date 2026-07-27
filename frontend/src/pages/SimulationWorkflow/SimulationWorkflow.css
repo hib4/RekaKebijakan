@@ -150,6 +150,7 @@
   padding: 10px 18px;
   display: grid;
   align-content: center;
+  border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
 }
 .workflow-step-label b {
@@ -1273,21 +1274,27 @@
   cursor: pointer;
   font-size: 10px;
 }
-.chat-panel form {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  border-top: 1px solid var(--line);
-}
 .chat-panel textarea {
-  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
   resize: vertical;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   padding: 12px;
   color: var(--ink);
+  box-sizing: border-box;
 }
-.chat-panel form .button {
+.chat-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.chat-actions .button {
   min-height: 40px;
+}
+.chat-actions .button.primary {
+  flex: 1;
+  width: 100%;
 }
 .interaction-send-error {
   grid-column: 1 / -1;

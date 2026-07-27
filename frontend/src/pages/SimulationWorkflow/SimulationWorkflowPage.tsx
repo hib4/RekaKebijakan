@@ -1158,43 +1158,43 @@ function InteractionStep({
             </span>
           </div>
         )}
-        <div className="chat-panel">
-          <div className="chat-messages" aria-live="polite">
-            {session.interaction.messages
-              .filter(
-                (message) => message.tool === tool || message.id === "welcome",
-              )
-              .map((message) => (
-                <p key={message.id} className={message.role}>
-                  <b>{message.author}</b>
-                  {message.text}
-                  <CitationDrawer citations={message.citations} label="Lihat sumber jawaban" />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            send();
+          }}
+        >
+          <div className="chat-panel">
+            <div className="chat-messages" aria-live="polite">
+              {session.interaction.messages
+                .filter(
+                  (message) => message.tool === tool || message.id === "welcome",
+                )
+                .map((message) => (
+                  <p key={message.id} className={message.role}>
+                    <b>{message.author}</b>
+                    {message.text}
+                    <CitationDrawer citations={message.citations} label="Lihat sumber jawaban" />
+                  </p>
+                ))}
+              {typing && (
+                <p className="agent typing">
+                  <b>{tools.find((item) => item[0] === tool)?.[1]}</b>
+                  <span>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
                 </p>
+              )}
+            </div>
+            <div className="suggested-questions">
+              {suggestedQuestions.map((question) => (
+                <button key={question} type="button" onClick={() => send(question)}>
+                  {question}
+                </button>
               ))}
-            {typing && (
-              <p className="agent typing">
-                <b>{tools.find((item) => item[0] === tool)?.[1]}</b>
-                <span>
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              </p>
-            )}
-          </div>
-          <div className="suggested-questions">
-            {suggestedQuestions.map((question) => (
-              <button key={question} onClick={() => send(question)}>
-                {question}
-              </button>
-            ))}
-          </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              send();
-            }}
-          >
+            </div>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -1206,6 +1206,8 @@ function InteractionStep({
                 {sendError}
               </p>
             )}
+          </div>
+          <div className="chat-actions">
             <button
               className="button primary"
               type="submit"
@@ -1220,8 +1222,8 @@ function InteractionStep({
             >
               Export .md
             </button>
-          </form>
-        </div>
+          </div>
+        </form>
       </aside>
     </div>
   );
