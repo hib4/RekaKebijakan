@@ -1,9 +1,9 @@
-import { useId, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useId, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
+import { useCompareScenarios, useCreateRun, useCreateScenario, useProject, useScenarios, useUpdateScenario } from "../../api/queries";
+import type { ApiScenario } from "../../api/client";
 import "./ScenarioBuilder.css";
-
-// Demo-only prototype. This page intentionally has no application route.
 
 type Outreach = "Rendah" | "Sedang" | "Tinggi";
 type Response = "Diam" | "Klarifikasi" | "Revisi kebijakan";
@@ -132,13 +132,43 @@ function ConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm
 
 export default function ScenarioBuilderPage() {
   const navigate = useNavigate();
-  const projectFound = true;
-  const activePersonas: number = 30;
+  const { projectId = "", scenarioId } = useParams<{ projectId: string; scenarioId?: string }>();
+  const projectQuery = useProject(projectId);
+  const scenariosQuery = useScenarios(projectId);
+  const createMutation = useCreateScenario(projectId);
+  const updateBaseline = useUpdateScenario(projectId, scenarioId ?? scenariosQuery.data?.items[0]?.id ?? "");
+  const updateRevised = useUpdateScenario(projectId, scenariosQuery.data?.items.find((item) => item.id !== (scenarioId ?? scenariosQuery.data?.items[0]?.id))?.id ?? "");
+  const compareMutation = useCompareScenarios(projectId);
   const [baseline, setBaseline] = useState<ScenarioConfig>(baselineDefault);
   const [revised, setRevised] = useState<ScenarioConfig>(revisedDefault);
   const [activeTab, setActiveTab] = useState<"baseline" | "revised">("baseline");
   const [notice, setNotice] = useState<Notice>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [loadedIds, setLoadedIds] = useState<string[]>([]);
+  const selectedScenarios = scenariosQuery.data?.items ?? [];
+  const firstScenario = selectedScenarios.find((item) => item.id === scenarioId) ?? selectedScenarios[0];
+  const secondScenario = selectedScenarios.find((item) => item.id !== firstScenario?.id);
+  const activePersonas = projectQuery.data?.snapshot.environment?.persona_count ?? projectQuery.data?.snapshot.environment?.personas?.length ?? 0;
+  const runMutation = useCreateRun(projectId, secondScenario?.id ?? firstScenario?.id ?? "");
+  const fromApi = (scenario: ApiScenario, fallback: ScenarioConfig): ScenarioConfig => ({
+    ...fallback, name: scenario.name, description: scenario.description,
+    outreach: (scenario.config.socialization as Outreach) ?? fallback.outreach,
+    response: (scenario.config.response_mode as Response) ?? fallback.response,
+    rounds: String(scenario.config.rounds ?? fallback.rounds) as Rounds,
+    channels: (scenario.config.channels as string[]) ?? fallback.channels,
+    focus: (scenario.config.focus as string[]) ?? fallback.focus,
+    assumptions: (scenario.config.assumptions as string) ?? fallback.assumptions,
+  });
+  useEffect(() => {
+    const ids = [firstScenario?.id, secondScenario?.id].filter(Boolean) as string[];
+    if (!firstScenario || ids.join() === loadedIds.join()) return;
+    const timer = window.setTimeout(() => {
+      setBaseline(fromApi(firstScenario, baselineDefault));
+      if (secondScenario) setRevised(fromApi(secondScenario, revisedDefault));
+      setLoadedIds(ids);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [firstScenario, loadedIds, secondScenario]);
   const showNotice = (message: string) => {
     setNotice({ id: Date.now(), message });
     window.setTimeout(() => setNotice(null), 2800);
@@ -153,8 +183,27 @@ export default function ScenarioBuilderPage() {
   const ready = readiness.every(([, value]) => value);
   const combinedFocus = useMemo(() => Array.from(new Set([...baseline.focus, ...revised.focus])).join(", "), [baseline.focus, revised.focus]);
   const maxRounds = Math.max(Number(baseline.rounds), Number(revised.rounds));
+  const payload = (value: ScenarioConfig) => ({ name: value.name, description: value.description, config: { socialization: value.outreach, response_mode: value.response, rounds: Number(value.rounds), channels: value.channels, focus: value.focus, assumptions: value.assumptions } });
+  const save = async () => {
+    try {
+      const baselineResult = firstScenario
+        ? updateBaseline.mutateAsync({ ...payload(baseline), expected_version: firstScenario.version })
+        : createMutation.mutateAsync({ ...payload(baseline), kind: "baseline" });
+      const revisedResult = secondScenario
+        ? updateRevised.mutateAsync({ ...payload(revised), expected_version: secondScenario.version })
+        : createMutation.mutateAsync({ ...payload(revised), kind: "revision" });
+      await Promise.all([baselineResult, revisedResult]);
+      showNotice("Skenario tersimpan di workspace.");
+    } catch { showNotice("Skenario tidak dapat disimpan. Muat ulang jika versi telah berubah."); }
+  };
+  const run = async () => {
+    const scenario = secondScenario ?? firstScenario;
+    if (!scenario) return;
+    try { const created = await runMutation.mutateAsync(scenario.version); navigate(`/runs/${created.id}`); }
+    catch { showNotice("Simulasi tidak dapat dimulai."); setModalOpen(false); }
+  };
 
-  if (!projectFound) {
+  if (projectQuery.isError) {
     return (
       <AppShell title="Data proyek tidak ditemukan" subtitle="Ruang kerja skenario tidak dapat dibuka." eyebrow="Skenario">
         <section className="dashboard-panel state-block"><h2>Data proyek tidak ditemukan.</h2><button className="button primary" onClick={() => navigate("/projects")}>Kembali ke daftar proyek</button></section>
@@ -167,18 +216,18 @@ export default function ScenarioBuilderPage() {
       title="Scenario Builder"
       subtitle="Bandingkan rancangan awal dan skenario revisi sebelum simulasi dijalankan."
       eyebrow="Workspace kebijakan"
-      actions={<><button className="button primary" onClick={() => showNotice("Skenario disimpan secara lokal untuk sesi prototipe.")}>Simpan skenario</button><button className="button secondary" onClick={() => navigate("/projects/registrasi-digital-umkm")}>Kembali ke workspace</button></>}
+      actions={<><button className="button primary" disabled={createMutation.isPending || updateBaseline.isPending || updateRevised.isPending} onClick={save}>Simpan skenario</button><button className="button secondary" onClick={() => navigate(`/projects/${projectId}`)}>Kembali ke workspace</button></>}
     >
       <section className="scenario-top" aria-label="Ringkasan pembuat skenario">
-        <div className="workspace-breadcrumb">Proyek Kebijakan / Registrasi Digital UMKM / Skenario</div>
-        <div className="workspace-title-row"><StatusBadge /><span>Transformasi digital layanan publik · Kota Bandung</span></div>
-        <p>Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital?</p>
+        <div className="workspace-breadcrumb">Proyek Kebijakan / {projectQuery.data?.name ?? "Memuat proyek"} / Skenario</div>
+        <div className="workspace-title-row"><StatusBadge /><span>{projectQuery.data?.institution}</span></div>
+        <p>{projectQuery.data?.snapshot.project?.question ?? projectQuery.data?.objective}</p>
         <div className="inline-alert scenario-notice"><p>Skenario adalah asumsi kerja untuk membantu analisis kebijakan. Hasil simulasi tidak menggantikan konsultasi publik atau keputusan manusia.</p></div>
       </section>
       <section className="scenario-summary-bar" aria-label="Konfigurasi bersama">
         <article><span>Persona aktif</span><b>{activePersonas}</b></article>
-        <article><span>Stakeholder</span><b>6 kelompok</b></article>
-        <article><span>Mode simulasi</span><b>Demo deterministik</b></article>
+        <article><span>Stakeholder</span><b>{new Set(projectQuery.data?.snapshot.environment?.personas?.map((persona) => persona.group) ?? []).size} kelompok</b></article>
+        <article><span>Mode simulasi</span><b>Run API v1</b></article>
         <article><span>Estimasi ronde</span><b>{maxRounds}</b></article>
         <article><span>Fokus analisis</span><b>{combinedFocus}</b></article>
       </section>
@@ -228,13 +277,14 @@ export default function ScenarioBuilderPage() {
           </div>
           {!ready && <div className="inline-alert warning"><p>Lengkapi semua asumsi skenario sebelum simulasi terbatas dijalankan.</p></div>}
           <div className="scenario-actions">
-            <button className="button primary" onClick={() => showNotice("Skenario disimpan secara lokal untuk sesi prototipe.")}>Simpan skenario</button>
+             <button className="button primary" onClick={save}>Simpan skenario</button>
+             <button className="button ghost" disabled={!firstScenario || !secondScenario || compareMutation.isPending} onClick={async () => { try { const result = await compareMutation.mutateAsync([firstScenario!.id, secondScenario!.id]); showNotice(`${result.differences.length} perbedaan skenario ditemukan.`); } catch { showNotice("Perbandingan tidak dapat dimuat."); } }}>Bandingkan dari server</button>
             <button className="button secondary" disabled={!ready || activePersonas === 0} onClick={() => setModalOpen(true)}>Jalankan simulasi</button>
-            <button className="button ghost" onClick={() => navigate("/projects/registrasi-digital-umkm")}>Kembali ke workspace</button>
+             <button className="button ghost" onClick={() => navigate(`/projects/${projectId}`)}>Kembali ke workspace</button>
           </div>
         </aside>
       </section>
-      {modalOpen && <ConfirmModal onCancel={() => setModalOpen(false)} onConfirm={() => navigate("/simulation/demo-registrasi-umkm")} />}
+      {modalOpen && <ConfirmModal onCancel={() => setModalOpen(false)} onConfirm={run} />}
       <NoticeRegion notice={notice} />
     </AppShell>
   );

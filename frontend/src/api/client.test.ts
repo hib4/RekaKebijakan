@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProject, getCurrentUser, loginUser } from "./client";
+import { controlRun, createProject, duplicateProject, getCurrentUser, loginUser, submitContact } from "./client";
 
 describe("authentication API client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -104,5 +104,40 @@ describe("project creation API client", () => {
     xhr.dispatchEvent(new Event("load"));
 
     await expect(result).rejects.toMatchObject({ status: 422, code: "invalid_document", message: "Dokumen tidak valid", details: { field: "files" } });
+  });
+});
+
+describe("workspace v1 API client", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("uses the explicit duplicate endpoint instead of recreating a project client-side", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "copy-1" }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await duplicateProject("project/1", { name: "Salinan" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/backend/api/v1/projects/project%2F1/duplicate", expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({ name: "Salinan" }),
+    }));
+  });
+
+  it("sends optimistic version data when controlling a run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "run-1", status: "paused" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await controlRun("run-1", "pause", 7);
+
+    expect(fetchMock).toHaveBeenCalledWith("/backend/api/v1/runs/run-1/pause", expect.objectContaining({ body: JSON.stringify({ expected_version: 7 }) }));
+  });
+
+  it("submits the public contact form to the versioned contract", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "contact-1" }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await submitContact({ name: "Hiba", organization: "Lab", email: "hiba@example.com", use_case: "Pilot" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/backend/api/v1/contact-requests", expect.objectContaining({ method: "POST", credentials: "include" }));
   });
 });

@@ -9,7 +9,7 @@ import {
 } from "../../data/projects";
 import type { PolicyProject, ProjectRisk, ProjectStatus } from "../../data/projects";
 import type { ApiProject } from "../../api/client";
-import { useArchiveProject, useProjects } from "../../api/queries";
+import { useArchiveProject, useBulkProjectAction, useDeleteProject, useDuplicateProject, useProjects } from "../../api/queries";
 import "./ProjectsPage.css";
 
 type Toast = { id: number; message: string };
@@ -80,13 +80,14 @@ function ArchiveProjectModal({ project, onCancel, onConfirm }: { project: Policy
   );
 }
 
-function ProjectActionMenu({ project, menu, setMenu, onOpen, onDuplicate, onArchive }: {
+function ProjectActionMenu({ project, menu, setMenu, onOpen, onDuplicate, onArchive, onDelete }: {
   project: PolicyProject;
   menu: MenuState;
   setMenu: (menu: MenuState) => void;
   onOpen: () => void;
   onDuplicate: () => void;
   onArchive: () => void;
+  onDelete: () => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const open = () => {
@@ -100,8 +101,9 @@ function ProjectActionMenu({ project, menu, setMenu, onOpen, onDuplicate, onArch
       {isOpen && (
         <div className="project-menu" role="menu" style={{ top: menu.y, left: menu.x }}>
           <button role="menuitem" onClick={onOpen}>Buka proyek</button>
-          <button role="menuitem" onClick={onDuplicate}>Duplikat skenario</button>
+          <button role="menuitem" onClick={onDuplicate}>Duplikat proyek</button>
           <button role="menuitem" onClick={onArchive}>Arsipkan proyek</button>
+          <button role="menuitem" className="danger-text" onClick={onDelete}>Hapus proyek</button>
         </div>
       )}
     </div>
@@ -149,7 +151,7 @@ function ProjectFilters({
   );
 }
 
-function ProjectTable({ projects, selected, setSelected, menu, setMenu, onOpen, onDuplicate, onArchive }: {
+function ProjectTable({ projects, selected, setSelected, menu, setMenu, onOpen, onDuplicate, onArchive, onDelete }: {
   projects: PolicyProject[];
   selected: string[];
   setSelected: (ids: string[]) => void;
@@ -158,6 +160,7 @@ function ProjectTable({ projects, selected, setSelected, menu, setMenu, onOpen, 
   onOpen: (project: PolicyProject) => void;
   onDuplicate: (project: PolicyProject) => void;
   onArchive: (project: PolicyProject) => void;
+  onDelete: (project: PolicyProject) => void;
 }) {
   const toggle = (id: string) => setSelected(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
   return (
@@ -175,7 +178,7 @@ function ProjectTable({ projects, selected, setSelected, menu, setMenu, onOpen, 
               <td>{project.lastSimulation}</td>
               <td><RiskBadge risk={project.risk} /></td>
               <td>{project.updated}</td>
-              <td><ProjectActionMenu project={project} menu={menu} setMenu={setMenu} onOpen={() => onOpen(project)} onDuplicate={() => onDuplicate(project)} onArchive={() => onArchive(project)} /></td>
+              <td><ProjectActionMenu project={project} menu={menu} setMenu={setMenu} onOpen={() => onOpen(project)} onDuplicate={() => onDuplicate(project)} onArchive={() => onArchive(project)} onDelete={() => onDelete(project)} /></td>
             </tr>
           ))}
         </tbody>
@@ -184,19 +187,20 @@ function ProjectTable({ projects, selected, setSelected, menu, setMenu, onOpen, 
   );
 }
 
-function ProjectCards({ projects, menu, setMenu, onOpen, onDuplicate, onArchive }: {
+function ProjectCards({ projects, menu, setMenu, onOpen, onDuplicate, onArchive, onDelete }: {
   projects: PolicyProject[];
   menu: MenuState;
   setMenu: (menu: MenuState) => void;
   onOpen: (project: PolicyProject) => void;
   onDuplicate: (project: PolicyProject) => void;
   onArchive: (project: PolicyProject) => void;
+  onDelete: (project: PolicyProject) => void;
 }) {
   return (
     <div className="project-card-list">
       {projects.map((project) => (
         <article className="project-card" key={project.id}>
-          <div className="project-card-top"><div><button className="project-name-button" onClick={() => onOpen(project)}>{project.name}</button><p>{project.institution}</p></div><ProjectActionMenu project={project} menu={menu} setMenu={setMenu} onOpen={() => onOpen(project)} onDuplicate={() => onDuplicate(project)} onArchive={() => onArchive(project)} /></div>
+          <div className="project-card-top"><div><button className="project-name-button" onClick={() => onOpen(project)}>{project.name}</button><p>{project.institution}</p></div><ProjectActionMenu project={project} menu={menu} setMenu={setMenu} onOpen={() => onOpen(project)} onDuplicate={() => onDuplicate(project)} onArchive={() => onArchive(project)} onDelete={() => onDelete(project)} /></div>
           <div className="project-card-meta"><ProjectStatusBadge status={project.status} /><RiskBadge risk={project.risk} /></div>
           <div className="project-card-grid"><span>Skenario<b>{project.scenarios}</b></span><span>Terakhir diperbarui<b>{project.updated}</b></span></div>
           <button className="button primary" onClick={() => onOpen(project)}>Buka proyek</button>
@@ -234,6 +238,9 @@ export default function ProjectsPage() {
   const navigate = useNavigate();
   const projectsQuery = useProjects({ status: "active", limit: 100 });
   const archiveMutation = useArchiveProject();
+  const duplicateMutation = useDuplicateProject();
+  const deleteMutation = useDeleteProject();
+  const bulkMutation = useBulkProjectAction();
   const goTo = (path: string) => navigate(path);
   const projects = useMemo(() => (projectsQuery.data?.items ?? []).map(apiProject), [projectsQuery.data]);
   const [query, setQuery] = useState("");
@@ -290,10 +297,27 @@ export default function ProjectsPage() {
     setMenu(null);
     goTo(`/projects/${project.id}`);
   };
-  const duplicate = (project: PolicyProject) => {
+  const duplicate = async (project: PolicyProject) => {
     setMenu(null);
-    navigate(`/projects/${project.id}`);
-    showToast(`Tambahkan skenario pembanding dari workspace ${project.name}.`);
+    try {
+      const duplicated = await duplicateMutation.mutateAsync({ id: project.id, name: `${project.name} (salinan)` }) as ApiProject;
+      showToast(`${project.name} berhasil diduplikasi.`);
+      navigate(`/projects/${duplicated.id}`);
+    } catch { showToast("Proyek tidak dapat diduplikasi."); }
+  };
+  const remove = async (project: PolicyProject) => {
+    setMenu(null);
+    if (!window.confirm(`Hapus ${project.name} secara permanen? Tindakan ini tidak dapat dibatalkan.`)) return;
+    try { await deleteMutation.mutateAsync(project.id); showToast(`${project.name} telah dihapus.`); }
+    catch { showToast("Proyek tidak dapat dihapus."); }
+  };
+  const applyBulk = async (action: "archive" | "delete") => {
+    if (action === "delete" && !window.confirm(`Hapus ${selected.length} proyek secara permanen?`)) return;
+    try {
+      const result = await bulkMutation.mutateAsync({ project_ids: selected, action }) as { failed: unknown[] };
+      showToast(result.failed.length ? `${selected.length - result.failed.length} proyek diproses; ${result.failed.length} gagal.` : `${selected.length} proyek berhasil diproses.`);
+      setSelected([]);
+    } catch { showToast("Aksi massal tidak dapat diselesaikan."); }
   };
   const confirmArchive = async () => {
     if (!archiveProject) return;
@@ -312,15 +336,15 @@ export default function ProjectsPage() {
     >
         <section className="metrics-grid" aria-label="Ringkasan proyek"><article className="metric-card"><p>Total proyek</p><strong>{projectsQuery.data?.total ?? 0}</strong><span>Proyek aktif dalam ruang kerja</span></article><article className="metric-card"><p>Simulasi berjalan</p><strong>{projects.filter((item) => item.status === "Simulasi berjalan").length}</strong><span>Eksperimen aktif saat ini</span></article><article className="metric-card"><p>Laporan tersedia</p><strong>{projects.filter((item) => item.status === "Laporan tersedia").length}</strong><span>Siap dibuka dan ditinjau</span></article></section>
         <section className="dashboard-panel project-list-panel" aria-labelledby="project-table-title">
-          <div className="panel-heading"><div><h2 id="project-table-title">Daftar Proyek</h2><p>Tampilan tersimpan: Semua proyek aktif</p></div>{selected.length > 0 && <span className="bulk-note">{selected.length} proyek dipilih · Aksi massal belum aktif</span>}</div>
+          <div className="panel-heading"><div><h2 id="project-table-title">Daftar Proyek</h2><p>Tampilan tersimpan: Semua proyek aktif</p></div>{selected.length > 0 && <div className="bulk-actions"><span className="bulk-note">{selected.length} proyek dipilih</span><button className="button secondary" disabled={bulkMutation.isPending} onClick={() => applyBulk("archive")}>Arsipkan</button><button className="button danger" disabled={bulkMutation.isPending} onClick={() => applyBulk("delete")}>Hapus</button></div>}</div>
           <ProjectFilters query={query} setQuery={(value) => { setQuery(value); setPage(1); }} status={status} setStatus={(value) => { setStatus(value); setPage(1); }} risk={risk} setRisk={(value) => { setRisk(value); setPage(1); }} institution={institution} setInstitution={(value) => { setInstitution(value); setPage(1); }} sort={sort} setSort={setSort} hasFilters={hasFilters} reset={reset} institutions={institutions} />
           {projectsQuery.isLoading && <ProjectListState type="loading" />}
           {projectsQuery.isError && <ProjectListState type="error" onReload={() => projectsQuery.refetch()} />}
           {!projectsQuery.isLoading && !projectsQuery.isError && paged.length === 0 && <ProjectListState type="empty" onReset={reset} onCreate={() => goTo("/projects/new")} />}
           {!projectsQuery.isLoading && !projectsQuery.isError && paged.length > 0 && (
             <>
-              <ProjectTable projects={paged} selected={selected} setSelected={setSelected} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} />
-              <ProjectCards projects={paged} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} />
+              <ProjectTable projects={paged} selected={selected} setSelected={setSelected} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} onDelete={remove} />
+              <ProjectCards projects={paged} menu={menu} setMenu={setMenu} onOpen={openProject} onDuplicate={duplicate} onArchive={(project) => { setMenu(null); setArchiveProject(project); }} onDelete={remove} />
               <Pagination page={currentPage} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} total={filtered.length} />
             </>
           )}

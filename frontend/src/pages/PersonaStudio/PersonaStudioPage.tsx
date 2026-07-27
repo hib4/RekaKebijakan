@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
+import { useBulkUpdatePersonas, useCreateCustomPersona, useEffectivePersonas, usePersonaOverride, useProject, useResetPersona, useScenario } from "../../api/queries";
+import type { ApiEffectivePersona } from "../../api/client";
 import "./PersonaStudio.css";
-
-// Demo-only prototype. This page intentionally has no application route.
 
 type Stance = "Mendukung" | "Netral" | "Khawatir" | "Menolak";
 type Level = "Rendah" | "Sedang" | "Tinggi";
@@ -70,106 +70,9 @@ const groupSummaries: Record<string, { description: string; concerns: string; fr
   },
 };
 
-const requiredExamples: Persona[] = [
-  {
-    id: "p-001",
-    name: "Ibu Rani",
-    group: "Pelaku UMKM mikro",
-    profile: "Pemilik usaha makanan rumahan, terbiasa menjual lewat pesan instan.",
-    motivation: "Menjaga pesanan tetap berjalan tanpa administrasi rumit.",
-    concern: "Khawatir registrasi digital berkaitan dengan pajak tambahan.",
-    needs: "Penjelasan biaya, manfaat, dan bantuan tatap muka.",
-    stance: "Khawatir",
-    influence: "Sedang",
-    risk: "Tinggi",
-    active: true,
-    notes: "Asumsi skenario untuk pelaku mikro berliterasi digital sedang.",
-  },
-  {
-    id: "p-002",
-    name: "Pak Dedi",
-    group: "Pelaku UMKM kecil",
-    profile: "Pemilik toko kelontong yang mulai menggunakan pembayaran digital.",
-    motivation: "Memastikan proses registrasi tidak mengganggu operasional.",
-    concern: "Ingin proses registrasi sederhana dan tidak mengganggu operasional.",
-    needs: "Panduan langkah dan batas waktu yang jelas.",
-    stance: "Netral",
-    influence: "Sedang",
-    risk: "Sedang",
-    active: true,
-    notes: "Asumsi untuk usaha kecil yang sudah mengenal kanal digital.",
-  },
-  {
-    id: "p-003",
-    name: "Sari",
-    group: "Pendamping UMKM",
-    profile: "Pendamping lapangan yang membantu pelaku usaha mengakses program pemerintah.",
-    motivation: "Membantu kelompok terdampak memahami kewajiban baru.",
-    concern: "Membutuhkan materi sosialisasi dan kanal bantuan yang jelas.",
-    needs: "Materi resmi, FAQ, dan eskalasi pertanyaan.",
-    stance: "Mendukung",
-    influence: "Tinggi",
-    risk: "Rendah",
-    active: true,
-    notes: "Asumsi untuk penghubung lapangan dengan pengaruh tinggi.",
-  },
-  {
-    id: "p-004",
-    name: "Andika",
-    group: "Penyedia platform digital",
-    profile: "Perwakilan platform katalog UMKM lokal.",
-    motivation: "Menjaga integrasi layanan tetap aman dan jelas.",
-    concern: "Membutuhkan integrasi data yang aman dan standar teknis yang jelas.",
-    needs: "Dokumentasi teknis dan batas penggunaan data.",
-    stance: "Mendukung",
-    influence: "Tinggi",
-    risk: "Sedang",
-    active: true,
-    notes: "Asumsi untuk mitra teknologi dalam skenario revisi.",
-  },
-  {
-    id: "p-005",
-    name: "Bu Lina",
-    group: "Konsumen lokal",
-    profile: "Konsumen yang sering membeli dari UMKM sekitar.",
-    motivation: "Mendapatkan produk lokal yang jelas dan terjangkau.",
-    concern: "Ingin transparansi usaha tanpa membuat harga naik.",
-    needs: "Informasi sederhana tentang manfaat registrasi.",
-    stance: "Netral",
-    influence: "Rendah",
-    risk: "Rendah",
-    active: false,
-    notes: "Asumsi dampak tidak langsung pada konsumen lokal.",
-  },
-];
-
-const names = ["Nina", "Hendra", "Wati", "Rizal", "Mira", "Arif", "Dewi", "Teguh", "Yuni", "Fajar", "Nanda", "Rika"];
 const groupNames = groups.map(([name]) => name);
 const stances: Stance[] = ["Mendukung", "Netral", "Khawatir", "Menolak"];
 const levels: Level[] = ["Rendah", "Sedang", "Tinggi"];
-
-const generatedPersonas: Persona[] = Array.from({ length: 37 }, (_, index) => {
-  const group = groupNames[index % groupNames.length];
-  const stance = stances[index % stances.length];
-  const influence = levels[(index + 1) % levels.length];
-  const risk = levels[(index + 2) % levels.length];
-  return {
-    id: `p-${String(index + 6).padStart(3, "0")}`,
-    name: `${names[index % names.length]} ${index + 1}`,
-    group,
-    profile: `Persona sintetis dari ${group.toLowerCase()} untuk menguji asumsi skenario registrasi digital.`,
-    motivation: "Memahami manfaat kebijakan tanpa menambah beban administrasi.",
-    concern: "Membutuhkan kejelasan kewajiban, bantuan, dan konsekuensi implementasi.",
-    needs: "Informasi resmi, kanal bantuan, dan contoh proses registrasi.",
-    stance,
-    influence,
-    risk,
-    active: index < 26,
-    notes: "Catatan asumsi disusun untuk simulasi skenario, bukan identifikasi individu.",
-  };
-});
-
-const initialPersonas = [...requiredExamples, ...generatedPersonas];
 
 type Notice = { id: number; message: string } | null;
 type StatusFilter = "Semua" | "Aktif" | "Nonaktif";
@@ -187,7 +90,15 @@ const rank: Record<string, number> = { Rendah: 1, Sedang: 2, Tinggi: 3 };
 
 export default function PersonaStudioPage() {
   const navigate = useNavigate();
-  const [personas, setPersonas] = useState<Persona[]>(initialPersonas);
+  const { projectId = "", scenarioId = "" } = useParams<{ projectId: string; scenarioId: string }>();
+  const projectQuery = useProject(projectId);
+  const scenarioQuery = useScenario(projectId, scenarioId);
+  const personasQuery = useEffectivePersonas(projectId, scenarioId);
+  const overrideMutation = usePersonaOverride(projectId, scenarioId);
+  const resetMutation = useResetPersona(projectId, scenarioId);
+  const customMutation = useCreateCustomPersona(projectId, scenarioId);
+  const bulkMutation = useBulkUpdatePersonas(projectId, scenarioId);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedGroup, setSelectedGroup] = useState("Semua kelompok");
   const [status, setStatus] = useState<StatusFilter>("Semua");
   const [stance, setStance] = useState("Semua");
@@ -199,6 +110,18 @@ export default function PersonaStudioPage() {
   const [editing, setEditing] = useState<Persona | null>(null);
   const [draft, setDraft] = useState<Persona | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  useEffect(() => {
+    if (!personasQuery.data) return;
+    const mapped = personasQuery.data.items.map((item) => ({
+      id: item.id, name: item.name ?? item.id, group: item.group ?? item.stakeholder_group ?? "Stakeholder",
+      profile: item.profile ?? item.role ?? "Persona sintetis", motivation: item.motivation ?? "Memahami dampak kebijakan.",
+      concern: item.concern ?? item.concerns?.join(", ") ?? "Belum ada kekhawatiran", needs: item.needs ?? "Informasi kebijakan",
+      stance: (item.stance as Stance) ?? "Netral", influence: item.influence ?? "Sedang", risk: item.risk ?? "Sedang",
+      active: item.active, notes: item.notes ?? "",
+    }));
+    const timer = window.setTimeout(() => setPersonas(mapped), 0);
+    return () => window.clearTimeout(timer);
+  }, [personasQuery.data]);
 
   const activeCount = personas.filter((persona) => persona.active).length;
   const showNotice = (message: string) => {
@@ -230,22 +153,24 @@ export default function PersonaStudioPage() {
     setEditing(persona);
     setDraft({ ...persona });
   };
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (!draft) return;
-    setPersonas((items) => items.map((item) => item.id === draft.id ? draft : item));
-    setEditing(null);
-    setDraft(null);
-    showNotice("Perubahan persona disimpan.");
+    try {
+      await overrideMutation.mutateAsync({ personaId: draft.id, expected_version: scenarioQuery.data?.version ?? 0, base_environment_revision: scenarioQuery.data?.base_environment_revision ?? 0, patch: { name: draft.name, group: draft.group, role: draft.profile, concern: draft.concern, stance: draft.stance } });
+      setEditing(null); setDraft(null); showNotice("Perubahan persona disimpan.");
+    } catch { showNotice("Persona tidak dapat disimpan. Versi skenario mungkin berubah."); }
   };
-  const toggleActive = (id: string) => {
-    setPersonas((items) => items.map((item) => item.id === id ? { ...item, active: !item.active } : item));
+  const toggleActive = async (id: string) => {
+    const persona = personas.find((item) => item.id === id);
+    if (!persona) return;
+    try { await bulkMutation.mutateAsync({ persona_ids: [id], patch: { active: !persona.active }, expected_version: scenarioQuery.data?.version ?? 0 }); }
+    catch { showNotice("Status persona tidak dapat diperbarui."); }
   };
-  const applyBulk = (active: boolean) => {
-    setPersonas((items) => items.map((item) => selected.includes(item.id) ? { ...item, active } : item));
-    setSelected([]);
-    showNotice(active ? "Persona terpilih diaktifkan." : "Persona terpilih dinonaktifkan.");
+  const applyBulk = async (active: boolean) => {
+    try { await bulkMutation.mutateAsync({ persona_ids: selected, patch: { active }, expected_version: scenarioQuery.data?.version ?? 0 }); setSelected([]); showNotice(active ? "Persona terpilih diaktifkan." : "Persona terpilih dinonaktifkan."); }
+    catch { showNotice("Aksi massal tidak dapat diselesaikan."); }
   };
-  const addPersona = () => {
+  const addPersona = async () => {
     const item: Persona = {
       id: `p-${Date.now()}`,
       name: "Persona sintetis baru",
@@ -260,8 +185,15 @@ export default function PersonaStudioPage() {
       active: false,
       notes: "Catatan asumsi belum ditinjau.",
     };
-    setPersonas((items) => [item, ...items]);
-    openDrawer(item);
+    try {
+      const created = await customMutation.mutateAsync({ ...(item as Omit<ApiEffectivePersona, "id" | "source">), expected_version: scenarioQuery.data?.version ?? 0 });
+      openDrawer({ ...item, id: created.id });
+    } catch { showNotice("Persona kustom tidak dapat dibuat."); }
+  };
+  const resetPersona = async () => {
+    if (!draft) return;
+    try { await resetMutation.mutateAsync({ personaId: draft.id, expectedVersion: scenarioQuery.data?.version ?? 0 }); setEditing(null); setDraft(null); showNotice("Persona dikembalikan ke nilai lingkungan."); }
+    catch { showNotice("Override persona tidak dapat direset."); }
   };
 
   return (
@@ -271,23 +203,23 @@ export default function PersonaStudioPage() {
       eyebrow="Workspace kebijakan"
       actions={
         <>
-          <button className="button primary" onClick={() => showNotice("Perubahan stakeholder dan persona disimpan.")}>Simpan perubahan</button>
-          <button className="button secondary" onClick={() => navigate("/projects/registrasi-digital-umkm")}>Kembali ke workspace</button>
+          <button className="button primary" onClick={() => showNotice("Semua perubahan telah disimpan saat diedit.")}>Simpan perubahan</button>
+          <button className="button secondary" onClick={() => navigate(`/projects/${projectId}`)}>Kembali ke workspace</button>
         </>
       }
     >
       <section className="persona-top" aria-label="Ringkasan stakeholder dan persona">
-        <div className="workspace-breadcrumb">Proyek Kebijakan / Registrasi Digital UMKM / Stakeholder & Persona</div>
-        <div className="workspace-title-row"><StatusBadge /><span>Transformasi digital layanan publik · Kota Bandung</span></div>
+         <div className="workspace-breadcrumb">Proyek Kebijakan / {projectQuery.data?.name ?? "Memuat proyek"} / Stakeholder & Persona</div>
+         <div className="workspace-title-row"><StatusBadge /><span>{projectQuery.data?.institution}</span></div>
         <div className="inline-alert persona-notice">
           <p>Persona bersifat sintetis dan digunakan untuk menguji skenario kebijakan. Persona bukan profil warga nyata dan tidak boleh digunakan untuk mengambil keputusan terhadap individu.</p>
         </div>
       </section>
 
       <section className="metrics-grid persona-metrics" aria-label="Ringkasan persona">
-        <article className="metric-card"><p>Persona total</p><strong>42</strong><span>Asumsi skenario tersedia</span></article>
+        <article className="metric-card"><p>Persona total</p><strong>{personas.length}</strong><span>Asumsi skenario tersedia</span></article>
         <article className="metric-card"><p>Persona aktif</p><strong>{activeCount}</strong><span>Dipakai dalam simulasi</span></article>
-        <article className="metric-card"><p>Kelompok stakeholder</p><strong>6</strong><span>Kelompok terdampak</span></article>
+        <article className="metric-card"><p>Kelompok stakeholder</p><strong>{new Set(personas.map((persona) => persona.group)).size}</strong><span>Kelompok terdampak</span></article>
         <article className="metric-card"><p>Tingkat pengaruh</p><strong>3</strong><span>Rendah, sedang, tinggi</span></article>
       </section>
       {activeCount < 20 && (
@@ -305,9 +237,9 @@ export default function PersonaStudioPage() {
         <aside className="persona-sidebar" aria-label="Filter persona">
           <section>
             <h2>Kelompok stakeholder</h2>
-            <button className={selectedGroup === "Semua kelompok" ? "active" : ""} onClick={() => setSelectedGroup("Semua kelompok")}>Semua kelompok <span>42</span></button>
-            {groups.map(([group, count]) => (
-              <button className={selectedGroup === group ? "active" : ""} key={group} onClick={() => setSelectedGroup(group)}>{group} <span>{count}</span></button>
+             <button className={selectedGroup === "Semua kelompok" ? "active" : ""} onClick={() => setSelectedGroup("Semua kelompok")}>Semua kelompok <span>{personas.length}</span></button>
+             {[...new Set(personas.map((persona) => persona.group))].map((group) => (
+               <button className={selectedGroup === group ? "active" : ""} key={group} onClick={() => setSelectedGroup(group)}>{group} <span>{personas.filter((persona) => persona.group === group).length}</span></button>
             ))}
           </section>
           <section className="persona-filter-stack">
@@ -411,6 +343,7 @@ export default function PersonaStudioPage() {
             </div>
             <div className="drawer-actions">
               <button className="button primary" onClick={saveDraft}>Simpan perubahan</button>
+              <button className="button ghost" disabled={resetMutation.isPending} onClick={resetPersona}>Reset ke persona efektif</button>
               <button className="button secondary" onClick={() => { setEditing(null); setDraft(null); }}>Batalkan</button>
             </div>
           </aside>

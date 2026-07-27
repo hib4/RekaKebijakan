@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import re
+import time
 from collections import Counter
 from functools import wraps
 from typing import Callable, Protocol
@@ -18,6 +20,9 @@ from .provider_errors import (
     ProviderResponseError,
     ProviderTransportError,
 )
+
+
+logger = logging.getLogger("rekakebijakan.provider")
 
 
 GROUPS = ["Pemerintah daerah", "Pelaku usaha", "Warga terdampak", "Akademisi", "Masyarakat sipil", "Media lokal"]
@@ -238,8 +243,16 @@ class DeterministicPolicyProvider:
         relevant_chunks = retrieve_chunks(payload["question"], chunks, 3)
         evidence = citation(relevant_chunks[0]) if relevant_chunks else None
         citation_ids = [f"event:{selected[0]['id']}"] if selected else ["report:ringkasan"]
+        instruction = {
+            "report": "Ringkasan laporan menekankan temuan lintas bagian",
+            "persona": f"Perspektif {payload.get('persona_group') or 'persona terdampak'} menekankan pengalaman dan kekhawatiran",
+            "evidence": "Jejak bukti memprioritaskan sumber dan event yang dapat diverifikasi",
+            "risk": "Analisis risiko memprioritaskan tingkat dampak dan mitigasi",
+            "compare": "Perbandingan menyoroti perbedaan asumsi, respons, dan hasil",
+            "revision": "Usulan revisi merumuskan perubahan kebijakan yang dapat ditindaklanjuti",
+        }[payload.get("tool", "report")]
         return {
-            "text": f"Berdasarkan {len(selected)} event relevan, '{payload['question']}' perlu ditangani bertahap dengan umpan balik terukur. [{citation_ids[0]}]",
+            "text": f"{instruction}. Berdasarkan {len(selected)} event relevan, '{payload['question']}' perlu ditangani bertahap dengan umpan balik terukur. [{citation_ids[0]}]",
             "citations": citation_ids,
             "evidence_citations": [evidence] if evidence else [],
         }
@@ -301,6 +314,7 @@ class OpenAICompatiblePolicyProvider:
         timeout: float = 120,
         fallback_policy: FallbackPolicy = "deterministic",
         *,
+        max_output_tokens: int = 2500,
         client=None,
     ):
         if fallback_policy not in {"deterministic", "raise"}:
@@ -308,6 +322,7 @@ class OpenAICompatiblePolicyProvider:
         self.fallback_policy = fallback_policy
         self.fallback_provider = DeterministicPolicyProvider()
         self.model = model
+        self.max_output_tokens = max_output_tokens
         if client is not None:
             self.client = client
             return
@@ -315,7 +330,8 @@ class OpenAICompatiblePolicyProvider:
             from openai import OpenAI
         except ImportError as error:
             raise RuntimeError("Install backend dengan extra [llm] untuk POLICY_PROVIDER=openai") from error
-        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+        # Durable worker retries already provide backoff and attempt tracking.
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
     @staticmethod
     def _local_provenance(value, fallback):
@@ -335,21 +351,54 @@ class OpenAICompatiblePolicyProvider:
             ]
         return value
 
+    @staticmethod
+    def _evidence(chunks: list[dict], limit: int = 6, text_limit: int = 800) -> list[dict]:
+        return [
+            {
+                "id": item["id"],
+                "document_id": item["document_id"],
+                "ordinal": item["ordinal"],
+                "text": item["text"][:text_limit],
+            }
+            for item in chunks[:limit]
+        ]
+
     def _json(self, operation: str, task: str, context: dict) -> dict:
+        serialized = json.dumps({"task": task, "context": context}, ensure_ascii=False, default=str)
+        started = time.monotonic()
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                response_format={"type": "json_object"},
+                max_tokens=self.max_output_tokens,
                 messages=[
-                    {"role": "system", "content": "Anda adalah analis kebijakan Indonesia. Jawab hanya JSON lengkap yang mengikuti struktur konteks fallback. Jangan membuat ID sumber atau sitasi baru."},
-                    {"role": "user", "content": json.dumps({"task": task, "context": context}, ensure_ascii=False, default=str)},
+                    {
+                        "role": "system",
+                        "content": (
+                            "Anda adalah analis kebijakan Indonesia. Jawab hanya satu objek JSON lengkap yang mengikuti "
+                            "struktur dan jumlah item pada fallback. Pertahankan semua ID, referensi sumber, dan sitasi "
+                            "persis seperti fallback. Jangan menambah item atau penjelasan di luar JSON. Gunakan uraian "
+                            "ringkas dan spesifik berdasarkan bukti yang diberikan."
+                        ),
+                    },
+                    {"role": "user", "content": serialized},
                 ],
             )
         except Exception as error:
+            logger.warning(
+                "llm_request_failed operation=%s model=%s duration_ms=%d input_chars=%d error_type=%s",
+                operation, self.model, int((time.monotonic() - started) * 1000), len(serialized), type(error).__name__,
+            )
             raise ProviderTransportError(operation, str(error)) from error
+        logger.info(
+            "llm_request_completed operation=%s model=%s duration_ms=%d input_chars=%d",
+            operation, self.model, int((time.monotonic() - started) * 1000), len(serialized),
+        )
         try:
             content = response.choices[0].message.content
-            value = json.loads(content or "")
+            text = (content or "").strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+            value = json.loads(text)
         except (AttributeError, IndexError, TypeError, json.JSONDecodeError) as error:
             raise ProviderResponseError(operation, "response did not contain a valid JSON object") from error
         if not isinstance(value, dict) or not value:
@@ -371,18 +420,68 @@ class OpenAICompatiblePolicyProvider:
         except ProviderError as error:
             failure = error
         if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=%s category=%s message=%s",
+                operation, failure.category, failure,
+            )
             return fallback
         raise failure
 
     @validated("ontology")
     def ontology(self, project: dict, chunks: list[dict]) -> dict:
         fallback = self.fallback_provider.ontology(project, chunks)
-        return self._generate("ontology", "Buat ontology kebijakan", {"project": project, "chunks": chunks[:12], "fallback": fallback}, fallback)
+        evidence = retrieve_chunks(project["objective"], chunks, 6)
+        return self._generate(
+            "ontology",
+            "Perjelas ontology fallback berdasarkan bukti. Pertahankan struktur dan jumlah entity_types serta relation_types.",
+            {"project": project, "chunks": self._evidence(evidence), "fallback": fallback},
+            fallback,
+        )
 
     @validated("graph")
     def graph(self, project: dict, ontology: dict, chunks: list[dict]) -> dict:
         fallback = self.fallback_provider.graph(project, ontology, chunks)
-        return self._generate("graph", "Buat graph kebijakan", {"project": project, "ontology": ontology, "chunks": chunks[:12], "fallback": fallback}, fallback)
+        compact_nodes = [
+            {key: node.get(key) for key in ("id", "label", "type", "summary")}
+            for node in fallback["nodes"]
+        ]
+        generated = self._json(
+            "graph",
+            (
+                "Perjelas label dan ringkasan node graph berdasarkan ontology dan bukti. Kembalikan objek "
+                "dengan key nodes yang berisi tepat satu item untuk setiap ID input; setiap item hanya memiliki "
+                "id, label, dan summary. Jangan membuat atau menghapus ID."
+            ),
+            {
+                "project": project,
+                "ontology_summary": ontology.get("analysis_summary", ""),
+                "nodes": compact_nodes,
+                "chunks": self._evidence(retrieve_chunks(project["objective"], chunks, 4), 4, 600),
+            },
+        )
+        updates = generated.get("nodes")
+        if not isinstance(updates, list):
+            raise ProviderResponseError("graph", "response JSON must contain a nodes array")
+        by_id = {
+            item.get("id"): item
+            for item in updates
+            if isinstance(item, dict) and item.get("id")
+        }
+        expected_ids = {node["id"] for node in fallback["nodes"]}
+        if set(by_id) != expected_ids:
+            raise ProviderResponseError("graph", "response nodes must preserve every input node ID")
+        result = dict(fallback)
+        result["generated_by"] = self.name
+        result["nodes"] = [
+            node | {
+                "label": str(by_id[node["id"]].get("label") or node["label"]),
+                "summary": str(by_id[node["id"]].get("summary") or node["summary"]),
+            }
+            for node in fallback["nodes"]
+        ]
+        return PROVIDER_OUTPUTS["graph"].model_validate(result, strict=True).model_dump(
+            mode="python", exclude_none=True
+        )
 
     @validated("environment")
     def environment(self, simulation_id: str, graph: dict, config: dict) -> dict:
@@ -421,6 +520,8 @@ def make_provider(settings) -> PolicyProvider:
         if not settings.llm_api_key:
             raise ValueError("LLM_API_KEY wajib diisi untuk POLICY_PROVIDER=openai")
         return OpenAICompatiblePolicyProvider(
-            settings.llm_api_key, settings.llm_model, settings.llm_base_url, settings.provider_timeout_seconds
+            settings.llm_api_key, settings.llm_model, settings.llm_base_url,
+            settings.provider_timeout_seconds, settings.llm_fallback_policy,
+            max_output_tokens=settings.llm_max_output_tokens,
         )
     return DeterministicPolicyProvider()

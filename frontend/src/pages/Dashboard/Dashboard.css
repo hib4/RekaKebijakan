@@ -232,7 +232,7 @@
   line-height: 1.5;
 }
 .active-simulation .actions {
-  padding: 0 24px;
+  padding: 24px 24px 0;
 }
 .project-tools {
   display: grid;

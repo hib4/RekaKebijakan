@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from json import JSONDecodeError
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -13,6 +15,12 @@ from .models import (
     GraphFeedbackInput,
     InteractionInput,
     InterviewInput,
+    CustomPersonaInput,
+    CustomPersonaUpdateInput,
+    PersonaBulkInput,
+    PilotContactInput,
+    ProjectBulkLifecycleInput,
+    ProjectDuplicateInput,
     PersonaOverrideDeleteInput,
     PersonaOverrideInput,
     ProjectInput,
@@ -70,6 +78,20 @@ async def health():
     return {"status": "ok", "service": "rekakebijakan", "engine": "configurable"}
 
 
+@public_router.post("/pilot/contact", status_code=201)
+@public_router.post("/v1/contact-requests", status_code=201, include_in_schema=False)
+async def pilot_contact(request: Request):
+    payload = await silent_json(request)
+    if "organization" in payload or "use_case" in payload:
+        payload = {
+            "name": payload.get("name"), "email": payload.get("email"),
+            "institution": payload.get("organization"), "message": payload.get("use_case"), "consent": True,
+        }
+    model = PilotContactInput.model_validate(payload)
+    row = await run_in_threadpool(repository(request).create_pilot_contact, model.model_dump())
+    return {"id": row["id"], "created_at": row["created_at"], "received_at": row["created_at"], "status": "received"}
+
+
 @router.post("/projects")
 @v1_router.post("/projects", include_in_schema=False)
 async def create_project(
@@ -122,7 +144,24 @@ def project_summary(row: dict) -> dict:
         "workflow_status": state.get("status", "ready"), "highest_risk": highest,
         "report_available": bool(report.get("sections")), "updated_at": row["updated_at"],
         "created_at": row["created_at"], "archived_at": row["archived_at"],
+        "delete_after": row.get("delete_after"), "deleted_at": row.get("deleted_at"),
+        "pending_delete": row["status"] == "pending_delete",
         "scenario_count": row.get("scenario_count", 0),
+    }
+
+
+def run_summary(row: dict, state: dict | None = None) -> dict:
+    state = state or {}
+    simulation = state.get("simulation", {})
+    stage = state.get("stages", {}).get("simulation", {})
+    events = (row.get("output_snapshot") or {}).get("simulation", {}).get("events") or simulation.get("events", [])
+    rounds = int(row.get("input_snapshot", {}).get("environment", {}).get("config", {}).get("rounds", 5))
+    return {
+        **row, "run_id": row["id"], "version": 1,
+        "progress": 100 if row["status"] == "completed" else int(stage.get("progress", 0)),
+        "current_round": max((int(item.get("round", 0)) for item in events), default=0),
+        "total_rounds": rounds, "event_count": len(events),
+        "updated_at": row.get("completed_at") or row.get("started_at") or row["created_at"],
     }
 
 
@@ -170,7 +209,17 @@ async def project_status(request: Request, project_id: str, status: str):
     try:
         row = await run_in_threadpool(repository(request).set_project_status, project_id, user_id(request), status)
     except ValueError as error:
-        raise StageConflict(str(error)) from error
+        row = None
+        if "active job" in str(error).lower():
+            for _ in range(10):
+                await asyncio.sleep(0.01)
+                try:
+                    row = await run_in_threadpool(repository(request).set_project_status, project_id, user_id(request), status)
+                    break
+                except ValueError:
+                    continue
+        if not row:
+            raise StageConflict(str(error)) from error
     if not row:
         raise ResourceNotFound()
     return row
@@ -189,6 +238,35 @@ async def restore_project_v1(request: Request, project_id: str):
 @v1_router.delete("/projects/{project_id}")
 async def delete_project_v1(request: Request, project_id: str):
     return await project_status(request, project_id, "pending_delete")
+
+
+@v1_router.post("/projects/{project_id}/duplicate", status_code=201)
+async def duplicate_project_v1(request: Request, project_id: str):
+    model = ProjectDuplicateInput.model_validate(await silent_json(request))
+    state = await run_in_threadpool(service(request).duplicate_project, project_id, user_id(request), model.name)
+    if not state:
+        raise ResourceNotFound()
+    row = await run_in_threadpool(repository(request).project, state["project"]["id"], user_id(request))
+    return project_summary(row)
+
+
+@v1_router.post("/projects/bulk-lifecycle")
+@v1_router.post("/projects/bulk-actions", include_in_schema=False)
+async def bulk_project_lifecycle_v1(request: Request):
+    model = ProjectBulkLifecycleInput.model_validate(await silent_json(request))
+    target = {"archive": "archived", "restore": "active", "delete": "pending_delete"}[model.action]
+    items = []
+    for project_id in model.project_ids:
+        try:
+            row = await run_in_threadpool(repository(request).set_project_status, project_id, user_id(request), target)
+            items.append({"id": project_id, "ok": bool(row), "status": row.get("status") if row else None})
+        except ValueError as error:
+            items.append({"id": project_id, "ok": False, "error": str(error)})
+    return {
+        "items": items,
+        "succeeded": sum(item["ok"] for item in items),
+        "failed": [{"id": item["id"], "message": item.get("error", "Resource tidak ditemukan")} for item in items if not item["ok"]],
+    }
 
 
 @v1_router.get("/projects/{project_id}/scenarios")
@@ -267,6 +345,15 @@ async def delete_scenario_v1(request: Request, project_id: str, scenario_id: str
     return {"ok": True}
 
 
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/duplicate", status_code=201)
+async def duplicate_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    payload = await silent_json(request)
+    row = await run_in_threadpool(repository(request).duplicate_scenario, project_id, scenario_id, user_id(request), payload.get("name"))
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
 @v1_router.get("/projects/{project_id}/scenarios/{scenario_id}/personas")
 async def effective_personas_v1(request: Request, project_id: str, scenario_id: str):
     items = await run_in_threadpool(
@@ -275,6 +362,24 @@ async def effective_personas_v1(request: Request, project_id: str, scenario_id: 
     if items is None:
         raise ResourceNotFound()
     return {"items": items}
+
+
+@v1_router.post("/projects/{project_id}/scenarios/compare")
+async def compare_scenarios_v1(request: Request, project_id: str):
+    from .models import ScenarioCompareInput
+    model = ScenarioCompareInput.model_validate(await silent_json(request))
+    rows = []
+    for scenario_id in model.scenario_ids:
+        row = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
+        if not row:
+            raise ResourceNotFound()
+        rows.append(row)
+    fields = ("name", "description", "kind", "config", "persona_overrides")
+    differences = [
+        {"field": field, "values": {row["id"]: row[field] for row in rows}}
+        for field in fields if len({str(row[field]) for row in rows}) > 1
+    ]
+    return {"scenarios": rows, "differences": differences}
 
 
 @v1_router.put("/projects/{project_id}/scenarios/{scenario_id}/persona-overrides/{persona_id}")
@@ -302,9 +407,73 @@ async def put_persona_override_v1(request: Request, project_id: str, scenario_id
     raise ResourceNotFound()
 
 
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/personas", status_code=201)
+async def create_custom_persona_v1(request: Request, project_id: str, scenario_id: str):
+    model = CustomPersonaInput.model_validate(await silent_json(request))
+    row = await run_in_threadpool(repository(request).create_custom_persona, project_id, scenario_id, user_id(request), model.model_dump(exclude={"expected_version"}))
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
+@v1_router.patch("/projects/{project_id}/scenarios/{scenario_id}/personas/{persona_id}")
+async def update_custom_persona_v1(request: Request, project_id: str, scenario_id: str, persona_id: str):
+    model = CustomPersonaUpdateInput.model_validate(await silent_json(request))
+    row = await run_in_threadpool(repository(request).update_custom_persona, project_id, scenario_id, persona_id,
+                                  user_id(request), model.model_dump(exclude_none=True))
+    if not row:
+        raise ResourceNotFound()
+    return row
+
+
+@v1_router.delete("/projects/{project_id}/scenarios/{scenario_id}/personas/{persona_id}")
+async def delete_custom_persona_v1(request: Request, project_id: str, scenario_id: str, persona_id: str):
+    removed = await run_in_threadpool(repository(request).delete_custom_persona, project_id, scenario_id, persona_id, user_id(request))
+    if not removed:
+        raise ResourceNotFound()
+    return {"ok": True}
+
+
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/personas/bulk-activation")
+async def bulk_persona_activation_v1(request: Request, project_id: str, scenario_id: str):
+    model = PersonaBulkInput.model_validate(await silent_json(request))
+    try:
+        row = await run_in_threadpool(repository(request).bulk_persona_activation, project_id, scenario_id, user_id(request),
+            model.persona_ids, model.active, model.expected_version, model.base_environment_revision)
+    except (KeyError, ValueError) as error:
+        raise RevisionConflict() from error
+    if not row:
+        raise RevisionConflict()
+    return row
+
+
+@v1_router.patch("/projects/{project_id}/scenarios/{scenario_id}/personas/bulk")
+async def bulk_persona_patch_v1(request: Request, project_id: str, scenario_id: str):
+    from .models import PersonaBulkPatchInput
+    model = PersonaBulkPatchInput.model_validate(await silent_json(request))
+    patch = model.patch.model_dump(exclude_none=True)
+    if set(patch) != {"active"}:
+        raise StageConflict("Aksi massal saat ini hanya mendukung status aktif")
+    scenario = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
+    if not scenario:
+        raise ResourceNotFound()
+    row = await run_in_threadpool(
+        repository(request).bulk_persona_activation, project_id, scenario_id, user_id(request),
+        model.persona_ids, patch["active"], model.expected_version,
+        model.base_environment_revision if model.base_environment_revision is not None else scenario["base_environment_revision"],
+    )
+    if not row:
+        raise RevisionConflict()
+    items = await run_in_threadpool(repository(request).effective_personas, project_id, scenario_id, user_id(request))
+    return {"items": items, "scenario": row}
+
+
 @v1_router.delete("/projects/{project_id}/scenarios/{scenario_id}/persona-overrides/{persona_id}")
 async def delete_persona_override_v1(request: Request, project_id: str, scenario_id: str, persona_id: str):
     model = PersonaOverrideDeleteInput.model_validate(await silent_json(request))
+    scenario = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
+    if not scenario:
+        raise ResourceNotFound()
     try:
         row = await run_in_threadpool(
             repository(request).put_persona_override,
@@ -313,7 +482,7 @@ async def delete_persona_override_v1(request: Request, project_id: str, scenario
             persona_id,
             user_id(request),
             model.expected_version,
-            model.base_environment_revision,
+            model.base_environment_revision if model.base_environment_revision is not None else scenario["base_environment_revision"],
             None,
         )
     except ValueError as error:
@@ -326,16 +495,192 @@ async def delete_persona_override_v1(request: Request, project_id: str, scenario
 
 
 @v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/run")
+@v1_router.post("/projects/{project_id}/scenarios/{scenario_id}/runs", include_in_schema=False)
 async def run_scenario_v1(request: Request, project_id: str, scenario_id: str):
+    from .models import ScenarioRunInput
+    model = ScenarioRunInput.model_validate(await silent_json(request))
+    current = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
+    if model.expected_scenario_version and current and current["version"] != model.expected_scenario_version:
+        raise RevisionConflict()
     try:
-        simulation_id = await run_in_threadpool(
-            repository(request).apply_scenario, project_id, scenario_id, user_id(request)
+        run = await run_in_threadpool(
+            repository(request).prepare_scenario_run, project_id, scenario_id, user_id(request)
         )
     except ValueError as error:
         raise StageConflict(str(error)) from error
-    if not simulation_id:
+    if not run:
         raise ResourceNotFound()
-    return await start_stage(request, simulation_id, "simulation")
+    state = await run_in_threadpool(service(request).start, run["simulation_id"], "simulation", {}, user_id(request), run["id"])
+    stored = await run_in_threadpool(repository(request).run, run["id"], user_id(request))
+    return JSONResponse(jsonable_encoder(run_summary(stored, state)), status_code=202)
+
+
+@v1_router.get("/projects/{project_id}/scenarios/{scenario_id}/runs")
+async def list_scenario_runs_v1(request: Request, project_id: str, scenario_id: str):
+    items = await run_in_threadpool(repository(request).list_runs, project_id, scenario_id, user_id(request))
+    if items is None:
+        raise ResourceNotFound()
+    return {"items": items}
+
+
+@v1_router.get("/projects/{project_id}/scenarios/{scenario_id}/comparison")
+async def compare_scenario_runs_v1(request: Request, project_id: str, scenario_id: str, run_ids: str = ""):
+    result = await run_in_threadpool(repository(request).compare_runs, project_id, scenario_id, user_id(request),
+                                     [item for item in run_ids.split(",") if item] or None)
+    if result is None:
+        raise ResourceNotFound()
+    return result
+
+
+@v1_router.get("/runs/{run_id}")
+async def get_scenario_run_v1(request: Request, run_id: str):
+    row = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    return run_summary(row, await run_in_threadpool(repository(request).get_for_user, row["simulation_id"], user_id(request)))
+
+
+@v1_router.get("/runs/{run_id}/events")
+async def scenario_run_events_v1(request: Request, run_id: str, after: int = Query(default=0, ge=0), cursor: str | None = None):
+    if cursor:
+        try:
+            after = max(after, int(cursor))
+        except ValueError:
+            after = 0
+    items = await run_in_threadpool(repository(request).run_events, run_id, user_id(request), after)
+    if items is None:
+        raise ResourceNotFound()
+    row = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    state = await run_in_threadpool(repository(request).get_for_user, row["simulation_id"], user_id(request))
+    next_cursor = str(max([after, *[int(item.get("sequence", 0)) for item in items]])) if items else None
+    return {"events": items, "items": items, "event_count": len(items), "next_cursor": next_cursor, "run": run_summary(row, state)}
+
+
+@v1_router.get("/runs/{run_id}/provenance")
+async def scenario_run_provenance_v1(request: Request, run_id: str):
+    row = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    return {"run_id": run_id, "provenance": row["provenance"], "input_snapshot": row["input_snapshot"],
+            "logs": (row.get("output_snapshot") or {}).get("logs", [])}
+
+
+@v1_router.get("/runs/{run_id}/logs")
+async def scenario_run_logs_v1(request: Request, run_id: str):
+    row = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    return {"items": (row.get("output_snapshot") or {}).get("logs", [])}
+
+
+async def control_scenario_run_v1(request: Request, run_id: str, action: str):
+    row = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    state = await control(request, row["simulation_id"], action)
+    updated = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    return run_summary(updated, state)
+
+
+@v1_router.post("/runs/{run_id}/pause")
+async def pause_scenario_run_v1(request: Request, run_id: str):
+    return await control_scenario_run_v1(request, run_id, "pause")
+
+
+@v1_router.post("/runs/{run_id}/resume")
+async def resume_scenario_run_v1(request: Request, run_id: str):
+    return await control_scenario_run_v1(request, run_id, "resume")
+
+
+@v1_router.post("/runs/{run_id}/cancel")
+async def cancel_scenario_run_v1(request: Request, run_id: str):
+    return await control_scenario_run_v1(request, run_id, "cancel")
+
+
+@v1_router.post("/runs/{run_id}/reproduce", status_code=202)
+async def reproduce_scenario_run_v1(request: Request, run_id: str):
+    prepared = await run_in_threadpool(repository(request).prepare_reproduction, run_id, user_id(request))
+    if not prepared:
+        raise ResourceNotFound()
+    state = await run_in_threadpool(service(request).start, prepared["simulation_id"], "simulation", {}, user_id(request), prepared["id"])
+    return state | {"run_id": prepared["id"], "reproduces_run_id": run_id}
+
+
+@v1_router.post("/runs/{run_id}/interviews", status_code=201)
+async def create_run_interview_v1(request: Request, run_id: str):
+    from .models import RunInterviewInput
+    model = RunInterviewInput.model_validate(await silent_json(request))
+    run = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not run:
+        raise ResourceNotFound()
+    persona_ids = model.persona_ids
+    if model.group and not persona_ids:
+        personas = run["input_snapshot"].get("environment", {}).get("personas", [])
+        persona_ids = [item["id"] for item in personas if item.get("group") == model.group]
+    result = await run_in_threadpool(
+        service(request).interview, run["simulation_id"], model.question, persona_ids, user_id(request)
+    )
+    if not result:
+        raise ResourceNotFound()
+    answers = [{
+        "id": item["id"], "role": "assistant", "author": item.get("persona_name") or item.get("persona_id", "Persona"),
+        "tool": "interview", "text": item.get("answer", ""), "content": item.get("answer", ""),
+        "citations": item.get("citations", []),
+    } for item in result.get("answers", [])]
+    return {"id": result["id"], "answers": answers}
+
+
+@v1_router.post("/runs/{run_id}/interactions", status_code=201)
+async def create_run_interaction_v1(request: Request, run_id: str):
+    from .models import RunInteractionInput
+    model = RunInteractionInput.model_validate(await silent_json(request))
+    run = await run_in_threadpool(repository(request).run, run_id, user_id(request))
+    if not run:
+        raise ResourceNotFound()
+    message = await run_in_threadpool(
+        service(request).interact, run["simulation_id"], model.model_dump(), user_id(request)
+    )
+    if not message:
+        raise ResourceNotFound()
+    return message | {"content": message.get("text", "")}
+
+
+@v1_router.get("/projects/{project_id}/provenance")
+async def project_provenance_v1(request: Request, project_id: str):
+    row = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    stored = await run_in_threadpool(repository(request).citations, row["simulation_id"])
+    grouped = {}
+    for citation in stored:
+        key = (citation["artifact_type"], citation["artifact_id"])
+        grouped.setdefault(key, []).append(citation)
+    return {"items": [{
+        "id": f"{kind}:{artifact_id}", "subject_type": kind, "subject_id": artifact_id,
+        "label": artifact_id, "citations": values, "inputs": [],
+    } for (kind, artifact_id), values in grouped.items()]}
+
+
+@v1_router.post("/projects/{project_id}/graph/feedback")
+async def project_graph_feedback_v1(request: Request, project_id: str):
+    payload = await silent_json(request)
+    row = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+    if not row:
+        raise ResourceNotFound()
+    action = payload.get("action")
+    if action == "accept":
+        return {"accepted": True, "project_version": row["version"]}
+    if action in {"reject", "comment"}:
+        feedback = {
+            "action": "update_node", "target_id": row["state"].get("graph", {}).get("nodes", [{}])[0].get("id"),
+            "patch": {}, "reason": payload.get("comment") or "Graf memerlukan tinjauan lanjutan",
+            "base_revision": row["state"].get("graph", {}).get("revision", 1),
+        }
+        if not feedback["target_id"]:
+            raise StageConflict("Graf belum tersedia")
+        await run_in_threadpool(service(request).apply_graph_feedback, row["simulation_id"], feedback, user_id(request))
+        return {"accepted": True, "project_version": row["version"]}
+    raise StageConflict("Aksi tinjauan graf tidak valid")
 
 
 @v1_router.get("/dashboard")
@@ -544,7 +889,9 @@ async def create_interview(request: Request, simulation_id: str):
 
 @router.get("/simulations/{simulation_id}/interviews")
 async def list_interviews(request: Request, simulation_id: str):
-    return require_state(request, simulation_id).get("interviews", {"items": []})
+    require_state(request, simulation_id)
+    items = await run_in_threadpool(repository(request).persisted_interviews, simulation_id, user_id(request))
+    return {"items": items or []}
 
 
 @router.post("/simulations/{simulation_id}/graph/feedback")
@@ -563,7 +910,9 @@ async def graph_feedback(request: Request, simulation_id: str):
 
 @router.get("/simulations/{simulation_id}/graph/feedback")
 async def list_graph_feedback(request: Request, simulation_id: str):
-    return require_state(request, simulation_id).get("graph_feedback", {"items": []})
+    require_state(request, simulation_id)
+    items = await run_in_threadpool(repository(request).persisted_graph_feedback, simulation_id, user_id(request))
+    return {"items": items or []}
 
 
 @router.post("/simulations/{simulation_id}/interactions")

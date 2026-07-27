@@ -508,3 +508,101 @@ export const putPersonaOverride = (
   "PUT",
   input,
 );
+
+// Production workspace API v1. Mutating resources carry expected_version so
+// clients never silently overwrite a newer project, scenario, or run state.
+export type ApiRun = {
+  id: string;
+  project_id: string;
+  scenario_id: string;
+  status: "queued" | "running" | "paused" | "cancelled" | "failed" | "completed";
+  version: number;
+  progress: number;
+  current_round: number;
+  total_rounds: number;
+  event_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ApiRunEventPage = {
+  items: ApiEventDto[];
+  next_cursor: string | null;
+  run: ApiRun;
+};
+
+export type ApiEffectivePersona = ApiPersonaDto & {
+  active: boolean;
+  source: "environment" | "override" | "custom";
+  profile?: string;
+  motivation?: string;
+  needs?: string;
+  influence?: "Rendah" | "Sedang" | "Tinggi";
+  risk?: "Rendah" | "Sedang" | "Tinggi";
+  notes?: string;
+};
+
+export type ApiProvenance = {
+  id: string;
+  subject_type: string;
+  subject_id: string;
+  label: string;
+  created_at?: string;
+  citations: ApiCitationDto[];
+  inputs?: { type: string; id: string; label?: string }[];
+};
+
+export const duplicateProject = (projectId: string, input: { name?: string } = {}) =>
+  jsonRequest<ApiProject>(`/api/v1/projects/${encodeURIComponent(projectId)}/duplicate`, "POST", input);
+
+export const bulkProjectAction = (input: { project_ids: string[]; action: "archive" | "restore" | "delete" }) =>
+  jsonRequest<{ items: ApiProject[]; failed: { id: string; message: string }[] }>("/api/v1/projects/bulk-actions", "POST", input);
+
+export const duplicateScenario = (projectId: string, scenarioId: string, input: { name?: string } = {}) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/duplicate`, "POST", input);
+
+export const compareScenarios = (projectId: string, scenarioIds: string[]) =>
+  jsonRequest<{ scenarios: ApiScenario[]; differences: { field: string; values: Record<string, unknown> }[] }>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/compare`, "POST", { scenario_ids: scenarioIds },
+  );
+
+export const resetPersonaOverride = (projectId: string, scenarioId: string, personaId: string, expectedVersion: number) =>
+  jsonRequest<ApiScenario>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/persona-overrides/${encodeURIComponent(personaId)}`, "DELETE", { expected_version: expectedVersion });
+
+export const createCustomPersona = (projectId: string, scenarioId: string, input: Omit<ApiEffectivePersona, "id" | "source"> & { expected_version: number }) =>
+  jsonRequest<ApiEffectivePersona>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/personas`, "POST", input);
+
+export const bulkUpdatePersonas = (projectId: string, scenarioId: string, input: { persona_ids: string[]; patch: Partial<ApiEffectivePersona>; expected_version: number }) =>
+  jsonRequest<{ items: ApiEffectivePersona[]; scenario: ApiScenario }>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/personas/bulk`, "PATCH", input);
+
+export const submitGraphFeedback = (projectId: string, input: { target_type: "node" | "edge" | "graph"; target_id?: string; action: "accept" | "reject" | "comment"; comment?: string; expected_version: number }) =>
+  jsonRequest<{ accepted: true; project_version: number }>(`/api/v1/projects/${encodeURIComponent(projectId)}/graph/feedback`, "POST", input);
+
+export const createRun = (projectId: string, scenarioId: string, input: { expected_scenario_version: number }) =>
+  jsonRequest<ApiRun>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/runs`, "POST", input);
+
+export const getRun = (runId: string) => request<ApiRun>(`/api/v1/runs/${encodeURIComponent(runId)}`);
+
+export const getRunEvents = (runId: string, cursor?: string) => {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return request<ApiRunEventPage>(`/api/v1/runs/${encodeURIComponent(runId)}/events${query}`);
+};
+
+export const controlRun = (runId: string, action: "pause" | "resume" | "cancel", expectedVersion: number) =>
+  jsonRequest<ApiRun>(`/api/v1/runs/${encodeURIComponent(runId)}/${action}`, "POST", { expected_version: expectedVersion });
+
+export const createInterview = (runId: string, input: { persona_ids?: string[]; group?: string; question: string }) =>
+  jsonRequest<{ id: string; answers: ApiInteractionMessageDto[] }>(`/api/v1/runs/${encodeURIComponent(runId)}/interviews`, "POST", input);
+
+export const sendRunInteraction = (runId: string, input: { tool: "report" | "evidence" | "compare" | "revision"; question: string }) =>
+  jsonRequest<ApiInteractionMessageDto>(`/api/v1/runs/${encodeURIComponent(runId)}/interactions`, "POST", input);
+
+export const getProvenance = (projectId: string, subjectType?: string, subjectId?: string) => {
+  const search = new URLSearchParams();
+  if (subjectType) search.set("subject_type", subjectType);
+  if (subjectId) search.set("subject_id", subjectId);
+  return request<{ items: ApiProvenance[] }>(`/api/v1/projects/${encodeURIComponent(projectId)}/provenance${search.size ? `?${search}` : ""}`);
+};
+
+export const submitContact = (input: { name: string; organization: string; email: string; use_case: string }) =>
+  jsonRequest<{ id: string; received_at: string }>("/api/v1/contact-requests", "POST", input);

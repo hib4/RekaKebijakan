@@ -22,6 +22,8 @@ class Settings:
     llm_base_url: str | None
     llm_api_key: str | None
     llm_model: str
+    llm_fallback_policy: str
+    llm_max_output_tokens: int
     chunk_size: int
     chunk_overlap: int
     provider_timeout_seconds: float
@@ -67,6 +69,8 @@ class Settings:
             "LLM_BASE_URL": os.getenv("LLM_BASE_URL") or None,
             "LLM_API_KEY": os.getenv("LLM_API_KEY") or None,
             "LLM_MODEL": os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            "LLM_FALLBACK_POLICY": os.getenv("LLM_FALLBACK_POLICY", "deterministic"),
+            "LLM_MAX_OUTPUT_TOKENS": int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2500")),
             "CHUNK_SIZE": int(os.getenv("CHUNK_SIZE", "1200")),
             "CHUNK_OVERLAP": int(os.getenv("CHUNK_OVERLAP", "150")),
             "PROVIDER_TIMEOUT_SECONDS": float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
@@ -90,7 +94,14 @@ class Settings:
             "MAX_EXTRACTED_CHARS": int(os.getenv("MAX_EXTRACTED_CHARS", "2000000")),
             "MAX_CHUNKS_PER_DOCUMENT": int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "5000")),
         }
-        values.update(overrides or {})
+        override_values = overrides or {}
+        values.update(override_values)
+        if values["TESTING"] and "STORAGE_BACKEND" not in override_values:
+            values["STORAGE_BACKEND"] = "local"
+            values["STORAGE_PATH"] = values["UPLOAD_DIR"]
+        if values["TESTING"] and "POLICY_PROVIDER" not in override_values:
+            values["POLICY_PROVIDER"] = "deterministic"
+            values["LLM_FALLBACK_POLICY"] = "deterministic"
         origins = values["CORS_ORIGINS"]
         if isinstance(origins, str):
             origins = [item.strip() for item in origins.split(",") if item.strip()]
@@ -105,6 +116,11 @@ class Settings:
         provider = str(values["POLICY_PROVIDER"]).strip().lower()
         if provider not in {"deterministic", "openai"}:
             raise ValueError("POLICY_PROVIDER must be deterministic or openai")
+        fallback_policy = str(values["LLM_FALLBACK_POLICY"]).strip().lower()
+        if fallback_policy not in {"deterministic", "raise"}:
+            raise ValueError("LLM_FALLBACK_POLICY must be deterministic or raise")
+        if int(values["LLM_MAX_OUTPUT_TOKENS"]) < 256:
+            raise ValueError("LLM_MAX_OUTPUT_TOKENS must be at least 256")
         storage_backend = str(values["STORAGE_BACKEND"]).strip().lower()
         if storage_backend not in {"local", "firebase"}:
             raise ValueError("STORAGE_BACKEND must be local or firebase")
@@ -141,6 +157,8 @@ class Settings:
             llm_base_url=values["LLM_BASE_URL"],
             llm_api_key=values["LLM_API_KEY"],
             llm_model=str(values["LLM_MODEL"]),
+            llm_fallback_policy=fallback_policy,
+            llm_max_output_tokens=int(values["LLM_MAX_OUTPUT_TOKENS"]),
             chunk_size=int(values["CHUNK_SIZE"]),
             chunk_overlap=int(values["CHUNK_OVERLAP"]),
             provider_timeout_seconds=float(values["PROVIDER_TIMEOUT_SECONDS"]),

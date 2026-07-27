@@ -12,6 +12,11 @@ import ProjectsPage from "./pages/ProjectsList/ProjectsPage";
 import SimulationWorkflowPage from "./pages/SimulationWorkflow/SimulationWorkflowPage";
 import { WorkflowErrorBoundary } from "./pages/SimulationWorkflow/WorkflowErrorBoundary";
 import ReportsPage from "./pages/Reports/ReportsPage";
+import PersonaStudioPage from "./pages/PersonaStudio/PersonaStudioPage";
+import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
+import SimulationMonitorPage from "./pages/SimulationMonitor/SimulationMonitorPage";
+import ProvenancePage from "./pages/Provenance/ProvenancePage";
+import { submitContact } from "./api/client";
 import Header, { Brand } from "./components/Header/Header";
 import AuthPage from "./pages/Auth/AuthPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
@@ -204,15 +209,27 @@ function ProductPreview() {
 
 function ContactDialog({ onClose }: { onClose: () => void }) {
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
   const titleId = useId();
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSent(true);
+    const form = new FormData(event.currentTarget);
+    setSending(true);
+    setError("");
+    try {
+      await submitContact({ name: String(form.get("name")), organization: String(form.get("organization")), email: String(form.get("email")), use_case: String(form.get("use")) });
+      setSent(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Permintaan tidak dapat dikirim.");
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
@@ -235,8 +252,7 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
             <p className="eyebrow">PERMINTAAN TERCATAT</p>
             <h2 id={titleId}>Terima kasih.</h2>
             <p>
-              Ini adalah interaksi prototipe. Informasi tidak dikirim atau
-              disimpan.
+              Permintaan Anda telah diterima. Tim kami akan menghubungi Anda.
             </p>
             <button className="button primary" onClick={onClose}>
               Tutup
@@ -263,8 +279,9 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
                 Tujuan penggunaan
                 <textarea required name="use" rows={3} />
               </label>
-              <button className="button primary" type="submit">
-                Kirim permintaan
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <button className="button primary" type="submit" disabled={sending}>
+                {sending ? "Mengirim..." : "Kirim permintaan"}
               </button>
             </form>
           </>
@@ -802,6 +819,9 @@ function LandingPage() {
               >
                 Buka daftar proyek
               </button>
+              <button className="button outline-white" onClick={() => setDialogOpen(true)}>
+                Diskusikan pilot
+              </button>
             </div>
           </div>
         </section>
@@ -868,6 +888,11 @@ function App() {
       <Route path="/simulation/:simulationId" element={<SimulationRoute />} />
       <Route path="/projects/new" element={<Protected><ProjectWizardPage /></Protected>} />
       <Route path="/projects/:projectId" element={<Protected><ProjectDetailPage /></Protected>} />
+      <Route path="/projects/:projectId/scenarios" element={<Protected><ScenarioBuilderPage /></Protected>} />
+      <Route path="/projects/:projectId/scenarios/:scenarioId" element={<Protected><ScenarioBuilderPage /></Protected>} />
+      <Route path="/projects/:projectId/scenarios/:scenarioId/personas" element={<Protected><PersonaStudioPage /></Protected>} />
+      <Route path="/projects/:projectId/provenance" element={<Protected><ProvenancePage /></Protected>} />
+      <Route path="/runs/:runId" element={<Protected><SimulationMonitorPage /></Protected>} />
       <Route path="/projects" element={<Protected><ProjectsPage /></Protected>} />
       <Route path="/reports/*" element={<Protected><ReportsPage /></Protected>} />
       <Route path="*" element={<LandingPage />} />

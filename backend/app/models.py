@@ -103,6 +103,12 @@ class PersonaPatch(BaseModel):
     role: str | None = Field(default=None, min_length=1, max_length=160)
     stance: str | None = Field(default=None, min_length=1, max_length=80)
     concern: str | None = Field(default=None, min_length=1, max_length=1000)
+    profile: str | None = Field(default=None, max_length=2000)
+    motivation: str | None = Field(default=None, max_length=1000)
+    needs: str | None = Field(default=None, max_length=1000)
+    influence: str | float | None = None
+    risk: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=2000)
     topics: list[str] | None = Field(default=None, max_length=20)
     count: int | None = Field(default=None, ge=1, le=1000)
     active: bool | None = None
@@ -116,4 +122,82 @@ class PersonaOverrideInput(BaseModel):
 
 class PersonaOverrideDeleteInput(BaseModel):
     expected_version: int = Field(ge=1)
+    base_environment_revision: int | None = Field(default=None, ge=0)
+
+
+class CustomPersonaInput(PersonaPatch):
+    name: str = Field(min_length=1, max_length=160)
+    group: str = Field(min_length=1, max_length=160)
+    role: str = Field(default="Persona kustom", min_length=1, max_length=160)
+    stance: str = Field(default="Netral", min_length=1, max_length=80)
+    concern: str = Field(min_length=1, max_length=1000)
+    topics: list[str] = Field(default_factory=list, max_length=20)
+    count: int = Field(default=1, ge=1, le=1000)
+    active: bool = True
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class CustomPersonaUpdateInput(PersonaPatch):
+    pass
+
+
+class PersonaBulkInput(BaseModel):
+    persona_ids: list[str] = Field(min_length=1, max_length=1000)
+    active: bool
+    expected_version: int = Field(ge=1)
     base_environment_revision: int = Field(ge=0)
+
+
+class PersonaBulkPatchInput(BaseModel):
+    persona_ids: list[str] = Field(min_length=1, max_length=1000)
+    patch: PersonaPatch
+    expected_version: int = Field(ge=1)
+    base_environment_revision: int | None = Field(default=None, ge=0)
+
+
+class ScenarioRunInput(BaseModel):
+    expected_scenario_version: int | None = Field(default=None, ge=1)
+
+
+class ScenarioCompareInput(BaseModel):
+    scenario_ids: list[str] = Field(min_length=2, max_length=10)
+
+
+class RunInteractionInput(BaseModel):
+    tool: Literal["report", "evidence", "risk", "compare", "revision"]
+    question: str = Field(min_length=2, max_length=2000)
+
+
+class RunInterviewInput(BaseModel):
+    question: str = Field(min_length=2, max_length=2000)
+    persona_ids: list[str] = Field(default_factory=list, max_length=10)
+    group: str | None = Field(default=None, max_length=160)
+
+
+class ProjectDuplicateInput(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+
+
+class ProjectBulkLifecycleInput(BaseModel):
+    project_ids: list[str] = Field(min_length=1, max_length=100)
+    action: Literal["archive", "restore", "delete"]
+
+
+class PilotContactInput(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=3, max_length=254)
+    institution: str | None = Field(default=None, max_length=160)
+    message: str | None = Field(default=None, max_length=4000)
+    consent: bool
+
+    @field_validator("email")
+    @classmethod
+    def normalize_contact_email(cls, value: str) -> str:
+        return AuthInput.normalize_email(value)
+
+    @field_validator("consent")
+    @classmethod
+    def require_consent(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("Persetujuan diperlukan")
+        return value

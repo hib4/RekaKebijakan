@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     CheckConstraint,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -85,6 +86,90 @@ scenarios = Table(
     CheckConstraint("kind IN ('baseline','revision','custom')", name="scenarios_kind_valid"),
 )
 Index("scenarios_project_updated", scenarios.c.project_id, scenarios.c.updated_at.desc())
+
+scenario_revisions = Table(
+    "scenario_revisions", metadata,
+    Column("id", String, primary_key=True),
+    Column("scenario_id", String, ForeignKey("scenarios.id", ondelete="CASCADE"), nullable=False),
+    Column("project_id", String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    Column("revision", Integer, nullable=False),
+    Column("snapshot", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("scenario_revisions_number", scenario_revisions.c.scenario_id, scenario_revisions.c.revision, unique=True)
+
+scenario_runs = Table(
+    "scenario_runs", metadata,
+    Column("id", String, primary_key=True),
+    Column("project_id", String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    Column("scenario_id", String, ForeignKey("scenarios.id", ondelete="CASCADE"), nullable=False),
+    Column("scenario_revision_id", String, ForeignKey("scenario_revisions.id", ondelete="RESTRICT"), nullable=False),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("status", String, nullable=False),
+    Column("input_snapshot", JSONB, nullable=False),
+    Column("output_snapshot", JSONB, nullable=True),
+    Column("provenance", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("status IN ('queued','running','paused','completed','failed','cancelled')", name="scenario_runs_status_valid"),
+)
+Index("scenario_runs_scenario_created", scenario_runs.c.scenario_id, scenario_runs.c.created_at.desc())
+
+run_events = Table(
+    "run_events", metadata,
+    Column("id", String, primary_key=True),
+    Column("run_id", String, ForeignKey("scenario_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("sequence", Integer, nullable=False),
+    Column("event", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("run_events_sequence", run_events.c.run_id, run_events.c.sequence, unique=True)
+
+custom_personas = Table(
+    "custom_personas", metadata,
+    Column("id", String, primary_key=True),
+    Column("scenario_id", String, ForeignKey("scenarios.id", ondelete="CASCADE"), nullable=False),
+    Column("project_id", String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    Column("data", JSONB, nullable=False),
+    Column("active", Boolean, nullable=False, server_default=text("true")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+Index("custom_personas_scenario", custom_personas.c.scenario_id, custom_personas.c.created_at)
+
+interviews = Table(
+    "interviews", metadata,
+    Column("id", String, primary_key=True),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("owner_user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("content", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("interviews_simulation_created", interviews.c.simulation_id, interviews.c.created_at.desc())
+
+graph_feedback_versions = Table(
+    "graph_feedback_versions", metadata,
+    Column("id", String, primary_key=True),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("owner_user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("base_revision", Integer, nullable=False),
+    Column("resulting_revision", Integer, nullable=False),
+    Column("content", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("graph_feedback_simulation_revision", graph_feedback_versions.c.simulation_id, graph_feedback_versions.c.resulting_revision, unique=True)
+
+pilot_contacts = Table(
+    "pilot_contacts", metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("email", String, nullable=False),
+    Column("institution", String, nullable=True),
+    Column("message", Text, nullable=True),
+    Column("consent", Boolean, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
 
 artifact_versions = Table(
     "artifact_versions",
@@ -210,6 +295,7 @@ jobs = Table(
     metadata,
     Column("id", String, primary_key=True),
     Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("run_id", String, ForeignKey("scenario_runs.id", ondelete="SET NULL"), nullable=True),
     Column("stage", String, nullable=False),
     Column("status", String, nullable=False),
     Column("config", JSONB, nullable=False),

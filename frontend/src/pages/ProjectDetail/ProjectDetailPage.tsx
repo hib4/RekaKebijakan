@@ -4,7 +4,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "../../components/AppShell/AppShell";
 import {
   useArchiveProject,
+  useArchiveScenario,
   useCreateScenario,
+  useDeleteProject,
+  useDeleteScenario,
+  useDuplicateScenario,
+  useGraphFeedback,
   useProject,
   useRestoreProject,
   useScenarios,
@@ -116,6 +121,11 @@ export default function ProjectDetailPage() {
   const scenariosQuery = useScenarios(projectId);
   const archiveMutation = useArchiveProject();
   const restoreMutation = useRestoreProject();
+  const deleteProjectMutation = useDeleteProject();
+  const duplicateScenarioMutation = useDuplicateScenario(projectId ?? "");
+  const archiveScenarioMutation = useArchiveScenario(projectId ?? "");
+  const deleteScenarioMutation = useDeleteScenario(projectId ?? "");
+  const graphFeedback = useGraphFeedback(projectId ?? "");
   const [launchOpen, setLaunchOpen] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -177,13 +187,30 @@ export default function ProjectDetailPage() {
     await archiveMutation.mutateAsync(project.id);
     navigate("/projects");
   };
+  const removeProject = async () => {
+    if (!window.confirm(`Jadwalkan penghapusan ${project.name}? Proyek dapat dipulihkan selama masa retensi.`)) return;
+    await deleteProjectMutation.mutateAsync(project.id);
+    navigate("/projects");
+  };
+  const scenarioAction = async (action: "duplicate" | "archive" | "delete", scenario: ApiScenario) => {
+    try {
+      if (action === "duplicate") await duplicateScenarioMutation.mutateAsync({ scenarioId: scenario.id, name: `${scenario.name} (salinan)` });
+      if (action === "archive") await archiveScenarioMutation.mutateAsync(scenario.id);
+      if (action === "delete" && window.confirm(`Hapus skenario ${scenario.name}?`)) await deleteScenarioMutation.mutateAsync(scenario.id);
+      showNotice(`Skenario ${action === "duplicate" ? "diduplikasi" : action === "archive" ? "diarsipkan" : "dihapus"}.`);
+    } catch { showNotice("Aksi skenario tidak dapat diselesaikan."); }
+  };
+  const sendGraphFeedback = async (action: "accept" | "reject") => {
+    try { await graphFeedback.mutateAsync({ target_type: "graph", action, expected_version: project.version }); showNotice(action === "accept" ? "Graf diterima untuk tahap berikutnya." : "Graf ditandai untuk ditinjau ulang."); }
+    catch { showNotice("Umpan balik graf tidak dapat disimpan."); }
+  };
 
   return (
     <AppShell
       title={project.name}
       subtitle="Tinjau dokumen, asumsi, persona sintetis, dan skenario sebelum melanjutkan workflow simulasi."
       eyebrow="Workspace kebijakan"
-      actions={<><button className="button primary" onClick={() => setLaunchOpen(true)}>Buka workflow</button><button className="button ghost" disabled={lifecyclePending} onClick={changeLifecycle}>{lifecyclePending ? "Memproses..." : project.status === "archived" ? "Pulihkan proyek" : "Arsipkan proyek"}</button></>}
+      actions={<><button className="button primary" onClick={() => setLaunchOpen(true)}>Buka workflow</button><button className="button secondary" onClick={() => navigate(`/projects/${project.id}/scenarios`)}>Kelola skenario</button><button className="button ghost" onClick={() => navigate(`/projects/${project.id}/provenance`)}>Provenance</button><button className="button ghost" disabled={lifecyclePending} onClick={changeLifecycle}>{lifecyclePending ? "Memproses..." : project.status === "archived" ? "Pulihkan proyek" : "Arsipkan proyek"}</button><button className="button danger" disabled={deleteProjectMutation.isPending} onClick={removeProject}>Hapus</button></>}
     >
       <section className="workspace-top" aria-label="Ringkasan workspace">
         <div><div className="workspace-breadcrumb">Proyek Kebijakan / {project.name}</div><div className="workspace-title-row"><StatusBadge project={project} /><span>{stageLabels[project.current_stage]}</span></div><p>{snapshot.project?.question ?? project.objective}</p></div>
@@ -197,9 +224,11 @@ export default function ProjectDetailPage() {
 
           <section className="dashboard-panel workspace-panel" aria-labelledby="framing-title"><div className="panel-heading"><div><h2 id="framing-title">Bingkai Isu Kebijakan</h2><p>Asumsi yang dapat ditinjau sebelum simulasi skenario.</p></div></div><div className="workspace-row-list">{framing.map(([label, value]) => <article key={label}><span>{label}</span><p>{value}</p></article>)}</div></section>
 
-          <section className="dashboard-panel workspace-panel" aria-labelledby="persona-title"><div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok sintetis yang dibentuk dari graf kebijakan.</p></div><button className="text-button inline-action" onClick={() => navigate(workflowPath)}>Tinjau di workflow</button></div>{stakeholders.length ? <div className="stakeholder-grid">{stakeholders.map((item) => <span key={item}>{item}</span>)}</div> : <div className="state-block"><h3>Stakeholder belum dipetakan</h3><p>Jalankan tahap graf kebijakan untuk menghasilkan kelompok stakeholder.</p></div>}<div className="workspace-card-grid"><article><span>Persona tersedia</span><b>{personaCount} persona</b></article><article><span>Kelompok stakeholder</span><b>{stakeholders.length} kelompok</b></article><article><span>Node graf</span><b>{graphNodes.length} node</b></article><article><span>Relasi graf</span><b>{snapshot.graph?.edges?.length ?? 0} relasi</b></article></div><p className="demo-note">Persona bersifat sintetis dan digunakan untuk simulasi skenario, bukan profil warga nyata.</p></section>
+          <section className="dashboard-panel workspace-panel" aria-labelledby="graph-feedback-title"><div className="panel-heading"><div><h2 id="graph-feedback-title">Tinjauan Graf</h2><p>Rekam keputusan analis terhadap graf berversi sebelum persona digunakan.</p></div><div className="row-actions"><button disabled={graphFeedback.isPending} onClick={() => sendGraphFeedback("accept")}>Terima graf</button><button disabled={graphFeedback.isPending} onClick={() => sendGraphFeedback("reject")}>Minta revisi</button></div></div></section>
 
-          <section className="dashboard-panel workspace-panel" aria-labelledby="scenario-title"><div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Asumsi pembanding yang disimpan sebagai resource berversi.</p></div></div>{scenariosQuery.isLoading && <div className="state-block"><h3>Memuat skenario...</h3></div>}{scenariosQuery.isError && <div className="state-block"><h3>Skenario tidak dapat dimuat</h3><button className="button secondary" onClick={() => scenariosQuery.refetch()}>Muat ulang</button></div>}{!scenariosQuery.isLoading && !scenariosQuery.isError && scenarios.length === 0 && <div className="state-block"><h3>Belum ada skenario pembanding</h3><p>Tambahkan asumsi alternatif untuk dibandingkan dengan konfigurasi workflow saat ini.</p></div>}{scenarios.length > 0 && <div className="workspace-row-list">{scenarios.map((scenario) => <article key={scenario.id}><span>{scenario.kind === "baseline" ? "Baseline" : scenario.kind === "revision" ? "Revisi" : "Kustom"}</span><p><b>{scenario.name}</b>{scenario.description ? ` · ${scenario.description}` : ""}</p></article>)}</div>}{project.status !== "archived" && <ScenarioForm projectId={project.id} onCreated={(name) => showNotice(`Skenario ${name} tersimpan.`)} />}</section>
+          <section className="dashboard-panel workspace-panel" aria-labelledby="persona-title"><div className="panel-heading"><div><h2 id="persona-title">Stakeholder & Persona</h2><p>Kelompok sintetis yang dibentuk dari graf kebijakan.</p></div>{scenarios[0] && <button className="text-button inline-action" onClick={() => navigate(`/projects/${project.id}/scenarios/${scenarios[0].id}/personas`)}>Kelola persona</button>}</div>{stakeholders.length ? <div className="stakeholder-grid">{stakeholders.map((item) => <span key={item}>{item}</span>)}</div> : <div className="state-block"><h3>Stakeholder belum dipetakan</h3><p>Jalankan tahap graf kebijakan untuk menghasilkan kelompok stakeholder.</p></div>}<div className="workspace-card-grid"><article><span>Persona tersedia</span><b>{personaCount} persona</b></article><article><span>Kelompok stakeholder</span><b>{stakeholders.length} kelompok</b></article><article><span>Node graf</span><b>{graphNodes.length} node</b></article><article><span>Relasi graf</span><b>{snapshot.graph?.edges?.length ?? 0} relasi</b></article></div><p className="demo-note">Persona bersifat sintetis dan digunakan untuk simulasi skenario, bukan profil warga nyata.</p></section>
+
+          <section className="dashboard-panel workspace-panel" aria-labelledby="scenario-title"><div className="panel-heading"><div><h2 id="scenario-title">Skenario Simulasi</h2><p>Asumsi pembanding yang disimpan sebagai resource berversi.</p></div></div>{scenariosQuery.isLoading && <div className="state-block"><h3>Memuat skenario...</h3></div>}{scenariosQuery.isError && <div className="state-block"><h3>Skenario tidak dapat dimuat</h3><button className="button secondary" onClick={() => scenariosQuery.refetch()}>Muat ulang</button></div>}{!scenariosQuery.isLoading && !scenariosQuery.isError && scenarios.length === 0 && <div className="state-block"><h3>Belum ada skenario pembanding</h3><p>Tambahkan asumsi alternatif untuk dibandingkan dengan konfigurasi workflow saat ini.</p></div>}{scenarios.length > 0 && <div className="workspace-row-list">{scenarios.map((scenario) => <article key={scenario.id}><span>{scenario.kind === "baseline" ? "Baseline" : scenario.kind === "revision" ? "Revisi" : "Kustom"}</span><div><p><b>{scenario.name}</b>{scenario.description ? ` · ${scenario.description}` : ""}</p><div className="row-actions"><button onClick={() => navigate(`/projects/${project.id}/scenarios/${scenario.id}`)}>Edit</button><button onClick={() => scenarioAction("duplicate", scenario)}>Duplikat</button><button onClick={() => scenarioAction("archive", scenario)}>Arsipkan</button><button onClick={() => scenarioAction("delete", scenario)}>Hapus</button></div></div></article>)}</div>}{project.status !== "archived" && <ScenarioForm projectId={project.id} onCreated={(name) => showNotice(`Skenario ${name} tersimpan.`)} />}</section>
         </div>
         <ReadinessPanel items={readiness} rounds={rounds} onLaunch={() => setLaunchOpen(true)} />
       </section>

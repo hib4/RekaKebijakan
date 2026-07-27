@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 import tempfile
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -187,7 +188,39 @@ class WorkflowService:
     def purge_due_projects(self, limit: int = 100) -> int:
         return self.repository.purge_due_projects(self.storage.delete, limit)
 
-    def start(self, simulation_id: str, stage: str, config: dict | None = None, owner_user_id: str | None = None) -> dict | None:
+    def duplicate_project(self, project_id: str, owner_user_id: str, name: str | None = None) -> dict | None:
+        source = self.repository.project(project_id, owner_user_id)
+        if not source:
+            return None
+        documents = self.repository.documents(source["simulation_id"])
+        opened = []
+        try:
+            for document in documents:
+                body = self.storage.open(document["path"])
+                opened.append(body)
+                opened[-1] = body
+                document["upload"] = SimpleNamespace(file=body, filename=document["name"], content_type=document.get("media_type"))
+            project = {
+                "project_name": name or f"{source['name']} (Salinan)", "institution": source["institution"],
+                "objective": source["objective"],
+            }
+            created = self.create_project(project, [document["upload"] for document in documents], owner_user_id)
+            for scenario in self.repository.list_scenarios(project_id, owner_user_id) or []:
+                copied = self.repository.create_scenario(created["project"]["id"], owner_user_id, {
+                    "name": scenario["name"], "description": scenario["description"],
+                    "kind": scenario["kind"], "config": scenario["config"],
+                })
+                for persona in self.repository.effective_personas(project_id, scenario["id"], owner_user_id) or []:
+                    if persona.get("custom"):
+                        data = {key: value for key, value in persona.items() if key not in {"id", "custom", "source"}}
+                        self.repository.create_custom_persona(created["project"]["id"], copied["id"], owner_user_id, data)
+            return created
+        finally:
+            for body in opened:
+                body.close()
+
+    def start(self, simulation_id: str, stage: str, config: dict | None = None, owner_user_id: str | None = None,
+              run_id: str | None = None) -> dict | None:
         state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state or stage not in STAGES[:4]:
             return None
@@ -199,7 +232,17 @@ class WorkflowService:
         if state["stages"][stage]["status"] in {"queued", "running", "paused"}:
             raise ValueError("Tahap sedang diproses")
         job_id = identifier("job")
-        if not self.repository.put_job(job_id, simulation_id, stage, "queued", config or {}, state["revision"]):
+        queued = self.repository.put_job(job_id, simulation_id, stage, "queued", config or {}, state["revision"], run_id)
+        # A worker publishes the completed snapshot immediately before closing
+        # its job row. Briefly wait for that handoff instead of rejecting the
+        # next stage with a spurious active-job conflict.
+        if not queued and any(item.get("status") == "completed" for item in state["stages"].values()):
+            for _ in range(10):
+                time.sleep(0.01)
+                queued = self.repository.put_job(job_id, simulation_id, stage, "queued", config or {}, state["revision"], run_id)
+                if queued:
+                    break
+        if not queued:
             raise ValueError("Tahap lain sedang diproses")
 
         def queued(current):
@@ -230,6 +273,8 @@ class WorkflowService:
         job = self.repository.claim_next_job(self.worker_id, self.lease_seconds, job_id)
         if not job:
             return False
+        if job.get("run_id"):
+            self.repository.sync_run_status(job["run_id"], "running")
         logger.info(
             "job_claimed job_id=%s simulation_id=%s stage=%s attempt=%s worker_id=%s",
             job["id"], job["simulation_id"], job["stage"], job["attempts"], self.worker_id,
@@ -242,6 +287,12 @@ class WorkflowService:
             if published and not self.repository.finish_job(job["id"], self.worker_id, job["execution_token"], {"stage": job["stage"]}):
                 raise RuntimeError("Job lease was lost before completion")
             if published:
+                if job.get("run_id"):
+                    completed_state = self.repository.get(job["simulation_id"])
+                    self.repository.sync_run_status(job["run_id"], "completed", {
+                        "simulation": completed_state.get("simulation", {}), "report": completed_state.get("report", {}),
+                        "graph": completed_state.get("graph", {}), "logs": completed_state.get("logs", []),
+                    })
                 logger.info(
                     "job_completed job_id=%s simulation_id=%s stage=%s worker_id=%s",
                     job["id"], job["simulation_id"], job["stage"], self.worker_id,
@@ -254,6 +305,8 @@ class WorkflowService:
                 job["id"], self.worker_id, job["execution_token"], str(error),
                 retry_delay=min(60, 2 ** job["attempts"]) if retry else None, error_code=code,
             )
+            if job.get("run_id") and not retry:
+                self.repository.sync_run_status(job["run_id"], "failed", {"error": str(error)})
             logger.error(
                 "job_failed job_id=%s simulation_id=%s stage=%s retry=%s error_code=%s error=%s",
                 job["id"], job["simulation_id"], job["stage"], retry, code, error,
@@ -314,6 +367,12 @@ class WorkflowService:
             raise ValueError("Workflow changed while the job was running")
         self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
         self._persist_result_citations(simulation_id, stage, result)
+        if job.get("run_id"):
+            completed_state = self.repository.get(simulation_id)
+            self.repository.sync_run_status(job["run_id"], "completed", {
+                "simulation": completed_state.get("simulation", {}), "report": completed_state.get("report", {}),
+                "graph": completed_state.get("graph", {}), "logs": completed_state.get("logs", []),
+            })
         return True
 
     def _ingest_pending_documents(self, simulation_id: str) -> None:
@@ -417,7 +476,10 @@ class WorkflowService:
             raise ValueError("Tidak ada simulasi aktif")
         value = {"pause": "paused", "resume": "queued", "cancel": "cancelled"}[action]
         for job in active:
-            self.repository.set_job_status(job["id"], value)
+            if not self.repository.set_job_status(job["id"], value):
+                raise ValueError("Status simulasi telah berubah")
+            if job.get("run_id"):
+                self.repository.sync_run_status(job["run_id"], value)
 
         def apply(current):
             display = "running" if action == "resume" else value
@@ -458,6 +520,8 @@ class WorkflowService:
         result = self.provider.interview(question, personas, state["simulation"].get("events", []))
         interview = {"id": identifier("interview"), "question": question, "created_at": now(), "status": "completed", **result}
         self.repository.mutate(simulation_id, lambda current: (upgrade_state(current)["interviews"]["items"].append(interview), self._touch(current)))
+        if owner_user_id:
+            self.repository.save_interview(simulation_id, owner_user_id, interview)
         return interview
 
     def apply_graph_feedback(self, simulation_id: str, payload: dict, owner_user_id: str) -> dict | None:
@@ -468,13 +532,19 @@ class WorkflowService:
                 raise ValueError("Graph revision conflict")
             collection = graph["edges"] if action.endswith("edge") else graph["nodes"]
             if action.startswith("add_"):
+                if not patch.get("id") or any(item.get("id") == patch["id"] for item in collection):
+                    raise ValueError("Graph item ID must be present and unique")
                 collection.append(patch)
             elif action.startswith("update_"):
+                if "id" in patch and patch["id"] != target:
+                    raise ValueError("Graph item ID cannot be changed")
                 item = next((item for item in collection if item["id"] == target), None)
                 if not item:
                     raise ValueError("Graph target not found")
                 item.update(patch)
             else:
+                if not target or not any(item.get("id") == target for item in collection):
+                    raise ValueError("Graph target not found")
                 collection[:] = [item for item in collection if item["id"] != target]
                 if action == "remove_node":
                     graph["edges"][:] = [edge for edge in graph["edges"] if target not in {edge["source"], edge["target"]}]
@@ -491,7 +561,10 @@ class WorkflowService:
             self._touch(state, "Graph diperbarui; hasil turunan ditandai stale", "WARN")
             self._sync_stages(state)
 
-        return self.repository.mutate_for_user(simulation_id, owner_user_id, apply)
+        state = self.repository.mutate_for_user(simulation_id, owner_user_id, apply)
+        if state:
+            self.repository.save_graph_feedback(simulation_id, owner_user_id, state["graph_feedback"]["items"][-1])
+        return state
 
     def recover(self) -> None:
         self.repository.requeue_expired_jobs()

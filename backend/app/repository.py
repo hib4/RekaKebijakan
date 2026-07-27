@@ -10,7 +10,11 @@ from sqlalchemy import and_, create_engine, delete, func, insert, or_, select, t
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 
-from .database import audit_events, citations, document_chunks, document_pages, documents, job_attempts, jobs, projects, scenarios, sessions, simulations, users
+from .database import (
+    audit_events, citations, custom_personas, document_chunks, document_pages, documents,
+    graph_feedback_versions, interviews, job_attempts, jobs, pilot_contacts, projects,
+    run_events, scenario_revisions, scenario_runs, scenarios, sessions, simulations, users,
+)
 from .errors import UploadQuotaExceeded
 
 
@@ -269,6 +273,11 @@ class Repository:
         elif status == "pending_delete":
             values["delete_after"] = now + timedelta(days=self.project_retention_days)
         with self.engine.begin() as db:
+            owned = db.execute(select(projects.c.id).where(
+                projects.c.id == project_id, projects.c.owner_user_id == user_id, projects.c.deleted_at.is_(None),
+            )).scalar_one_or_none()
+            if not owned:
+                return None
             active = db.execute(select(func.count()).select_from(jobs.join(simulations)).where(
                 simulations.c.project_id == project_id, jobs.c.status.in_(("queued", "running", "paused"))
             )).scalar_one()
@@ -308,6 +317,7 @@ class Repository:
                 base_environment_revision=environment_revision, version=1,
                 created_at=timestamp, updated_at=timestamp,
             ).returning(scenarios)).mappings().one()
+            self._record_scenario_revision(db, row)
             self._audit(db, user_id, project_id, "scenario.created", "scenario", scenario_id, {})
             return dict(row)
 
@@ -347,6 +357,7 @@ class Repository:
                 )),
             ).values(**allowed, version=scenarios.c.version + 1, updated_at=utc_now()).returning(scenarios)).mappings().one_or_none()
             if row:
+                self._record_scenario_revision(db, row)
                 self._audit(db, user_id, project_id, "scenario.updated", "scenario", scenario_id, allowed)
             return dict(row) if row else None
 
@@ -366,6 +377,7 @@ class Repository:
                 updated_at=utc_now(),
             ).returning(scenarios)).mappings().one_or_none()
             if row:
+                self._record_scenario_revision(db, row)
                 action = "scenario.archived" if archived else "scenario.restored"
                 self._audit(db, user_id, project_id, action, "scenario", scenario_id, {})
             return dict(row) if row else None
@@ -423,6 +435,7 @@ class Repository:
                 version=scenarios.c.version + 1,
                 updated_at=utc_now(),
             ).returning(scenarios)).mappings().one()
+            self._record_scenario_revision(db, updated)
             self._audit(db, user_id, project_id, action, "persona", persona_id, {"scenario_id": scenario_id})
             return dict(updated)
 
@@ -439,9 +452,115 @@ class Repository:
             if not row:
                 return None
             overrides = row["persona_overrides"] or {}
-            return [dict(persona) | overrides.get(persona.get("id"), {}) for persona in row["state"].get("environment", {}).get("personas", [])]
+            generated = [
+                dict(persona) | overrides.get(persona.get("id"), {}) | {
+                    "source": "override" if persona.get("id") in overrides else "environment",
+                    "active": (dict(persona) | overrides.get(persona.get("id"), {})).get("active", True),
+                }
+                for persona in row["state"].get("environment", {}).get("personas", [])
+            ]
+            custom = db.execute(select(custom_personas).where(custom_personas.c.scenario_id == scenario_id).order_by(custom_personas.c.created_at)).mappings()
+            return generated + [dict(item["data"]) | {"id": item["id"], "active": item["active"], "custom": True, "source": "custom"} for item in custom]
+
+    @staticmethod
+    def _scenario_snapshot(row) -> dict:
+        return {key: row[key] for key in ("id", "project_id", "name", "description", "kind", "config", "persona_overrides", "base_environment_revision", "version")}
+
+    def _record_scenario_revision(self, db, row) -> dict:
+        revision_id = f"srev_{uuid.uuid4().hex[:16]}"
+        value = {
+            "id": revision_id, "scenario_id": row["id"], "project_id": row["project_id"],
+            "revision": row["version"], "snapshot": self._scenario_snapshot(row), "created_at": utc_now(),
+        }
+        db.execute(insert(scenario_revisions).values(**value))
+        return value
+
+    def duplicate_scenario(self, project_id: str, scenario_id: str, user_id: str, name: str | None = None) -> dict | None:
+        source = self.scenario(project_id, scenario_id, user_id)
+        if not source:
+            return None
+        return self.create_scenario(project_id, user_id, {
+            "name": name or f"{source['name']} (Salinan)", "description": source["description"],
+            "kind": source["kind"], "config": source["config"],
+        })
+
+    def custom_persona(self, project_id: str, scenario_id: str, persona_id: str, user_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(select(custom_personas).select_from(custom_personas.join(projects)).where(
+                custom_personas.c.id == persona_id, custom_personas.c.scenario_id == scenario_id,
+                custom_personas.c.project_id == project_id, projects.c.owner_user_id == user_id,
+                projects.c.deleted_at.is_(None),
+            )).mappings().one_or_none()
+            return (dict(row["data"]) | {"id": row["id"], "active": row["active"], "custom": True}) if row else None
+
+    def create_custom_persona(self, project_id: str, scenario_id: str, user_id: str, data: dict) -> dict | None:
+        timestamp, persona_id = utc_now(), f"persona_custom_{uuid.uuid4().hex[:16]}"
+        active = data.pop("active", True)
+        data = data | {
+            "stakeholder_group": data["group"], "concerns": [data["concern"]],
+            "source_node_ids": data.get("source_node_ids", ["policy"]), "citations": data.get("citations", []),
+        }
+        with self.engine.begin() as db:
+            owned = db.execute(select(scenarios.c.id).select_from(scenarios.join(projects)).where(
+                scenarios.c.id == scenario_id, scenarios.c.project_id == project_id,
+                projects.c.owner_user_id == user_id, projects.c.status == "active",
+            )).scalar_one_or_none()
+            if not owned:
+                return None
+            db.execute(insert(custom_personas).values(id=persona_id, scenario_id=scenario_id, project_id=project_id,
+                data=data, active=active, created_at=timestamp, updated_at=timestamp))
+            self._audit(db, user_id, project_id, "persona.created", "persona", persona_id, {"scenario_id": scenario_id})
+        return data | {"id": persona_id, "active": active, "custom": True}
+
+    def update_custom_persona(self, project_id: str, scenario_id: str, persona_id: str, user_id: str, patch: dict) -> dict | None:
+        with self.engine.begin() as db:
+            row = db.execute(select(custom_personas).select_from(custom_personas.join(projects)).where(
+                custom_personas.c.id == persona_id, custom_personas.c.scenario_id == scenario_id,
+                custom_personas.c.project_id == project_id, projects.c.owner_user_id == user_id,
+                projects.c.status == "active",
+            ).with_for_update(of=custom_personas)).mappings().one_or_none()
+            if not row:
+                return None
+            data, active = dict(row["data"]), patch.pop("active", row["active"])
+            data.update(patch)
+            db.execute(update(custom_personas).where(custom_personas.c.id == persona_id).values(data=data, active=active, updated_at=utc_now()))
+            self._audit(db, user_id, project_id, "persona.updated", "persona", persona_id, {"scenario_id": scenario_id})
+            return data | {"id": persona_id, "active": active, "custom": True}
+
+    def delete_custom_persona(self, project_id: str, scenario_id: str, persona_id: str, user_id: str) -> bool:
+        with self.engine.begin() as db:
+            result = db.execute(delete(custom_personas).where(
+                custom_personas.c.id == persona_id, custom_personas.c.scenario_id == scenario_id,
+                custom_personas.c.project_id == project_id,
+                custom_personas.c.project_id.in_(select(projects.c.id).where(projects.c.owner_user_id == user_id, projects.c.status == "active")),
+            ))
+            if result.rowcount:
+                self._audit(db, user_id, project_id, "persona.deleted", "persona", persona_id, {"scenario_id": scenario_id})
+            return result.rowcount == 1
+
+    def bulk_persona_activation(self, project_id: str, scenario_id: str, user_id: str, persona_ids: list[str], active: bool,
+                                expected_version: int, base_environment_revision: int) -> dict | None:
+        scenario = self.scenario(project_id, scenario_id, user_id)
+        if not scenario or scenario["version"] != expected_version:
+            return None
+        effective = self.effective_personas(project_id, scenario_id, user_id) or []
+        known = {item["id"] for item in effective}
+        if not set(persona_ids) <= known:
+            raise KeyError("Unknown persona")
+        custom_ids = {item["id"] for item in effective if item.get("custom")}
+        for persona_id in set(persona_ids) & custom_ids:
+            self.update_custom_persona(project_id, scenario_id, persona_id, user_id, {"active": active})
+        current = expected_version
+        for persona_id in [item for item in persona_ids if item not in custom_ids]:
+            updated = self.put_persona_override(project_id, scenario_id, persona_id, user_id, current, base_environment_revision, {"active": active})
+            current = updated["version"]
+        return self.scenario(project_id, scenario_id, user_id)
 
     def apply_scenario(self, project_id: str, scenario_id: str, user_id: str) -> str | None:
+        prepared = self.prepare_scenario_run(project_id, scenario_id, user_id)
+        return prepared["simulation_id"] if prepared else None
+
+    def prepare_scenario_run(self, project_id: str, scenario_id: str, user_id: str, revision_id: str | None = None) -> dict | None:
         with self.engine.begin() as db:
             row = db.execute(select(scenarios, simulations.c.id.label("simulation_id"), simulations.c.state).select_from(
                 scenarios.join(projects, projects.c.id == scenarios.c.project_id).join(
@@ -454,30 +573,176 @@ class Repository:
             ).with_for_update(of=simulations)).mappings().one_or_none()
             if not row:
                 return None
+            if revision_id:
+                revision = db.execute(select(scenario_revisions).where(
+                    scenario_revisions.c.id == revision_id, scenario_revisions.c.scenario_id == scenario_id,
+                )).mappings().one_or_none()
+            else:
+                revision = db.execute(select(scenario_revisions).where(
+                    scenario_revisions.c.scenario_id == scenario_id,
+                ).order_by(scenario_revisions.c.revision.desc()).limit(1)).mappings().one()
+            if not revision:
+                return None
+            scenario_snapshot = revision["snapshot"]
             state = row["state"]
             environment = state.get("environment", {})
             personas = environment.get("personas", [])
             if not personas:
                 raise ValueError("Environment must be generated before applying a scenario")
             current_revision = self._environment_revision(state)
-            overrides = row["persona_overrides"] or {}
-            if overrides and row["base_environment_revision"] != current_revision:
+            overrides = scenario_snapshot.get("persona_overrides") or {}
+            if overrides and scenario_snapshot["base_environment_revision"] != current_revision:
                 raise ValueError("Environment revision conflict")
-            environment["personas"] = [
-                dict(persona) | overrides.get(persona.get("id"), {}) for persona in personas
-            ]
+            custom = db.execute(select(custom_personas).where(custom_personas.c.scenario_id == scenario_id)).mappings()
+            environment["personas"] = [dict(persona) | overrides.get(persona.get("id"), {}) for persona in personas]
+            environment["personas"].extend(dict(item["data"]) | {"id": item["id"], "active": item["active"], "custom": True} for item in custom)
             environment["persona_count"] = sum(
                 int(persona.get("count", 1)) for persona in environment["personas"] if persona.get("active", True)
             )
-            environment["config"] = dict(environment.get("config", {})) | dict(row["config"] or {})
+            environment["config"] = dict(environment.get("config", {})) | dict(scenario_snapshot.get("config") or {})
             state["environment"] = environment
             state["revision"] = int(state.get("revision", 1)) + 1
             state["updated_at"] = utc_now().isoformat()
             db.execute(update(simulations).where(simulations.c.id == row["simulation_id"]).values(
                 state=state, updated_at=parse_timestamp(state["updated_at"])
             ))
-            self._audit(db, user_id, project_id, "scenario.applied", "scenario", scenario_id, {})
-            return row["simulation_id"]
+            run_id = f"run_{uuid.uuid4().hex[:16]}"
+            provenance = {
+                "provider": state.get("provider", {}).get("name", "deterministic"), "schema_version": state.get("schema_version", 2),
+                "scenario_revision": revision["revision"], "graph_revision": state.get("graph", {}).get("revision", 0),
+                "environment_revision": current_revision,
+            }
+            input_snapshot = {
+                "scenario": scenario_snapshot, "graph": state.get("graph", {}), "environment": environment,
+                "project": state.get("project", {}),
+            }
+            timestamp = utc_now()
+            db.execute(insert(scenario_runs).values(
+                id=run_id, project_id=project_id, scenario_id=scenario_id, scenario_revision_id=revision["id"],
+                simulation_id=row["simulation_id"], status="queued", input_snapshot=input_snapshot,
+                provenance=provenance, created_at=timestamp,
+            ))
+            self._audit(db, user_id, project_id, "scenario.applied", "scenario", scenario_id, {"run_id": run_id})
+            return {"id": run_id, "simulation_id": row["simulation_id"], "scenario_revision_id": revision["id"], "status": "queued"}
+
+    def list_runs(self, project_id: str, scenario_id: str, user_id: str) -> list[dict] | None:
+        with self.engine.connect() as db:
+            owned = db.execute(select(projects.c.id).where(projects.c.id == project_id, projects.c.owner_user_id == user_id,
+                projects.c.deleted_at.is_(None))).scalar_one_or_none()
+            if not owned:
+                return None
+            return [dict(row) for row in db.execute(select(scenario_runs).where(
+                scenario_runs.c.project_id == project_id, scenario_runs.c.scenario_id == scenario_id,
+            ).order_by(scenario_runs.c.created_at.desc())).mappings()]
+
+    def run(self, run_id: str, user_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(select(scenario_runs).select_from(scenario_runs.join(projects)).where(
+                scenario_runs.c.id == run_id, projects.c.owner_user_id == user_id,
+            )).mappings().one_or_none()
+            return dict(row) if row else None
+
+    def prepare_reproduction(self, run_id: str, user_id: str) -> dict | None:
+        with self.engine.begin() as db:
+            original = db.execute(select(scenario_runs).select_from(scenario_runs.join(projects)).where(
+                scenario_runs.c.id == run_id, projects.c.owner_user_id == user_id,
+                projects.c.status == "active",
+            )).mappings().one_or_none()
+            if not original:
+                return None
+            simulation = db.execute(select(simulations.c.state).where(
+                simulations.c.id == original["simulation_id"], simulations.c.owner_user_id == user_id,
+            ).with_for_update()).scalar_one()
+            inputs = original["input_snapshot"]
+            simulation["graph"] = inputs["graph"]
+            simulation["environment"] = inputs["environment"]
+            simulation["revision"] = int(simulation.get("revision", 1)) + 1
+            simulation["updated_at"] = utc_now().isoformat()
+            db.execute(update(simulations).where(simulations.c.id == original["simulation_id"]).values(
+                state=simulation, updated_at=parse_timestamp(simulation["updated_at"])))
+            reproduced_id, timestamp = f"run_{uuid.uuid4().hex[:16]}", utc_now()
+            provenance = dict(original["provenance"]) | {"reproduces_run_id": run_id}
+            db.execute(insert(scenario_runs).values(
+                id=reproduced_id, project_id=original["project_id"], scenario_id=original["scenario_id"],
+                scenario_revision_id=original["scenario_revision_id"], simulation_id=original["simulation_id"],
+                status="queued", input_snapshot=inputs, provenance=provenance, created_at=timestamp,
+            ))
+            self._audit(db, user_id, original["project_id"], "run.reproduced", "run", reproduced_id, {"source_run_id": run_id})
+            return {"id": reproduced_id, "simulation_id": original["simulation_id"], "status": "queued"}
+
+    def run_events(self, run_id: str, user_id: str, after: int = 0) -> list[dict] | None:
+        if not self.run(run_id, user_id):
+            return None
+        with self.engine.connect() as db:
+            return [dict(row["event"]) for row in db.execute(select(run_events).where(
+                run_events.c.run_id == run_id, run_events.c.sequence > after,
+            ).order_by(run_events.c.sequence)).mappings()]
+
+    def sync_run_status(self, run_id: str, status: str, output: dict | None = None) -> None:
+        timestamp = utc_now()
+        values = {"status": status}
+        if status == "running":
+            values["started_at"] = timestamp
+        if status in {"completed", "failed", "cancelled"}:
+            values["completed_at"] = timestamp
+        if output is not None:
+            values["output_snapshot"] = output
+        with self.engine.begin() as db:
+            db.execute(update(scenario_runs).where(scenario_runs.c.id == run_id).values(**values))
+            if output is not None:
+                db.execute(delete(run_events).where(run_events.c.run_id == run_id))
+                events = output.get("simulation", {}).get("events", [])
+                if events:
+                    db.execute(insert(run_events), [{
+                        "id": f"revent_{uuid.uuid4().hex[:16]}", "run_id": run_id,
+                        "sequence": item.get("sequence", index), "event": item, "created_at": timestamp,
+                    } for index, item in enumerate(events, 1)])
+
+    def compare_runs(self, project_id: str, scenario_id: str, user_id: str, run_ids: list[str] | None = None) -> dict | None:
+        rows = self.list_runs(project_id, scenario_id, user_id)
+        if rows is None:
+            return None
+        selected = [row for row in rows if not run_ids or row["id"] in run_ids]
+        items = []
+        for row in selected:
+            output = row.get("output_snapshot") or {}
+            events = output.get("simulation", {}).get("events", [])
+            items.append({"run_id": row["id"], "status": row["status"], "scenario_revision_id": row["scenario_revision_id"],
+                "event_count": len(events), "critical_event_count": sum(item.get("stance") == "Kritis" for item in events),
+                "risk_count": len(output.get("report", {}).get("risks", []))})
+        return {"items": items}
+
+    def save_interview(self, simulation_id: str, user_id: str, content: dict) -> None:
+        with self.engine.begin() as db:
+            db.execute(insert(interviews).values(id=content["id"], simulation_id=simulation_id, owner_user_id=user_id,
+                content=content, created_at=parse_timestamp(content["created_at"])))
+
+    def persisted_interviews(self, simulation_id: str, user_id: str) -> list[dict] | None:
+        if not self.get_for_user(simulation_id, user_id):
+            return None
+        with self.engine.connect() as db:
+            return list(db.execute(select(interviews.c.content).where(interviews.c.simulation_id == simulation_id,
+                interviews.c.owner_user_id == user_id).order_by(interviews.c.created_at.desc())).scalars())
+
+    def save_graph_feedback(self, simulation_id: str, user_id: str, content: dict) -> None:
+        with self.engine.begin() as db:
+            db.execute(insert(graph_feedback_versions).values(id=content["id"], simulation_id=simulation_id,
+                owner_user_id=user_id, base_revision=content["base_revision"], resulting_revision=content["resulting_revision"],
+                content=content, created_at=parse_timestamp(content["created_at"])))
+
+    def persisted_graph_feedback(self, simulation_id: str, user_id: str) -> list[dict] | None:
+        if not self.get_for_user(simulation_id, user_id):
+            return None
+        with self.engine.connect() as db:
+            return list(db.execute(select(graph_feedback_versions.c.content).where(
+                graph_feedback_versions.c.simulation_id == simulation_id, graph_feedback_versions.c.owner_user_id == user_id,
+            ).order_by(graph_feedback_versions.c.resulting_revision)).scalars())
+
+    def create_pilot_contact(self, values: dict) -> dict:
+        value = values | {"id": f"contact_{uuid.uuid4().hex[:16]}", "created_at": utc_now()}
+        with self.engine.begin() as db:
+            db.execute(insert(pilot_contacts).values(**value))
+        return value
 
     @staticmethod
     def _audit(db, user_id: str | None, project_id: str | None, action: str, resource_type: str, resource_id: str, metadata: dict) -> None:
@@ -726,7 +991,8 @@ class Repository:
             return [dict(row) for row in db.execute(statement.order_by(citations.c.artifact_id, citations.c.ordinal)).mappings()]
 
     def put_job(
-        self, job_id: str, simulation_id: str, stage: str, status: str, config: dict, input_revision: int = 0
+        self, job_id: str, simulation_id: str, stage: str, status: str, config: dict, input_revision: int = 0,
+        run_id: str | None = None,
     ) -> bool:
         timestamp = utc_now()
         try:
@@ -750,6 +1016,7 @@ class Repository:
                         updated_at=timestamp,
                         available_at=timestamp,
                         input_revision=input_revision,
+                        run_id=run_id,
                     )
                 )
             return True
@@ -788,12 +1055,20 @@ class Repository:
         with self.engine.connect() as db:
             return db.execute(select(jobs.c.status).where(jobs.c.id == job_id)).scalar_one_or_none()
 
-    def set_job_status(self, job_id: str, status: str) -> None:
+    def set_job_status(self, job_id: str, status: str) -> bool:
         with self.lock, self.engine.begin() as db:
             values = {"status": status, "updated_at": utc_now()}
             if status == "completed":
                 values["completed_at"] = utc_now()
-            db.execute(update(jobs).where(jobs.c.id == job_id).values(**values))
+            allowed = {
+                "paused": ("queued", "running"), "queued": ("paused",),
+                "cancelled": ("queued", "running", "paused"),
+            }.get(status)
+            condition = jobs.c.id == job_id
+            if allowed:
+                condition = and_(condition, jobs.c.status.in_(allowed))
+            result = db.execute(update(jobs).where(condition).values(**values))
+            return result.rowcount == 1
 
     def claim_job(self, job_id: str) -> bool:
         with self.lock, self.engine.begin() as db:
