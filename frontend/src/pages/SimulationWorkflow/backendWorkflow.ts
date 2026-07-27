@@ -156,6 +156,11 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     status: simulationStatus === "running" || simulationStatus === "processing" || simulationStatus === "queued" ? "running" : simulationStatus === "paused" ? "paused" : simulationStatus === "stale" || snapshot.simulation?.stale ? "stale" : simulationStatus === "cancelled" ? "cancelled" : simulationStatus === "failed" ? "failed" : simulationStatus === "completed" ? "completed" : "ready",
     eventCount: snapshot.simulation?.event_count ?? events.length,
     speed: previous?.simulation.speed ?? 1,
+    currentRound: snapshot.simulation?.runtime?.current_round,
+    platformRounds: {
+      twitter: snapshot.simulation?.runtime?.twitter_current_round ?? 0,
+      reddit: snapshot.simulation?.runtime?.reddit_current_round ?? 0,
+    },
     staleReason: snapshot.simulation?.stale_reason ?? snapshot.stale_reason,
     error: snapshot.simulation?.error,
   };

@@ -58,6 +58,19 @@ export type ApiGraphEdgeDto = {
   citations?: ApiCitationDto[];
 };
 
+export type ApiRuntimeGraph = {
+  available: false;
+} | {
+  available: true;
+  graph_id: string;
+  source_revision: number;
+  mapping_status: string;
+  node_count: number;
+  edge_count: number;
+  nodes: ApiGraphNodeDto[];
+  edges: ApiGraphEdgeDto[];
+};
+
 export type ApiPersonaDto = {
   id: string;
   name?: string;
@@ -147,7 +160,10 @@ export type ApiSimulationSnapshot = {
       max_rounds?: number; generation_reasoning?: string; raw_config?: Record<string, unknown>;
     };
   };
-  simulation?: ApiStageDto & { events?: ApiEventDto[]; event_count?: number; speed?: number };
+  simulation?: ApiStageDto & {
+    events?: ApiEventDto[]; event_count?: number; speed?: number;
+    runtime?: { current_round?: number; twitter_current_round?: number; reddit_current_round?: number; total_rounds?: number };
+  };
   report?: ApiStageDto & { title?: string; sections?: ApiReportSectionDto[]; risks?: ApiRiskDto[] };
   interactions?: { messages?: ApiInteractionMessageDto[] } | ApiInteractionMessageDto[];
   logs?: { id?: string; time?: string; level?: string; message: string }[];
@@ -316,6 +332,9 @@ export function createProject(input: CreateProjectInput, options: CreateProjectO
 
 export const getSimulation = (simulationId: string) =>
   request<ApiSimulationSnapshot>(`/api/simulations/${encodeURIComponent(simulationId)}`);
+
+export const getRuntimeGraph = (simulationId: string) =>
+  request<ApiRuntimeGraph>(`/api/simulations/${encodeURIComponent(simulationId)}/runtime-graph`);
 
 export const startStage = (simulationId: string, stage: ApiStageName, config?: Record<string, unknown>) =>
   requestFirst<ApiSimulationSnapshot>([

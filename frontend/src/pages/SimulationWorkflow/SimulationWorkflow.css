@@ -267,6 +267,30 @@
   flex-direction: column;
   background: var(--surface);
 }
+.graph-source-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.graph-source-toggle button {
+  min-height: 38px;
+  border: 0;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.graph-source-toggle button.active {
+  background: #edf5ff;
+  color: var(--blue);
+}
+.graph-source-toggle button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
 .graph-toolbar {
   min-height: 72px;
   display: flex;

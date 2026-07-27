@@ -33,7 +33,7 @@ export type WorkflowSession = {
     personaCount: number; rounds: number; socialization: string; responseMode: string;
     platforms: string[]; totalSimulationHours?: number; minutesPerRound?: number;
   };
-  simulation: { status: "ready" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed"; eventCount: number; speed: 0.5 | 1 | 2; staleReason?: string; error?: string };
+  simulation: { status: "ready" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed"; eventCount: number; speed: 0.5 | 1 | 2; currentRound?: number; platformRounds?: Record<string, number>; staleReason?: string; error?: string };
   report: { progress: number; sections: ReportSection[]; timestamps: string[]; completedAt?: string };
   interaction: { messages: InteractionMessage[]; revisionNotes: string[] };
   logs: ConsoleLog[];

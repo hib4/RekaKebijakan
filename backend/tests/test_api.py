@@ -134,6 +134,26 @@ def test_validation_errors_and_stage_conflict(client):
     assert missing.json()["error"]["code"] == "not_found"
 
 
+def test_runtime_graph_distinguishes_pending_available_and_missing(client, monkeypatch):
+    simulation_id = project(client).json()["simulation_id"]
+
+    response = client.get(f"/api/simulations/{simulation_id}/runtime-graph")
+
+    assert response.status_code == 200
+    assert response.json() == {"available": False}
+
+    monkeypatch.setattr(client.app.state.workflow, "runtime_graph", lambda _simulation_id: {
+        "graph_id": "zep-1", "source_revision": 1, "mapping_status": "running",
+        "node_count": 1, "edge_count": 0, "nodes": [{"id": "node-1"}], "edges": [],
+    })
+    available = client.get(f"/api/simulations/{simulation_id}/runtime-graph")
+    assert available.status_code == 200
+    assert available.json()["available"] is True
+    assert available.json()["graph_id"] == "zep-1"
+
+    assert client.get("/api/simulations/missing/runtime-graph").status_code == 404
+
+
 def test_cors_aliases_multiple_files_and_event_cursor(client):
     preflight = client.options("/api/projects", headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"})
     assert preflight.status_code == 200

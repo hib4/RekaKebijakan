@@ -9,6 +9,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
+  getRuntimeGraph,
   getSimulation,
   pauseSimulation,
   resumeSimulation,
@@ -336,7 +337,7 @@ function EnvironmentStep({
         <span>STEP 2/5</span>
         <h1 tabIndex={-1}>Siapkan lingkungan simulasi</h1>
         <p>
-          Setiap entitas graph menjadi agent OASIS dengan profil dan perilaku lintas platform.
+          Graf kebijakan tetap menjadi sumber tinjauan. OASIS membentuk graf runtime Zep terpisah untuk persona, relasi hasil ekstraksi, dan memori simulasi.
         </p>
       </div>
       {environmentTasks.map((task, index) => (
@@ -357,7 +358,7 @@ function EnvironmentStep({
                   <b>{session.environment.personaCount}</b>Persona saat ini
                 </span>
                 <span>
-                  <b>{session.environment.personaCount}</b>Entitas graph aktif
+                  <b>{session.environment.personaCount}</b>Profil runtime aktif
                 </span>
                 <span>
                   <b>
@@ -518,7 +519,7 @@ function SimulationStep({
   const round =
     run.status === "completed"
       ? session.environment.rounds
-      : Math.max(1, events.at(-1)?.round ?? 1);
+      : Math.max(1, run.currentRound ?? events.at(-1)?.round ?? 1);
   const activeNode = session.graph.selectedNodeId;
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
@@ -535,9 +536,8 @@ function SimulationStep({
           const count = events.filter(
             (event) => event.channel === channel,
           ).length;
-          const lastRound =
-            events.filter((event) => event.channel === channel).at(-1)?.round ??
-            0;
+          const lastRound = run.platformRounds?.[channel] ??
+            events.filter((event) => event.channel === channel).at(-1)?.round ?? 0;
           return (
             <article key={channel}>
               <header>
@@ -1194,6 +1194,8 @@ export default function SimulationWorkflowPage() {
   const [backendLoading, setBackendLoading] = useState(!localMode);
   const [backendLoaded, setBackendLoaded] = useState(localMode);
   const [backendError, setBackendError] = useState("");
+  const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
+  const [graphSource, setGraphSource] = useState<"policy" | "runtime">("policy");
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
   });
@@ -1224,6 +1226,39 @@ export default function SimulationWorkflowPage() {
       setBackendLoading(false);
     }
   }, [applyBackendSnapshot, simulationId]);
+  const loadRuntimeGraph = useCallback(async () => {
+    if (localMode) return;
+    try {
+      const graph = await getRuntimeGraph(simulationId);
+      if (!graph.available) return;
+      setRuntimeDemo((current) => ({
+        ...(current ?? resolvedDemo),
+        id: `${simulationId}-runtime`,
+        title: `${resolvedDemo.title} · Memori runtime`,
+        graphNodes: graph.nodes.map((node, index) => ({
+          id: node.id,
+          label: node.label ?? node.name ?? node.id,
+          type: node.type ?? node.entity_type ?? "Entity",
+          summary: node.summary ?? node.description ?? "Entitas hasil ekstraksi runtime.",
+          x: 100 + (index % 5) * 150,
+          y: 80 + Math.floor(index / 5) * 100,
+          citations: [],
+        })),
+        graphEdges: graph.edges.map((edge, index) => ({
+          id: edge.id ?? `runtime-edge-${index}`,
+          source: edge.source,
+          target: edge.target,
+          type: edge.type ?? edge.relation_type ?? "RELATED_TO",
+          citations: [],
+        })),
+      }));
+      if (session.currentStep >= 2) setGraphSource("runtime");
+    } catch (cause) {
+      // Runtime topology is supplemental; the policy workflow remains usable
+      // while Zep is unavailable or before Stage 02 creates the graph.
+      if (cause instanceof ApiError && cause.status === 401) setBackendError(cause.message);
+    }
+  }, [localMode, resolvedDemo, session.currentStep, simulationId]);
   useEffect(() => {
     if (localMode) return;
     const timer = window.setTimeout(loadBackend, 0);
@@ -1249,6 +1284,17 @@ export default function SimulationWorkflowPage() {
       if (timer) window.clearTimeout(timer);
     };
   }, [backendPolling, loadBackend]);
+  const runtimeGraphPolling = !localMode && session.steps[2].status !== "locked";
+  useEffect(() => {
+    if (!runtimeGraphPolling) return;
+    const active = session.simulation.status === "running" || session.steps[2].status === "processing";
+    const initialTimer = window.setTimeout(loadRuntimeGraph, 0);
+    const pollTimer = active ? window.setInterval(loadRuntimeGraph, 5000) : undefined;
+    return () => {
+      window.clearTimeout(initialTimer);
+      if (pollTimer) window.clearInterval(pollTimer);
+    };
+  }, [loadRuntimeGraph, runtimeGraphPolling, session.simulation.status, session.steps]);
 
   const updateWorkflow = (next: WorkflowSession) => {
     if (!localMode && session.simulation.status !== next.simulation.status) {
@@ -1640,6 +1686,9 @@ export default function SimulationWorkflowPage() {
     );
   const effectiveViewMode: ViewMode =
     session.currentStep >= 4 ? "workbench" : session.viewMode;
+  const displayedDemo = graphSource === "runtime" && runtimeDemo ? runtimeDemo : resolvedDemo;
+  const displayedNodeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphNodes.length : session.graph.nodeCount;
+  const displayedEdgeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphEdges.length : session.graph.edgeCount;
   return (
     <div className="simulation-workflow">
       <WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} />
@@ -1651,10 +1700,17 @@ export default function SimulationWorkflowPage() {
       <main className={`workflow-content mode-${effectiveViewMode}`}>
         {effectiveViewMode !== "workbench" && (
           <div className="graph-column">
+            {session.currentStep >= 2 && (
+              <div className="graph-source-toggle" aria-label="Sumber graf">
+                <button className={graphSource === "policy" ? "active" : ""} onClick={() => setGraphSource("policy")}>Graf kebijakan</button>
+                <button className={graphSource === "runtime" ? "active" : ""} disabled={!runtimeDemo} onClick={() => setGraphSource("runtime")}>Graf runtime {runtimeDemo ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}` : "memuat"}</button>
+              </div>
+            )}
             <PolicyGraph
-              demo={resolvedDemo}
-              nodeCount={session.graph.nodeCount}
-              edgeCount={session.graph.edgeCount}
+              demo={displayedDemo}
+              nodeCount={displayedNodeCount}
+              edgeCount={displayedEdgeCount}
+              graphLabel={graphSource === "runtime" ? "OASIS / ZEP RUNTIME GRAPH" : "POLICY KNOWLEDGE GRAPH"}
               activeNodeId={graphActiveNode}
               selectedNodeId={session.graph.selectedNodeId}
               onSelect={(id) =>

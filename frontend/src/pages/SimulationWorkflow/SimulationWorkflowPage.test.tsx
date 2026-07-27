@@ -57,6 +57,10 @@ describe("SimulationWorkflowPage live mode", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     });
+    Object.defineProperties(SVGSVGElement.prototype, {
+      width: { configurable: true, value: { baseVal: { value: 820 } } },
+      height: { configurable: true, value: { baseVal: { value: 440 } } },
+    });
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -191,5 +195,49 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(await screen.findByRole("alert", {}, { timeout: 4000 })).toHaveTextContent("Polling sementara gagal");
     expect(screen.getByRole("heading", { name: "Jalankan simulasi OASIS" })).toBeInTheDocument();
     expect(maxActivePolls).toBe(1);
+  });
+
+  it("keeps the runtime graph separate from the policy graph", async () => {
+    server.use(
+      http.get("/backend/api/simulations/live-runtime-graph", () => HttpResponse.json(snapshot("simulation"))),
+      http.get("/backend/api/simulations/live-runtime-graph/runtime-graph", () => HttpResponse.json({
+        available: true,
+        graph_id: "zep-1",
+        source_revision: 2,
+        mapping_status: "running",
+        node_count: 1,
+        edge_count: 0,
+        nodes: [{ id: "runtime-node", label: "Memori runtime", type: "Entity" }],
+        edges: [],
+      })),
+    );
+    const user = userEvent.setup();
+
+    renderWorkflow("/simulation/live-runtime-graph?step=simulation&mode=graph");
+
+    const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 1/0" });
+    const policyButton = screen.getByRole("button", { name: "Graf kebijakan" });
+    expect(runtimeButton).toHaveClass("active");
+    await user.click(policyButton);
+
+    expect(policyButton).toHaveClass("active");
+    expect(screen.getByText("POLICY KNOWLEDGE GRAPH")).toBeInTheDocument();
+    await user.click(runtimeButton);
+
+    expect(runtimeButton).toHaveClass("active");
+    expect(screen.getByText("OASIS / ZEP RUNTIME GRAPH")).toBeInTheDocument();
+  });
+
+  it("keeps the policy graph visible while the runtime graph is pending", async () => {
+    server.use(
+      http.get("/backend/api/simulations/live-pending-graph", () => HttpResponse.json(snapshot("simulation"))),
+      http.get("/backend/api/simulations/live-pending-graph/runtime-graph", () => HttpResponse.json({ available: false })),
+    );
+
+    renderWorkflow("/simulation/live-pending-graph?step=simulation&mode=graph");
+
+    expect(await screen.findByRole("button", { name: "Graf kebijakan" })).toHaveClass("active");
+    expect(screen.getByRole("button", { name: "Graf runtime memuat" })).toBeDisabled();
+    expect(screen.getByText("POLICY KNOWLEDGE GRAPH")).toBeInTheDocument();
   });
 });

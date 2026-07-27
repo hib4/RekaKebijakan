@@ -853,6 +853,15 @@ async def oasis_status(request: Request, simulation_id: str):
     }
 
 
+@router.get("/simulations/{simulation_id}/runtime-graph")
+async def runtime_graph(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    graph = await run_in_threadpool(service(request).runtime_graph, simulation_id)
+    if graph is None:
+        return {"available": False}
+    return {"available": True, **graph}
+
+
 async def control(request: Request, simulation_id: str, action: str):
     try:
         state = await run_in_threadpool(service(request).control, simulation_id, action, user_id(request))

@@ -14,7 +14,7 @@ class OasisRuntimeClient:
     def __init__(self, base_url: str, service_token: str, timeout: float = 3600):
         self.client = httpx.Client(
             base_url=base_url.rstrip("/"),
-            headers={"X-Service-Token": service_token},
+            headers={"X-Service-Token": service_token, "Accept-Language": "id-ID,id;q=0.9"},
             timeout=timeout,
         )
 
@@ -36,10 +36,12 @@ class OasisRuntimeClient:
     def sync_graph(self, simulation_id: str, state: dict, chunks: list[dict]) -> dict:
         return self._request("environment", "POST", "/api/bridge/graph/sync", json={
             "local_simulation_id": simulation_id,
+            "graph_revision": int(state.get("graph", {}).get("revision", 0)),
             "project_name": state["project"]["name"],
             "simulation_requirement": state["project"]["objective"],
             "ontology": state["ontology"],
             "chunks": chunks,
+            "locale": "id",
         })
 
     def prepare_environment(self, mapping: dict, state: dict, config: dict) -> dict:
@@ -51,6 +53,7 @@ class OasisRuntimeClient:
             "entity_types": config.get("entity_types"),
             "use_llm_for_profiles": config.get("use_llm_for_profiles", True),
             "parallel_profile_count": config.get("parallel_profile_count", 5),
+            "locale": "id",
         })
 
     def start_simulation(self, mapping: dict, config: dict) -> dict:
@@ -60,12 +63,21 @@ class OasisRuntimeClient:
             "max_rounds": config.get("max_rounds", 40),
             "enable_graph_memory_update": config.get("enable_graph_memory_update", True),
             "force": config.get("force", False),
+            "locale": "id",
+            "step_timeout_seconds": config.get("step_timeout_seconds"),
+            "stale_timeout_seconds": config.get("stale_timeout_seconds"),
+            "max_run_seconds": config.get("max_run_seconds"),
+            "oasis_concurrency": config.get("oasis_concurrency"),
         })
 
-    def simulation_snapshot(self, external_simulation_id: str) -> dict:
+    def simulation_snapshot(self, external_simulation_id: str, cursor: str | None = None) -> dict:
         return self._request(
-            "simulate", "GET", f"/api/bridge/simulation/{external_simulation_id}/snapshot"
+            "simulate", "GET", f"/api/bridge/simulation/{external_simulation_id}/snapshot",
+            params={"after": cursor} if cursor else None,
         )
+
+    def runtime_graph(self, graph_id: str) -> dict:
+        return self._request("environment", "GET", f"/api/bridge/graph/{graph_id}")
 
     def stop_simulation(self, external_simulation_id: str) -> dict:
         return self._request(
@@ -181,5 +193,7 @@ def normalize_action(action: dict, sequence: int, personas: list[dict], graph_re
 
 
 def source_identity(action: dict, index: int) -> str:
-    raw = f"{action.get('round_num')}:{action.get('agent_id')}:{action.get('action_type')}:{action.get('timestamp')}:{index}"
+    if action.get("source_id"):
+        return str(action["source_id"])
+    raw = f"{action.get('platform')}:{action.get('round_num')}:{action.get('agent_id')}:{action.get('action_type')}:{action.get('timestamp')}"
     return hashlib.sha256(raw.encode()).hexdigest()
