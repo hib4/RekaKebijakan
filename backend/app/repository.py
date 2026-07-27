@@ -9,11 +9,13 @@ from typing import Callable
 from sqlalchemy import and_, create_engine, delete, func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from .database import (
     audit_events, citations, custom_personas, document_chunks, document_pages, documents,
     graph_feedback_versions, interviews, job_attempts, jobs, pilot_contacts, projects,
-    run_events, scenario_revisions, scenario_runs, scenarios, sessions, simulations, users,
+    oasis_actions, oasis_runtime_mappings, run_events, scenario_revisions, scenario_runs,
+    scenarios, sessions, simulations, users,
 )
 from .errors import UploadQuotaExceeded
 
@@ -775,6 +777,108 @@ class Repository:
                 .order_by(simulations.c.updated_at.desc())
             )
             return list(db.execute(statement).scalars())
+
+    def get_oasis_mapping(self, simulation_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(select(oasis_runtime_mappings).where(
+                oasis_runtime_mappings.c.simulation_id == simulation_id
+            )).mappings().one_or_none()
+            return dict(row) if row else None
+
+    def upsert_oasis_mapping(self, simulation_id: str, project_id: str, values: dict) -> dict:
+        allowed = {
+            key: value for key, value in values.items() if key in {
+                "external_project_id", "external_simulation_id", "zep_graph_id", "graph_revision",
+                "status", "config", "metadata",
+            }
+        }
+        if "status" not in allowed:
+            raise ValueError("OASIS runtime status is required")
+        timestamp = utc_now()
+        statement = postgresql_insert(oasis_runtime_mappings).values({
+            "simulation_id": simulation_id,
+            "project_id": project_id,
+            "graph_revision": 0,
+            "config": {},
+            "metadata": {},
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        } | allowed)
+        statement = statement.on_conflict_do_update(
+            index_elements=[oasis_runtime_mappings.c.simulation_id],
+            set_={
+                "project_id": project_id,
+                **allowed,
+                "updated_at": timestamp,
+            },
+        ).returning(oasis_runtime_mappings)
+        with self.engine.begin() as db:
+            local_project_id = db.execute(select(simulations.c.project_id).where(
+                simulations.c.id == simulation_id
+            )).scalar_one_or_none()
+            if local_project_id != project_id:
+                raise ValueError("Simulation does not belong to project")
+            return dict(db.execute(statement).mappings().one())
+
+    def append_oasis_actions(self, simulation_id: str, values: list[dict]) -> int:
+        if not values:
+            return 0
+        ingested_at = utc_now()
+        rows = []
+        for item in values:
+            occurred_at = item.get("occurred_at") or item.get("timestamp")
+            event = item.get("event") or item.get("normalized_event")
+            if event is None:
+                raise ValueError("Normalized OASIS event is required")
+            rows.append({
+                "simulation_id": simulation_id,
+                "platform": item["platform"],
+                "external_sequence": item["external_sequence"],
+                "source_identity": item["source_identity"],
+                "round": item.get("round", item.get("round_num")),
+                "event": event,
+                "occurred_at": parse_timestamp(occurred_at) if occurred_at else None,
+                "created_at": ingested_at,
+            })
+        statement = postgresql_insert(oasis_actions).values(rows).on_conflict_do_nothing(
+            index_elements=[
+                oasis_actions.c.simulation_id,
+                oasis_actions.c.platform,
+                oasis_actions.c.external_sequence,
+                oasis_actions.c.source_identity,
+            ]
+        ).returning(oasis_actions.c.sequence)
+        with self.engine.begin() as db:
+            return len(db.execute(statement).scalars().all())
+
+    def list_oasis_actions(self, simulation_id: str, after_sequence: int = 0, limit: int = 1000) -> list[dict]:
+        with self.engine.connect() as db:
+            rows = db.execute(select(oasis_actions).where(
+                oasis_actions.c.simulation_id == simulation_id,
+                oasis_actions.c.sequence > after_sequence,
+            ).order_by(oasis_actions.c.sequence).limit(max(1, min(limit, 5000)))).mappings()
+            return [dict(row) for row in rows]
+
+    def summarize_oasis_actions(self, simulation_id: str) -> dict:
+        with self.engine.connect() as db:
+            rows = db.execute(select(
+                oasis_actions.c.platform,
+                func.count().label("action_count"),
+                func.max(oasis_actions.c.round).label("current_round"),
+            ).where(oasis_actions.c.simulation_id == simulation_id).group_by(
+                oasis_actions.c.platform
+            ).order_by(oasis_actions.c.platform)).mappings().all()
+        return {
+            "total_actions": sum(row["action_count"] for row in rows),
+            "platform_counts": {row["platform"]: row["action_count"] for row in rows},
+            "rounds": {row["platform"]: row["current_round"] or 0 for row in rows},
+        }
+
+    def clear_oasis_actions(self, simulation_id: str) -> int:
+        with self.engine.begin() as db:
+            return db.execute(delete(oasis_actions).where(
+                oasis_actions.c.simulation_id == simulation_id
+            )).rowcount
 
     def mutate(self, simulation_id: str, callback: Callable[[dict], None]) -> dict | None:
         return self._mutate(simulation_id, callback)

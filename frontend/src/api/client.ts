@@ -90,6 +90,9 @@ export type ApiEventDto = {
   risk_narrative?: string;
   influence_source?: string;
   citations?: ApiCitationDto[];
+  platform?: string;
+  action_args?: Record<string, unknown>;
+  success?: boolean;
 };
 
 export type ApiRiskDto = {
@@ -138,7 +141,11 @@ export type ApiSimulationSnapshot = {
   environment?: ApiStageDto & {
     personas?: ApiPersonaDto[];
     persona_count?: number;
-    config?: { rounds?: number; socialization?: string; response_mode?: string };
+    config?: {
+      rounds?: number; socialization?: string; response_mode?: string; channels?: string[];
+      platforms?: string[]; total_simulation_hours?: number; minutes_per_round?: number;
+      max_rounds?: number; generation_reasoning?: string; raw_config?: Record<string, unknown>;
+    };
   };
   simulation?: ApiStageDto & { events?: ApiEventDto[]; event_count?: number; speed?: number };
   report?: ApiStageDto & { title?: string; sections?: ApiReportSectionDto[]; risks?: ApiRiskDto[] };

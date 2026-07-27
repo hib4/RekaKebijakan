@@ -44,6 +44,10 @@ class EnvironmentInput(BaseModel):
     rounds: Literal[3, 5, 8] = 5
     socialization: str = Field(default="Sedang", max_length=40)
     response_mode: str = Field(default="Responsif", max_length=40)
+    entity_types: list[str] | None = Field(default=None, max_length=100)
+    use_llm_for_profiles: bool = True
+    parallel_profile_count: int = Field(default=5, ge=1, le=20)
+    max_rounds: int = Field(default=40, ge=1, le=1000)
 
 
 class InteractionInput(BaseModel):
@@ -78,6 +82,8 @@ class ScenarioConfig(BaseModel):
     rounds: Literal[3, 5, 8] | None = None
     socialization: str | None = Field(default=None, max_length=40)
     response_mode: str | None = Field(default=None, max_length=40)
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    enable_graph_memory_update: bool | None = None
 
 
 class ScenarioInput(BaseModel):

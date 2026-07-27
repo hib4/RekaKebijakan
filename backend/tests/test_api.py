@@ -118,7 +118,7 @@ def test_environment_patch_and_all_interaction_tools(client):
     assert readiness["status"] == "ok"
     assert readiness["database"] == "postgresql"
     assert readiness["storage"] == "local"
-    assert readiness["schema_revision"] == "0008_scenario_runs"
+    assert readiness["schema_revision"] == "0010_oasis_runtime"
 
 
 def test_validation_errors_and_stage_conflict(client):

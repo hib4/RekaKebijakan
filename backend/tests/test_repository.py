@@ -55,3 +55,61 @@ def test_full_text_chunk_search_is_scoped(database_url):
     matches = repository.search_chunks("sim-search", "pelabuhan nelayan")
     assert [item["id"] for item in matches] == ["chunk-search"]
     assert repository.search_chunks("sim-search", "rumah sakit") == []
+
+
+def test_oasis_mapping_is_upserted_per_local_simulation(database_url):
+    repository = Repository(database_url)
+    repository.create_user("user-oasis", "OASIS", "oasis@example.com", "hash")
+    repository.create({
+        "id": "sim-oasis",
+        "project": {
+            "id": "project-oasis", "name": "Runtime", "institution": "Test", "objective": "Test",
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }, owner_user_id="user-oasis")
+
+    created = repository.upsert_oasis_mapping("sim-oasis", "project-oasis", {
+        "external_project_id": "external-project-1", "zep_graph_id": "graph-1", "graph_revision": 2,
+        "status": "creating", "config": {"rounds": 3}, "metadata": {"request_id": "request-1"},
+    })
+    updated = repository.upsert_oasis_mapping("sim-oasis", "project-oasis", {
+        "external_project_id": "external-project-1", "external_simulation_id": "external-simulation-1",
+        "zep_graph_id": "graph-1", "graph_revision": 3, "status": "running",
+        "config": {"rounds": 3}, "metadata": {"request_id": "request-1"},
+    })
+
+    assert created["created_at"] == updated["created_at"]
+    assert updated["updated_at"] >= created["updated_at"]
+    assert repository.get_oasis_mapping("sim-oasis") == updated
+
+
+def test_oasis_actions_are_incremental_idempotent_and_clearable(database_url):
+    repository = Repository(database_url)
+    repository.create({
+        "id": "sim-actions", "project": {"id": "project-actions"},
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    timestamp = datetime.now(timezone.utc).isoformat()
+    actions = [
+        {
+            "platform": "twitter", "external_sequence": 1, "source_identity": "tweet-1", "round": 1,
+            "event": {"type": "CREATE_POST", "content": "First"}, "occurred_at": timestamp,
+        },
+        {
+            "platform": "reddit", "external_sequence": 1, "source_identity": "post-1", "round": 2,
+            "event": {"type": "CREATE_POST", "content": "Second"}, "occurred_at": timestamp,
+        },
+    ]
+
+    assert repository.append_oasis_actions("sim-actions", actions) == 2
+    assert repository.append_oasis_actions("sim-actions", actions) == 0
+    persisted = repository.list_oasis_actions("sim-actions")
+    assert [item["event"]["content"] for item in persisted] == ["First", "Second"]
+    assert repository.list_oasis_actions("sim-actions", after_sequence=persisted[0]["sequence"]) == [persisted[1]]
+    assert repository.summarize_oasis_actions("sim-actions") == {
+        "total_actions": 2,
+        "platform_counts": {"reddit": 1, "twitter": 1},
+        "rounds": {"reddit": 2, "twitter": 1},
+    }
+    assert repository.clear_oasis_actions("sim-actions") == 2
+    assert repository.list_oasis_actions("sim-actions") == []

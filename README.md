@@ -7,7 +7,7 @@ RekaKebijakan is a policy-scenario simulation prototype with a React frontend an
 - `frontend/`: React 19, TypeScript, and Vite user interface.
 - `backend/`: FastAPI application factory, Pydantic request validation, PostgreSQL persistence, local or Firebase document storage, and background jobs served by Uvicorn.
 
-The backend defaults to a grounded deterministic policy provider. It requires no LLM, graph service, external queue, or cloud account. Uploaded PDF, DOCX, Markdown, and TXT files are chunked with stable evidence IDs; ontology, graph, persona, event, interview, report, citation, log, and interaction data remain durable in PostgreSQL.
+The backend retains a grounded deterministic policy provider for tests and offline use. In the full Docker workflow, stages 02 and 03 can use the bundled OASIS social simulation runtime: graph entities become OASIS agents, Twitter and Reddit worlds run in parallel, actions stream into PostgreSQL, and completed actions update a Zep temporal graph. Uploaded PDF, DOCX, Markdown, and TXT files retain stable local evidence IDs and citations throughout the external runtime.
 
 ## Local Run
 
@@ -38,6 +38,8 @@ Use `make up-d` or `make full-up-d` for detached startup, `make health` to check
 
 Copy `.env.example` to `.env` to customize host ports, CORS origins, upload limits, job delay, storage, or frontend build variables.
 
+Set `OASIS_RUNTIME_ENABLED=true`, `ZEP_API_KEY`, and a random `OASIS_RUNTIME_SERVICE_TOKEN` to enable OASIS stages 02 and 03. The social simulation sidecar is internal-only and its `/api/*` routes require the service token. `LLM_MODEL` is also passed to the runtime as `LLM_MODEL_NAME`; use `OASIS_RUNTIME_BASE_URL` to override its internal URL.
+
 To use Firebase Storage instead of local uploaded-document storage, set `STORAGE_BACKEND=firebase`, `FIREBASE_STORAGE_BUCKET=<your-bucket-name>`, and point `FIREBASE_CREDENTIALS_HOST_PATH` at a Firebase service-account JSON file on the host. Compose mounts that file at `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/firebase-service-account.json` for the API and worker containers. The `secrets/` directory is git-ignored.
 
 ### Local processes
@@ -66,8 +68,8 @@ Open `http://localhost:5173`. The frontend uses `http://localhost:5001` by defau
 
 1. `POST /api/projects` uploads project metadata and real source files.
 2. `POST /api/simulations/<id>/graph-build` generates a source-grounded ontology and policy graph.
-3. `POST /api/simulations/<id>/environment/generate` creates 30 synthetic personas and scenario configuration.
-4. `POST /api/simulations/<id>/runs` executes 3, 5, or 8 rounds with pause, resume, cancellation, and event retrieval.
+3. `POST /api/simulations/<id>/environment/generate` synchronizes evidence to Zep, creates one OASIS profile per eligible graph entity, and generates time, behavior, event, and platform configuration.
+4. `POST /api/simulations/<id>/runs` executes Twitter and Reddit OASIS worlds in parallel, incrementally persists actions, and waits for temporal graph-memory ingestion before completion.
 5. `POST /api/simulations/<id>/reports` creates report sections, risks, and evidence references.
 6. `POST /api/simulations/<id>/interactions` supports report, persona, evidence, risk, comparison, and revision tools.
 7. `POST /api/simulations/<id>/interviews` interviews selected synthetic personas.

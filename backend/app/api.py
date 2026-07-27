@@ -50,6 +50,13 @@ def require_state(request: Request, simulation_id: str):
     state = repository(request).get_for_user(simulation_id, user_id(request))
     if not state:
         raise ResourceNotFound()
+    actions = repository(request).list_oasis_actions(simulation_id, limit=5000)
+    if actions and state.get("stages", {}).get("simulation", {}).get("status") in {"queued", "running", "paused"}:
+        state = dict(state)
+        events = [dict(item["event"]) | {"sequence": index} for index, item in enumerate(actions, 1)]
+        state["simulation"] = dict(state.get("simulation", {})) | {
+            "events": events, "event_count": len(events),
+        }
     return state
 
 
@@ -803,18 +810,47 @@ async def create_run(request: Request, simulation_id: str):
 
 @router.get("/runs/{simulation_id}")
 async def get_run(request: Request, simulation_id: str):
-    return require_state(request, simulation_id)["simulation"] | {"id": simulation_id, "simulation_id": simulation_id}
+    state = require_state(request, simulation_id)
+    summary = await run_in_threadpool(repository(request).summarize_oasis_actions, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    return state["simulation"] | {
+        "id": simulation_id, "simulation_id": simulation_id,
+        "platform_counts": summary["platform_counts"], "platform_rounds": summary["rounds"],
+        "runtime": (mapping or {}).get("metadata", {}).get("runtime_status", {}),
+    }
 
 
 @router.get("/runs/{simulation_id}/events")
 async def get_events(request: Request, simulation_id: str):
-    events = require_state(request, simulation_id)["simulation"].get("events", [])
+    require_state(request, simulation_id)
     try:
         after = int(request.query_params.get("after", "0"))
     except ValueError:
         after = 0
+    actions = await run_in_threadpool(repository(request).list_oasis_actions, simulation_id, after, 1000)
+    if actions:
+        total = (await run_in_threadpool(repository(request).summarize_oasis_actions, simulation_id))["total_actions"]
+        return {
+            "events": [dict(item["event"]) | {"sequence": item["sequence"]} for item in actions],
+            "event_count": total,
+        }
+    events = require_state(request, simulation_id)["simulation"].get("events", [])
     selected = [event for index, event in enumerate(events) if event.get("sequence", index + 1) > after]
     return {"events": selected, "event_count": len(events)}
+
+
+@router.get("/simulations/{simulation_id}/oasis/status")
+async def oasis_status(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    summary = await run_in_threadpool(repository(request).summarize_oasis_actions, simulation_id)
+    return {
+        "enabled": bool(mapping), "mapping_status": (mapping or {}).get("status"),
+        "zep_graph_id": (mapping or {}).get("zep_graph_id"),
+        "external_simulation_id": (mapping or {}).get("external_simulation_id"),
+        "runtime": (mapping or {}).get("metadata", {}).get("runtime_status", {}),
+        **summary,
+    }
 
 
 async def control(request: Request, simulation_id: str, action: str):

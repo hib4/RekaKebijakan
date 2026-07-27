@@ -75,11 +75,16 @@ services:
       PRODUCTION: ${PRODUCTION:-false}
       AUTH_MAX_FAILURES: ${AUTH_MAX_FAILURES:-10}
       AUTH_WINDOW_SECONDS: ${AUTH_WINDOW_SECONDS:-300}
+      OASIS_RUNTIME_BASE_URL: ${OASIS_RUNTIME_BASE_URL:-http://oasis-runtime:5001}
+      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
+      OASIS_RUNTIME_ENABLED: ${OASIS_RUNTIME_ENABLED:-false}
     ports:
       - "${BACKEND_PORT:-5001}:5001"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      oasis-runtime:
+        condition: service_healthy
     volumes:
       - backend_data:/app/data
       - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/app/secrets/firebase-service-account.json:ro
@@ -130,12 +135,47 @@ services:
       FIREBASE_STORAGE_BUCKET: ${FIREBASE_STORAGE_BUCKET:-}
       FIREBASE_STORAGE_PREFIX: ${FIREBASE_STORAGE_PREFIX:-rekakebijakan}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/app/secrets/firebase-service-account.json}
+      OASIS_RUNTIME_BASE_URL: ${OASIS_RUNTIME_BASE_URL:-http://oasis-runtime:5001}
+      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
+      OASIS_RUNTIME_ENABLED: ${OASIS_RUNTIME_ENABLED:-false}
     volumes:
       - backend_data:/app/data
       - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/app/secrets/firebase-service-account.json:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
+      oasis-runtime:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  oasis-runtime:
+    build:
+      context: ./oasis-runtime
+    environment:
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: 5001
+      FLASK_DEBUG: "false"
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL_NAME: ${LLM_MODEL:-gpt-4o-mini}
+      ZEP_API_KEY: ${ZEP_API_KEY:-}
+      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
+    expose:
+      - "5001"
+    volumes:
+      - oasis_runtime_data:/app/backend/uploads
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    init: true
     restart: unless-stopped
     stop_grace_period: 30s
 
@@ -154,4 +194,5 @@ services:
 
 volumes:
   backend_data:
+  oasis_runtime_data:
   postgres_data:

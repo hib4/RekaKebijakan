@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import threading
 import time
 import uuid
@@ -15,6 +16,7 @@ from .documents import chunk_text, extract_document
 from .errors import UploadQuotaExceeded
 from .provider_errors import ProviderError
 from .providers import PolicyProvider
+from .oasis_runtime import OasisRuntimeClient, normalize_action, normalize_environment, source_identity
 from .repository import Repository
 from .storage import LocalStorageBackend, StorageBackend
 
@@ -65,6 +67,7 @@ class WorkflowService:
         max_pdf_pages: int = 200,
         max_extracted_chars: int = 2_000_000,
         max_chunks_per_document: int = 5000,
+        oasis_runtime: OasisRuntimeClient | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -82,6 +85,7 @@ class WorkflowService:
         self.max_pdf_pages = max_pdf_pages
         self.max_extracted_chars = max_extracted_chars
         self.max_chunks_per_document = max_chunks_per_document
+        self.oasis_runtime = oasis_runtime
         self.worker_id = f"worker_{uuid.uuid4().hex[:12]}"
         self.threads: dict[str, threading.Thread] = {}
         self.thread_lock = threading.RLock()
@@ -346,12 +350,23 @@ class WorkflowService:
             self._validate_graph(graph)
             result = {"ontology": ontology, "graph": graph}
         elif stage == "environment":
-            result = {"environment": self.provider.environment(simulation_id, state["graph"], config)}
+            if self.oasis_runtime:
+                result = {"environment": self._prepare_oasis_environment(simulation_id, state, chunks, config)}
+            else:
+                result = {"environment": self.provider.environment(simulation_id, state["graph"], config)}
         elif stage == "simulation":
-            simulation = self.provider.simulate(
-                simulation_id, state["graph"], state["environment"]["personas"], state["environment"]["config"]
-            )
-            result = {"simulation": simulation, "graph": self.provider.graph_memory(state["graph"], simulation["events"])}
+            if self.oasis_runtime:
+                simulation = self._run_oasis_simulation(job, state, config)
+                graph = dict(state["graph"]) | {
+                    "memory_revision": int(state["graph"].get("memory_revision", 0)) + 1,
+                    "memory_event_ids": [event["id"] for event in simulation["events"]],
+                }
+                result = {"simulation": simulation, "graph": graph}
+            else:
+                simulation = self.provider.simulate(
+                    simulation_id, state["graph"], state["environment"]["personas"], state["environment"]["config"]
+                )
+                result = {"simulation": simulation, "graph": self.provider.graph_memory(state["graph"], simulation["events"])}
         else:
             result = {"report": self.provider.report(state["project"], chunks, state["simulation"].get("events", []))}
             self._validate_citations(simulation_id, result["report"].get("citations", []))
@@ -374,6 +389,117 @@ class WorkflowService:
                 "graph": completed_state.get("graph", {}), "logs": completed_state.get("logs", []),
             })
         return True
+
+    def _prepare_oasis_environment(
+        self, simulation_id: str, state: dict, chunks: list[dict], config: dict,
+    ) -> dict:
+        mapping = self.repository.get_oasis_mapping(simulation_id)
+        graph_revision = int(state["graph"].get("revision", 0))
+        if not mapping or mapping.get("graph_revision") != graph_revision or not mapping.get("zep_graph_id"):
+            self.repository.mutate(
+                simulation_id, lambda current: self._progress(current, "environment", 10, "Menyinkronkan bukti ke Zep")
+            )
+            synced = self.oasis_runtime.sync_graph(simulation_id, state, chunks)
+            mapping = self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
+                "external_project_id": synced["project_id"], "zep_graph_id": synced["graph_id"],
+                "graph_revision": graph_revision, "status": "graph_ready", "config": config,
+                "metadata": {"graph_info": synced.get("graph_info", {}), "episode_uuids": synced.get("episode_uuids", [])},
+            })
+        self.repository.mutate(
+            simulation_id, lambda current: self._progress(current, "environment", 35, "Membentuk profil agent dari entitas")
+        )
+        prepared = self.oasis_runtime.prepare_environment(mapping, state, config)
+        environment = normalize_environment(simulation_id, state["graph"], prepared, config)
+        external_state = prepared["state"]
+        self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
+            "external_project_id": mapping["external_project_id"],
+            "external_simulation_id": external_state["simulation_id"],
+            "zep_graph_id": mapping["zep_graph_id"], "graph_revision": graph_revision,
+            "status": "ready", "config": environment["config"],
+            "metadata": dict(mapping.get("metadata") or {}) | {
+                "entity_types": external_state.get("entity_types", []),
+                "entities_count": external_state.get("entities_count", 0),
+                "profiles_count": external_state.get("profiles_count", 0),
+            },
+        })
+        return environment
+
+    def _run_oasis_simulation(self, job: dict, state: dict, config: dict) -> dict:
+        simulation_id = job["simulation_id"]
+        mapping = self.repository.get_oasis_mapping(simulation_id)
+        if not mapping or not mapping.get("external_simulation_id"):
+            raise ValueError("OASIS environment must be prepared before simulation")
+        environment_config = state["environment"]["config"]
+        run_config = {
+            "max_rounds": config.get("max_rounds") or environment_config.get("max_rounds", 40),
+            "enable_graph_memory_update": config.get("enable_graph_memory_update", True),
+            "force": config.get("force", False),
+        }
+        if run_config["force"]:
+            self.repository.clear_oasis_actions(simulation_id)
+        self.oasis_runtime.start_simulation(mapping, run_config)
+        self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
+            "external_project_id": mapping["external_project_id"],
+            "external_simulation_id": mapping["external_simulation_id"],
+            "zep_graph_id": mapping["zep_graph_id"], "graph_revision": mapping["graph_revision"],
+            "status": "running", "config": run_config, "metadata": mapping.get("metadata") or {},
+        })
+        terminal = {"completed", "failed", "stopped"}
+        runtime = {}
+        while True:
+            if self.repository.job_control_state(job["id"], job["execution_token"]) != "running":
+                self.oasis_runtime.stop_simulation(mapping["external_simulation_id"])
+                raise RuntimeError("OASIS simulation was stopped by job control")
+            snapshot = self.oasis_runtime.simulation_snapshot(mapping["external_simulation_id"])
+            runtime = snapshot["status"]
+            persisted = self.repository.list_oasis_actions(simulation_id, limit=5000)
+            known = {(item["platform"], item["external_sequence"], item["source_identity"]) for item in persisted}
+            incoming = []
+            per_platform: dict[str, int] = {}
+            for action in snapshot.get("actions", []):
+                platform = str(action.get("platform", "oasis"))
+                external_sequence = per_platform.get(platform, 0) + 1
+                per_platform[platform] = external_sequence
+                identity = source_identity(action, external_sequence)
+                if (platform, external_sequence, identity) in known:
+                    continue
+                normalized = normalize_action(
+                    action, len(persisted) + len(incoming) + 1, state["environment"]["personas"],
+                    int(state["graph"].get("revision", 0)), int(environment_config.get("version", 1)),
+                )
+                incoming.append({
+                    "platform": platform, "external_sequence": external_sequence,
+                    "source_identity": identity, "round": action.get("round_num"),
+                    "event": normalized, "occurred_at": action.get("timestamp"),
+                })
+            self.repository.append_oasis_actions(simulation_id, incoming)
+            progress = int(float(runtime.get("progress_percent", 0) or 0))
+            self.repository.mutate(
+                simulation_id,
+                lambda current: self._progress(
+                    current, "simulation", min(69, max(15, progress)),
+                    f"OASIS ronde {runtime.get('current_round', 0)}/{runtime.get('total_rounds', 0)}",
+                ),
+            )
+            status = runtime.get("runner_status", "idle")
+            if status in terminal:
+                if status != "completed":
+                    raise RuntimeError(runtime.get("error") or f"OASIS runtime ended as {status}")
+                break
+            time.sleep(2)
+        rows = self.repository.list_oasis_actions(simulation_id, limit=5000)
+        events = [dict(row["event"]) | {"sequence": index} for index, row in enumerate(rows, 1)]
+        self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
+            "external_project_id": mapping["external_project_id"],
+            "external_simulation_id": mapping["external_simulation_id"],
+            "zep_graph_id": mapping["zep_graph_id"], "graph_revision": mapping["graph_revision"],
+            "status": "completed", "config": run_config,
+            "metadata": dict(mapping.get("metadata") or {}) | {"runtime_status": runtime},
+        })
+        return {
+            "id": f"run_{hashlib.sha256(simulation_id.encode()).hexdigest()[:12]}",
+            "events": events, "event_count": len(events),
+        }
 
     def _ingest_pending_documents(self, simulation_id: str) -> None:
         for document in self.repository.documents(simulation_id):
@@ -579,6 +705,8 @@ class WorkflowService:
         deadline = time.monotonic() + timeout
         for thread in threads:
             thread.join(max(0, deadline - time.monotonic()))
+        if self.oasis_runtime:
+            self.oasis_runtime.close()
 
     @staticmethod
     def _sync_stages(state: dict) -> None:

@@ -187,9 +187,9 @@ describe("SimulationWorkflowPage live mode", () => {
     );
     renderWorkflow("/simulation/live-poll?step=simulation&mode=workbench");
 
-    expect(await screen.findByRole("heading", { name: "Jalankan simulasi skenario" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Jalankan simulasi OASIS" })).toBeInTheDocument();
     expect(await screen.findByRole("alert", {}, { timeout: 4000 })).toHaveTextContent("Polling sementara gagal");
-    expect(screen.getByRole("heading", { name: "Jalankan simulasi skenario" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Jalankan simulasi OASIS" })).toBeInTheDocument();
     expect(maxActivePolls).toBe(1);
   });
 });

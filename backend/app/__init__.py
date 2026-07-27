@@ -16,6 +16,7 @@ from .config import Settings
 from .errors import ApiError
 from .middleware import OriginValidationMiddleware, RequestSecurityMiddleware, RequestSizeLimitMiddleware
 from .metrics import metrics
+from .oasis_runtime import OasisRuntimeClient
 from .repository import Repository
 from .providers import make_provider
 from .service import WorkflowService
@@ -58,6 +59,8 @@ def create_app(config: dict | None = None) -> FastAPI:
             settings.max_pdf_pages,
             settings.max_extracted_chars,
             settings.max_chunks_per_document,
+            OasisRuntimeClient(settings.oasis_runtime_base_url, settings.oasis_runtime_service_token)
+            if settings.oasis_runtime_enabled else None,
         )
         app.state.settings = settings
         app.state.repository = repository

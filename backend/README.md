@@ -39,9 +39,9 @@ Documents are split into deterministic, content-hashed chunks. Graph nodes, repo
 
 The API only enqueues workflow stages in normal deployments. `worker.py` claims jobs with PostgreSQL `FOR UPDATE SKIP LOCKED`, leases, heartbeats, retries, and stale-revision checks. Tests use the embedded worker for speed.
 
-## Optional integrations
+## OASIS runtime
 
-Zep and OASIS are not runtime dependencies. The native PostgreSQL graph, policy-agent simulator, evidence retrieval, interviews, and graph-memory feedback should be evaluated first. Add Zep only if graph retrieval quality or graph scale exceeds PostgreSQL needs. Add OASIS only after policy-domain evaluation demonstrates material quality gains over the native simulator, and after reviewing its operational and licensing impact.
+Set `OASIS_RUNTIME_ENABLED=true`, `ZEP_API_KEY`, `OASIS_RUNTIME_BASE_URL`, and `OASIS_RUNTIME_SERVICE_TOKEN` to route environment and simulation jobs through the bundled social simulation sidecar. The worker remains authoritative for leases and retries while the runtime provides graph-derived OASIS profiles, generated behavior configuration, parallel Twitter/Reddit execution, and temporal Zep memory. Actions are imported idempotently into PostgreSQL and normalized with local source citations. Tests disable the sidecar and remain deterministic/network-free.
 
 `GET /health` reports process liveness. `GET /ready` also verifies that PostgreSQL accepts queries and is used by the container health check.
 

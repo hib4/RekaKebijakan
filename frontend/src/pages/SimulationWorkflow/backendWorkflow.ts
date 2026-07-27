@@ -87,6 +87,9 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     riskNarrative: event.risk_narrative ?? "Belum diklasifikasikan",
     influenceSource: event.influence_source ?? "Graph kebijakan",
     citations: citations(event.citations),
+    platform: event.platform ?? event.channel,
+    actionArgs: event.action_args,
+    success: event.success,
   }));
   const reportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
     id: section.id ?? `section-${index}`,
@@ -138,12 +141,15 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   if (session.steps[4].status === "completed" && session.steps[5].status === "locked") session.steps[5].status = "ready";
   session.viewMode = previous?.viewMode ?? (session.currentStep >= 4 ? "workbench" : "split");
   session.graph = { nodeCount: graphNodes.length, edgeCount: graphEdges.length, selectedNodeId: previous?.graph.selectedNodeId ?? null };
-  const rounds = snapshot.environment?.config?.rounds;
+  const rounds = snapshot.environment?.config?.max_rounds ?? snapshot.environment?.config?.rounds;
   session.environment = {
     personaCount: snapshot.environment?.persona_count ?? personas.reduce((sum, persona) => sum + persona.count, 0),
-    rounds: rounds === 3 || rounds === 8 ? rounds : 5,
-    socialization: (snapshot.environment?.config?.socialization as WorkflowSession["environment"]["socialization"]) ?? "Sedang",
-    responseMode: (snapshot.environment?.config?.response_mode as WorkflowSession["environment"]["responseMode"]) ?? "Responsif",
+    rounds: Math.max(1, rounds ?? 40),
+    socialization: snapshot.environment?.config?.socialization ?? "OASIS activity model",
+    responseMode: snapshot.environment?.config?.response_mode ?? "LLMAction",
+    platforms: snapshot.environment?.config?.platforms ?? snapshot.environment?.config?.channels ?? ["twitter", "reddit"],
+    totalSimulationHours: snapshot.environment?.config?.total_simulation_hours,
+    minutesPerRound: snapshot.environment?.config?.minutes_per_round,
   };
   const simulationStatus = snapshot.simulation?.status;
   session.simulation = {

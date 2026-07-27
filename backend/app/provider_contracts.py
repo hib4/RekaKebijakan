@@ -229,6 +229,11 @@ class EnvironmentConfig(Contract):
     generated_by: str
     version: int = Field(ge=1)
     overrides: dict[str, Any]
+    platforms: list[str] | None = None
+    total_simulation_hours: int | None = None
+    minutes_per_round: int | None = None
+    max_rounds: int | None = None
+    raw_config: dict[str, Any] | None = None
 
 
 class EnvironmentOutput(Contract):
@@ -268,6 +273,9 @@ class EventOutput(Contract):
     citations: list[Citation]
     graph_revision: int
     config_version: int
+    platform: str | None = None
+    action_args: dict[str, Any] | None = None
+    success: bool | None = None
 
 
 class SimulationOutput(Contract):

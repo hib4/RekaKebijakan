@@ -3,6 +3,7 @@ import os
 import time
 from app.config import Settings
 from app.providers import make_provider
+from app.oasis_runtime import OasisRuntimeClient
 from app.repository import Repository
 from app.service import WorkflowService
 from app.storage import make_storage_backend
@@ -22,6 +23,8 @@ def main() -> None:
         settings.max_active_projects_per_user, settings.max_files_per_project,
         settings.max_file_upload_bytes, settings.max_total_upload_bytes,
         settings.max_pdf_pages, settings.max_extracted_chars, settings.max_chunks_per_document,
+        OasisRuntimeClient(settings.oasis_runtime_base_url, settings.oasis_runtime_service_token)
+        if settings.oasis_runtime_enabled else None,
     )
     logger.info("Worker %s started", workflow.worker_id)
     try:

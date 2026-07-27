@@ -314,13 +314,11 @@ function GraphBuildStep({
 function EnvironmentStep({
   demo,
   session,
-  update,
   start,
   next,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
-  update: (session: WorkflowSession) => void;
   start: () => void;
   next: () => void;
 }) {
@@ -338,7 +336,7 @@ function EnvironmentStep({
         <span>STEP 2/5</span>
         <h1 tabIndex={-1}>Siapkan lingkungan simulasi</h1>
         <p>
-          Persona dibentuk per kelompok, lalu konfigurasi skenario divalidasi.
+          Setiap entitas graph menjadi agent OASIS dengan profil dan perilaku lintas platform.
         </p>
       </div>
       {environmentTasks.map((task, index) => (
@@ -359,7 +357,7 @@ function EnvironmentStep({
                   <b>{session.environment.personaCount}</b>Persona saat ini
                 </span>
                 <span>
-                  <b>{personaTotal}</b>Total tersedia
+                  <b>{session.environment.personaCount}</b>Entitas graph aktif
                 </span>
                 <span>
                   <b>
@@ -400,78 +398,18 @@ function EnvironmentStep({
           {index === 1 && step.progress >= 50 && (
             <>
               <div className="config-controls">
-                <label>
-                  Jumlah ronde
-                  <select
-                    value={session.environment.rounds}
-                    onChange={(event) =>
-                      update({
-                        ...session,
-                        environment: {
-                          ...session.environment,
-                          rounds: Number(event.target.value) as 3 | 5 | 8,
-                        },
-                      })
-                    }
-                  >
-                    <option value="3">3 ronde</option>
-                    <option value="5">5 ronde</option>
-                    <option value="8">8 ronde</option>
-                  </select>
-                </label>
-                <label>
-                  Intensitas sosialisasi
-                  <select
-                    value={session.environment.socialization}
-                    onChange={(event) =>
-                      update({
-                        ...session,
-                        environment: {
-                          ...session.environment,
-                          socialization: event.target.value as
-                            | "Rendah"
-                            | "Sedang"
-                            | "Tinggi",
-                        },
-                      })
-                    }
-                  >
-                    <option>Rendah</option>
-                    <option>Sedang</option>
-                    <option>Tinggi</option>
-                  </select>
-                </label>
-                <label>
-                  Respons pemerintah
-                  <select
-                    value={session.environment.responseMode}
-                    onChange={(event) =>
-                      update({
-                        ...session,
-                        environment: {
-                          ...session.environment,
-                          responseMode: event.target.value as
-                            | "Klarifikasi"
-                            | "Responsif"
-                            | "Revisi",
-                        },
-                      })
-                    }
-                  >
-                    <option>Klarifikasi</option>
-                    <option>Responsif</option>
-                    <option>Revisi</option>
-                  </select>
-                </label>
+                <span><small>Generated rounds</small><b>{session.environment.rounds}</b></span>
+                <span><small>Simulated time</small><b>{session.environment.totalSimulationHours ?? "–"} jam</b></span>
+                <span><small>Time step</small><b>{session.environment.minutesPerRound ?? "–"} menit/round</b></span>
               </div>
               <div className="config-grid">
                 <span>
                   <small>Reaction channels</small>
-                  <b>Forum Publik · Komunitas Kebijakan</b>
+                  <b>{session.environment.platforms.join(" · ")}</b>
                 </span>
                 <span>
                   <small>Influence mode</small>
-                  <b>Network weighted</b>
+                  <b>OASIS agent config</b>
                 </span>
                 <span>
                   <small>Output mode</small>
@@ -492,7 +430,7 @@ function EnvironmentStep({
       </p>
       {step.status === "ready" && (
         <button className="button primary start-action" onClick={start}>
-          Start Persona Generation →
+          Prepare OASIS Environment →
         </button>
       )}
       {step.status === "completed" && (
@@ -589,11 +527,11 @@ function SimulationStep({
     <div className="step-scroll simulation-step" ref={scrollRef}>
       <div className="step-intro">
         <span>STEP 3/5</span>
-        <h1 tabIndex={-1}>Jalankan simulasi skenario</h1>
+        <h1 tabIndex={-1}>Jalankan simulasi OASIS</h1>
         <p>{demo.question}</p>
       </div>
       <div className="channel-grid">
-        {["Forum Publik", "Komunitas Kebijakan"].map((channel) => {
+        {session.environment.platforms.map((channel) => {
           const count = events.filter(
             (event) => event.channel === channel,
           ).length;
@@ -1563,7 +1501,7 @@ export default function SimulationWorkflowPage() {
           next = appendSessionLog(
             next,
             `Ronde ${event?.round}: ${event?.persona} · ${event?.type}`,
-            event?.round === 2 ? "WARN" : "INFO",
+            event?.success === false ? "WARN" : "INFO",
           );
           if (count === resolvedDemo.events.length) {
             next.simulation.status = "completed";
@@ -1594,13 +1532,10 @@ export default function SimulationWorkflowPage() {
 
   const startStep = (step: WorkflowStep) => {
     if (!localMode) {
-      const config =
-        step === 2 || step === 3
-          ? {
-              rounds: session.environment.rounds,
-              socialization: session.environment.socialization,
-              response_mode: session.environment.responseMode,
-            }
+      const config = step === 2
+        ? { max_rounds: 40, use_llm_for_profiles: true, parallel_profile_count: 5 }
+        : step === 3
+          ? { max_rounds: session.environment.rounds, enable_graph_memory_update: true }
           : undefined;
       setSession((current) => ({
         ...current,
@@ -1746,7 +1681,6 @@ export default function SimulationWorkflowPage() {
               <EnvironmentStep
                 demo={resolvedDemo}
                 session={session}
-                update={updateWorkflow}
                 start={() => startStep(2)}
                 next={() => goStep(3)}
               />
