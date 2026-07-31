@@ -427,16 +427,74 @@ class OpenAICompatiblePolicyProvider:
             return fallback
         raise failure
 
+    def _merge_ontology_refinements(self, generated: dict, fallback: dict) -> dict:
+        result = dict(fallback)
+        summary = generated.get("analysis_summary")
+        if isinstance(summary, str) and summary.strip():
+            result["analysis_summary"] = summary.strip()
+
+        for key, fields in (
+            ("entity_types", ("name", "description")),
+            ("relation_types", ("name",)),
+        ):
+            updates = generated.get(key)
+            if not isinstance(updates, list):
+                continue
+            merged = []
+            for index, local in enumerate(fallback[key]):
+                item = dict(local)
+                update = updates[index] if index < len(updates) else None
+                if isinstance(update, dict):
+                    for field in fields:
+                        value = update.get(field)
+                        if isinstance(value, str) and value.strip():
+                            item[field] = value.strip()
+                merged.append(item)
+            result[key] = merged
+
+        result["generated_by"] = self.name
+        return PROVIDER_OUTPUTS["ontology"].model_validate(result, strict=True).model_dump(
+            mode="python", exclude_none=True
+        )
+
     @validated("ontology")
     def ontology(self, project: dict, chunks: list[dict]) -> dict:
         fallback = self.fallback_provider.ontology(project, chunks)
         evidence = retrieve_chunks(project["objective"], chunks, 6)
-        return self._generate(
-            "ontology",
-            "Perjelas ontology fallback berdasarkan bukti. Pertahankan struktur dan jumlah entity_types serta relation_types.",
-            {"project": project, "chunks": self._evidence(evidence), "fallback": fallback},
-            fallback,
-        )
+        try:
+            generated = self._json(
+                "ontology",
+                (
+                    "Perjelas ringkasan dan label ontology berdasarkan bukti. Kembalikan objek JSON dengan key "
+                    "analysis_summary, entity_types, dan relation_types. entity_types harus berisi tepat satu item "
+                    "untuk setiap input dengan hanya key name dan description. relation_types harus berisi tepat "
+                    "satu item untuk setiap input dengan hanya key name. Jangan mengembalikan citations, source_types, "
+                    "target_types, version, atau generated_by."
+                ),
+                {
+                    "project": project,
+                    "chunks": self._evidence(evidence),
+                    "entity_types": [
+                        {key: item[key] for key in ("name", "description")}
+                        for item in fallback["entity_types"]
+                    ],
+                    "relation_types": [{"name": item["name"]} for item in fallback["relation_types"]],
+                },
+            )
+            return self._merge_ontology_refinements(generated, fallback)
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "ontology", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=%s category=%s message=%s",
+                "ontology", failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("graph")
     def graph(self, project: dict, ontology: dict, chunks: list[dict]) -> dict:

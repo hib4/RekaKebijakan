@@ -47,6 +47,7 @@ class EnvironmentInput(BaseModel):
     entity_types: list[str] | None = Field(default=None, max_length=100)
     use_llm_for_profiles: bool = True
     parallel_profile_count: int = Field(default=5, ge=1, le=20)
+    max_profile_count: int | None = Field(default=None, ge=1, le=500)
     max_rounds: int = Field(default=40, ge=1, le=1000)
 
 

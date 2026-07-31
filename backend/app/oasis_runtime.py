@@ -26,6 +26,17 @@ class OasisRuntimeClient:
             response = self.client.request(method, path, **kwargs)
             response.raise_for_status()
             payload = response.json()
+        except httpx.HTTPStatusError as error:
+            try:
+                error_payload = error.response.json()
+            except ValueError:
+                error_payload = None
+            message = (
+                error_payload.get("error")
+                if isinstance(error_payload, dict) and error_payload.get("error")
+                else str(error)
+            )
+            raise ProviderTransportError(operation, str(message), details=error_payload) from error
         except (httpx.HTTPError, ValueError) as error:
             raise ProviderTransportError(operation, str(error)) from error
         if not isinstance(payload, dict) or not payload.get("success") or not isinstance(payload.get("data"), dict):
@@ -53,6 +64,7 @@ class OasisRuntimeClient:
             "entity_types": config.get("entity_types"),
             "use_llm_for_profiles": config.get("use_llm_for_profiles", True),
             "parallel_profile_count": config.get("parallel_profile_count", 5),
+            "max_profile_count": config.get("max_profile_count"),
             "locale": "id",
         })
 

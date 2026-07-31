@@ -316,11 +316,19 @@ function EnvironmentStep({
   demo,
   session,
   start,
+  maxProfileCount,
+  useLlmForProfiles,
+  onMaxProfileCountChange,
+  onUseLlmForProfilesChange,
   next,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
   start: () => void;
+  maxProfileCount: number;
+  useLlmForProfiles: boolean;
+  onMaxProfileCountChange: (value: number) => void;
+  onUseLlmForProfilesChange: (value: boolean) => void;
   next: () => void;
 }) {
   const step = session.steps[2];
@@ -430,9 +438,29 @@ function EnvironmentStep({
         profil warga nyata.
       </p>
       {step.status === "ready" && (
-        <button className="button primary start-action" onClick={start}>
-          Prepare OASIS Environment →
-        </button>
+        <div className="environment-start-controls">
+          <label>
+            <span>Jumlah maksimum profil</span>
+            <input
+              type="number"
+              min="1"
+              max="500"
+              value={maxProfileCount}
+              onChange={(event) => onMaxProfileCountChange(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
+            />
+          </label>
+          <label className="profile-llm-toggle">
+            <input
+              type="checkbox"
+              checked={useLlmForProfiles}
+              onChange={(event) => onUseLlmForProfilesChange(event.target.checked)}
+            />
+            <span>Perkaya setiap profil dengan LLM (lebih lambat)</span>
+          </label>
+          <button className="button primary start-action" onClick={start}>
+            Prepare OASIS Environment →
+          </button>
+        </div>
       )}
       {step.status === "completed" && (
         <button className="button primary start-action" onClick={next}>
@@ -1196,6 +1224,8 @@ export default function SimulationWorkflowPage() {
   const [backendError, setBackendError] = useState("");
   const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
   const [graphSource, setGraphSource] = useState<"policy" | "runtime">("policy");
+  const [maxProfileCount, setMaxProfileCount] = useState(10);
+  const [useLlmForProfiles, setUseLlmForProfiles] = useState(false);
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
   });
@@ -1579,7 +1609,7 @@ export default function SimulationWorkflowPage() {
   const startStep = (step: WorkflowStep) => {
     if (!localMode) {
       const config = step === 2
-        ? { max_rounds: 40, use_llm_for_profiles: true, parallel_profile_count: 5 }
+        ? { max_rounds: 40, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, parallel_profile_count: 5 }
         : step === 3
           ? { max_rounds: session.environment.rounds, enable_graph_memory_update: true }
           : undefined;
@@ -1738,6 +1768,10 @@ export default function SimulationWorkflowPage() {
                 demo={resolvedDemo}
                 session={session}
                 start={() => startStep(2)}
+                maxProfileCount={maxProfileCount}
+                useLlmForProfiles={useLlmForProfiles}
+                onMaxProfileCountChange={setMaxProfileCount}
+                onUseLlmForProfilesChange={setUseLlmForProfiles}
                 next={() => goStep(3)}
               />
             )}

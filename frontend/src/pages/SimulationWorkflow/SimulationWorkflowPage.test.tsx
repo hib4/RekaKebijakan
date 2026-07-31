@@ -15,7 +15,7 @@ const auth = {
   logout: vi.fn(),
 };
 
-function snapshot(currentStage: "graph" | "simulation" | "report" | "interaction" = "report") {
+function snapshot(currentStage: "graph" | "environment" | "simulation" | "report" | "interaction" = "report") {
   return {
     project: { name: "Program Backend", question: "Apa dampak program?" },
     current_stage: currentStage,
@@ -239,5 +239,37 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(await screen.findByRole("button", { name: "Graf kebijakan" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "Graf runtime memuat" })).toBeDisabled();
     expect(screen.getByText("POLICY KNOWLEDGE GRAPH")).toBeInTheDocument();
+  });
+
+  it("starts environment preparation with fast deterministic defaults", async () => {
+    const environmentReady = snapshot("simulation");
+    environmentReady.current_stage = "environment";
+    environmentReady.stages.environment = { status: "ready", progress: 0 };
+    environmentReady.stages.simulation = { status: "locked", progress: 0 };
+    environmentReady.simulation = { status: "ready", events: [] };
+    let submitted: Record<string, unknown> | undefined;
+    server.use(
+      http.get("/backend/api/simulations/live-environment", () => HttpResponse.json(environmentReady)),
+      http.post("/backend/api/simulations/live-environment/stages/environment/start", async ({ request }) => {
+        submitted = await request.json() as Record<string, unknown>;
+        return HttpResponse.json(environmentReady);
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderWorkflow("/simulation/live-environment?step=environment&mode=workbench");
+
+    const profileCount = await screen.findByRole("spinbutton", { name: "Jumlah maksimum profil" });
+    const llmToggle = screen.getByRole("checkbox", { name: "Perkaya setiap profil dengan LLM (lebih lambat)" });
+    expect(profileCount).toHaveValue(10);
+    expect(llmToggle).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Prepare OASIS Environment →" }));
+
+    await waitFor(() => expect(submitted).toEqual({
+      max_rounds: 40,
+      max_profile_count: 10,
+      use_llm_for_profiles: false,
+      parallel_profile_count: 5,
+    }));
   });
 });

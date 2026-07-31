@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.oasis_runtime import OasisRuntimeClient, normalize_action, normalize_environment, source_identity
+from app.provider_errors import ProviderTransportError
 from app.service import WorkflowService
 
 
@@ -71,6 +73,63 @@ def test_runtime_client_enforces_indonesian_locale():
         assert client.client.headers["Accept-Language"] == "id-ID,id;q=0.9"
     finally:
         client.close()
+
+
+def test_runtime_client_preserves_error_response_message(monkeypatch):
+    client = OasisRuntimeClient("http://runtime", "token")
+    request = httpx.Request("POST", "http://runtime/api/bridge/environment/prepare")
+    response = httpx.Response(
+        500,
+        request=request,
+        json={"success": False, "error": "context locale contract failed"},
+    )
+    monkeypatch.setattr(client.client, "request", lambda *_args, **_kwargs: response)
+    try:
+        with pytest.raises(ProviderTransportError, match="context locale contract failed") as captured:
+            client.prepare_environment(
+                {"external_project_id": "project", "zep_graph_id": "graph"},
+                {"project": {"objective": "Uji kebijakan"}},
+                {},
+            )
+    finally:
+        client.close()
+
+    assert captured.value.details == {
+        "success": False,
+        "error": "context locale contract failed",
+    }
+
+
+def test_runtime_client_forwards_profile_generation_limits(monkeypatch):
+    client = OasisRuntimeClient("http://runtime", "token")
+    request = {}
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda operation, method, path, **kwargs: request.update(
+            operation=operation, method=method, path=path, **kwargs
+        ) or {},
+    )
+    try:
+        client.prepare_environment(
+            {
+                "external_project_id": "project-remote",
+                "external_simulation_id": "simulation-remote",
+                "zep_graph_id": "graph-remote",
+            },
+            {"project": {"objective": "Uji kebijakan"}},
+            {
+                "max_profile_count": 10,
+                "use_llm_for_profiles": False,
+                "parallel_profile_count": 4,
+            },
+        )
+    finally:
+        client.close()
+
+    assert request["json"]["max_profile_count"] == 10
+    assert request["json"]["use_llm_for_profiles"] is False
+    assert request["json"]["parallel_profile_count"] == 4
 
 
 def test_source_identity_prefers_runtime_source_id():

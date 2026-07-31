@@ -710,6 +710,42 @@
 .start-action {
   margin-top: 18px;
 }
+.environment-start-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.environment-start-controls > label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.environment-start-controls input[type="number"] {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 0 10px;
+  color: var(--ink);
+}
+.environment-start-controls .profile-llm-toggle {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 40px;
+}
+.environment-start-controls .profile-llm-toggle input {
+  width: 16px;
+  height: 16px;
+}
+.environment-start-controls .start-action {
+  margin-top: 0;
+}
 .completion-review {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1646,6 +1682,13 @@
   }
   .config-controls {
     grid-template-columns: 1fr;
+  }
+  .environment-start-controls {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .environment-start-controls .start-action {
+    width: 100%;
   }
   .workflow-simulation-summary {
     flex-wrap: wrap;
