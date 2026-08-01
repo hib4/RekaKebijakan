@@ -16,7 +16,7 @@ from .config import Settings
 from .errors import ApiError
 from .middleware import OriginValidationMiddleware, RequestSecurityMiddleware, RequestSizeLimitMiddleware
 from .metrics import metrics
-from .oasis_runtime import OasisRuntimeClient
+from .oasis_direct import DirectOasisEngine
 from .repository import Repository
 from .providers import make_provider
 from .service import WorkflowService
@@ -59,8 +59,13 @@ def create_app(config: dict | None = None) -> FastAPI:
             settings.max_pdf_pages,
             settings.max_extracted_chars,
             settings.max_chunks_per_document,
-            OasisRuntimeClient(settings.oasis_runtime_base_url, settings.oasis_runtime_service_token)
-            if settings.oasis_runtime_enabled else None,
+            DirectOasisEngine(
+                settings.oasis_runtime_dir,
+                settings.oasis_data_dir,
+                timeout=settings.provider_timeout_seconds,
+            )
+            if settings.oasis_enabled else None,
+            settings.default_simulation_engine,
         )
         app.state.settings = settings
         app.state.repository = repository
@@ -100,7 +105,8 @@ def create_app(config: dict | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "rekakebijakan", "engine": settings.policy_provider}
+        return {"status": "ok", "service": "rekakebijakan", "engine": settings.policy_provider,
+                "simulation_engines": ["deterministic"] + (["oasis"] if settings.oasis_enabled else [])}
 
     @app.get("/ready")
     async def ready(request: Request):

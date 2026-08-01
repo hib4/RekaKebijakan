@@ -562,7 +562,8 @@ class Repository:
         prepared = self.prepare_scenario_run(project_id, scenario_id, user_id)
         return prepared["simulation_id"] if prepared else None
 
-    def prepare_scenario_run(self, project_id: str, scenario_id: str, user_id: str, revision_id: str | None = None) -> dict | None:
+    def prepare_scenario_run(self, project_id: str, scenario_id: str, user_id: str, revision_id: str | None = None,
+                             engine: str | None = None) -> dict | None:
         with self.engine.begin() as db:
             row = db.execute(select(scenarios, simulations.c.id.label("simulation_id"), simulations.c.state).select_from(
                 scenarios.join(projects, projects.c.id == scenarios.c.project_id).join(
@@ -586,6 +587,9 @@ class Repository:
             if not revision:
                 return None
             scenario_snapshot = revision["snapshot"]
+            engine = engine or (scenario_snapshot.get("config") or {}).get("engine") or "deterministic"
+            if engine not in {"deterministic", "oasis"}:
+                raise ValueError("Unknown simulation engine")
             state = row["state"]
             environment = state.get("environment", {})
             personas = environment.get("personas", [])
@@ -613,19 +617,21 @@ class Repository:
                 "provider": state.get("provider", {}).get("name", "deterministic"), "schema_version": state.get("schema_version", 2),
                 "scenario_revision": revision["revision"], "graph_revision": state.get("graph", {}).get("revision", 0),
                 "environment_revision": current_revision,
+                "simulation_engine": engine,
             }
             input_snapshot = {
                 "scenario": scenario_snapshot, "graph": state.get("graph", {}), "environment": environment,
                 "project": state.get("project", {}),
+                "simulation_engine": engine,
             }
             timestamp = utc_now()
             db.execute(insert(scenario_runs).values(
                 id=run_id, project_id=project_id, scenario_id=scenario_id, scenario_revision_id=revision["id"],
                 simulation_id=row["simulation_id"], status="queued", input_snapshot=input_snapshot,
-                provenance=provenance, created_at=timestamp,
+                provenance=provenance, engine=engine, created_at=timestamp,
             ))
             self._audit(db, user_id, project_id, "scenario.applied", "scenario", scenario_id, {"run_id": run_id})
-            return {"id": run_id, "simulation_id": row["simulation_id"], "scenario_revision_id": revision["id"], "status": "queued"}
+            return {"id": run_id, "simulation_id": row["simulation_id"], "scenario_revision_id": revision["id"], "status": "queued", "engine": engine}
 
     def list_runs(self, project_id: str, scenario_id: str, user_id: str) -> list[dict] | None:
         with self.engine.connect() as db:
@@ -643,6 +649,27 @@ class Repository:
                 scenario_runs.c.id == run_id, projects.c.owner_user_id == user_id,
             )).mappings().one_or_none()
             return dict(row) if row else None
+
+    def run_by_id(self, run_id: str) -> dict | None:
+        with self.engine.connect() as db:
+            row = db.execute(select(scenario_runs).where(scenario_runs.c.id == run_id)).mappings().one_or_none()
+            return dict(row) if row else None
+
+    def run_oasis_actions(self, run_id: str, user_id: str, after: int = 0, limit: int = 1000) -> list[dict] | None:
+        run = self.run(run_id, user_id)
+        if not run:
+            return None
+        return self.list_oasis_actions(run["simulation_id"], after, limit, run_id)
+
+    def run_oasis_artifacts(self, run_id: str, user_id: str) -> dict | None:
+        run = self.run(run_id, user_id)
+        if not run:
+            return None
+        output = run.get("output_snapshot") or {}
+        if output.get("oasis_artifacts") is not None:
+            return output["oasis_artifacts"]
+        mapping = self.get_oasis_mapping(run["simulation_id"])
+        return (mapping or {}).get("artifacts") or {}
 
     def prepare_reproduction(self, run_id: str, user_id: str) -> dict | None:
         with self.engine.begin() as db:
@@ -667,10 +694,10 @@ class Repository:
             db.execute(insert(scenario_runs).values(
                 id=reproduced_id, project_id=original["project_id"], scenario_id=original["scenario_id"],
                 scenario_revision_id=original["scenario_revision_id"], simulation_id=original["simulation_id"],
-                status="queued", input_snapshot=inputs, provenance=provenance, created_at=timestamp,
+                status="queued", engine=original.get("engine", "deterministic"), input_snapshot=inputs, provenance=provenance, created_at=timestamp,
             ))
             self._audit(db, user_id, original["project_id"], "run.reproduced", "run", reproduced_id, {"source_run_id": run_id})
-            return {"id": reproduced_id, "simulation_id": original["simulation_id"], "status": "queued"}
+            return {"id": reproduced_id, "simulation_id": original["simulation_id"], "status": "queued", "engine": original.get("engine", "deterministic")}
 
     def run_events(self, run_id: str, user_id: str, after: int = 0) -> list[dict] | None:
         if not self.run(run_id, user_id):
@@ -714,9 +741,9 @@ class Repository:
                 "risk_count": len(output.get("report", {}).get("risks", []))})
         return {"items": items}
 
-    def save_interview(self, simulation_id: str, user_id: str, content: dict) -> None:
+    def save_interview(self, simulation_id: str, user_id: str, content: dict, run_id: str | None = None) -> None:
         with self.engine.begin() as db:
-            db.execute(insert(interviews).values(id=content["id"], simulation_id=simulation_id, owner_user_id=user_id,
+            db.execute(insert(interviews).values(id=content["id"], simulation_id=simulation_id, owner_user_id=user_id, run_id=run_id,
                 content=content, created_at=parse_timestamp(content["created_at"])))
 
     def persisted_interviews(self, simulation_id: str, user_id: str) -> list[dict] | None:
@@ -789,7 +816,7 @@ class Repository:
         allowed = {
             key: value for key, value in values.items() if key in {
                 "external_project_id", "external_simulation_id", "zep_graph_id", "graph_revision",
-                "status", "config", "metadata",
+                "status", "config", "metadata", "runtime_status", "artifacts",
             }
         }
         if "status" not in allowed:
@@ -801,6 +828,8 @@ class Repository:
             "graph_revision": 0,
             "config": {},
             "metadata": {},
+            "runtime_status": {},
+            "artifacts": {},
             "created_at": timestamp,
             "updated_at": timestamp,
         } | allowed)
@@ -820,7 +849,7 @@ class Repository:
                 raise ValueError("Simulation does not belong to project")
             return dict(db.execute(statement).mappings().one())
 
-    def append_oasis_actions(self, simulation_id: str, values: list[dict]) -> int:
+    def append_oasis_actions(self, simulation_id: str, values: list[dict], run_id: str | None = None) -> int:
         if not values:
             return 0
         ingested_at = utc_now()
@@ -832,17 +861,20 @@ class Repository:
                 raise ValueError("Normalized OASIS event is required")
             rows.append({
                 "simulation_id": simulation_id,
+                "run_id": run_id,
                 "platform": item["platform"],
                 "external_sequence": item["external_sequence"],
                 "source_identity": item["source_identity"],
                 "round": item.get("round", item.get("round_num")),
                 "event": event,
+                "raw_action": item.get("raw_action"),
                 "occurred_at": parse_timestamp(occurred_at) if occurred_at else None,
                 "created_at": ingested_at,
             })
         statement = postgresql_insert(oasis_actions).values(rows).on_conflict_do_nothing(
             index_elements=[
                 oasis_actions.c.simulation_id,
+                oasis_actions.c.run_id,
                 oasis_actions.c.platform,
                 oasis_actions.c.external_sequence,
                 oasis_actions.c.source_identity,
@@ -851,34 +883,40 @@ class Repository:
         with self.engine.begin() as db:
             return len(db.execute(statement).scalars().all())
 
-    def list_oasis_actions(self, simulation_id: str, after_sequence: int = 0, limit: int = 1000) -> list[dict]:
+    def list_oasis_actions(self, simulation_id: str, after_sequence: int = 0, limit: int = 1000,
+                           run_id: str | None = None) -> list[dict]:
         with self.engine.connect() as db:
-            rows = db.execute(select(oasis_actions).where(
+            statement = select(oasis_actions).where(
                 oasis_actions.c.simulation_id == simulation_id,
                 oasis_actions.c.sequence > after_sequence,
-            ).order_by(oasis_actions.c.sequence).limit(max(1, min(limit, 5000)))).mappings()
+            )
+            if run_id is not None:
+                statement = statement.where(oasis_actions.c.run_id == run_id)
+            rows = db.execute(statement.order_by(oasis_actions.c.sequence).limit(max(1, min(limit, 5000)))).mappings()
             return [dict(row) for row in rows]
 
-    def summarize_oasis_actions(self, simulation_id: str) -> dict:
+    def summarize_oasis_actions(self, simulation_id: str, run_id: str | None = None) -> dict:
         with self.engine.connect() as db:
-            rows = db.execute(select(
+            statement = select(
                 oasis_actions.c.platform,
                 func.count().label("action_count"),
                 func.max(oasis_actions.c.round).label("current_round"),
-            ).where(oasis_actions.c.simulation_id == simulation_id).group_by(
-                oasis_actions.c.platform
-            ).order_by(oasis_actions.c.platform)).mappings().all()
+            ).where(oasis_actions.c.simulation_id == simulation_id)
+            if run_id is not None:
+                statement = statement.where(oasis_actions.c.run_id == run_id)
+            rows = db.execute(statement.group_by(oasis_actions.c.platform).order_by(oasis_actions.c.platform)).mappings().all()
         return {
             "total_actions": sum(row["action_count"] for row in rows),
             "platform_counts": {row["platform"]: row["action_count"] for row in rows},
             "rounds": {row["platform"]: row["current_round"] or 0 for row in rows},
         }
 
-    def clear_oasis_actions(self, simulation_id: str) -> int:
+    def clear_oasis_actions(self, simulation_id: str, run_id: str | None = None) -> int:
         with self.engine.begin() as db:
-            return db.execute(delete(oasis_actions).where(
-                oasis_actions.c.simulation_id == simulation_id
-            )).rowcount
+            statement = delete(oasis_actions).where(oasis_actions.c.simulation_id == simulation_id)
+            if run_id is not None:
+                statement = statement.where(oasis_actions.c.run_id == run_id)
+            return db.execute(statement).rowcount
 
     def mutate(self, simulation_id: str, callback: Callable[[dict], None]) -> dict | None:
         return self._mutate(simulation_id, callback)
@@ -1194,17 +1232,33 @@ class Repository:
     def recoverable_jobs(self) -> list[dict]:
         now = utc_now()
         with self.engine.begin() as db:
-            db.execute(update(jobs).where(
+            expired = and_(
                 jobs.c.status == "running",
                 or_(jobs.c.lease_owner.is_(None), jobs.c.lease_expires_at < now),
+            )
+            db.execute(update(jobs).where(
+                expired, jobs.c.attempts >= jobs.c.max_attempts,
+            ).values(
+                status="failed", completed_at=now, dead_lettered_at=now,
+                last_error="Worker lease expired after the maximum number of attempts",
+                error_code="lease_expired", error_class="terminal", retryable="false",
+                lease_owner=None, lease_expires_at=None, updated_at=now,
+            ))
+            db.execute(update(jobs).where(
+                expired, jobs.c.attempts < jobs.c.max_attempts,
             ).values(status="queued", available_at=now, lease_owner=None, lease_expires_at=None, updated_at=now))
-            statement = select(jobs).where(jobs.c.status == "queued").order_by(jobs.c.created_at)
+            statement = select(jobs).where(
+                jobs.c.status == "queued", jobs.c.attempts < jobs.c.max_attempts,
+            ).order_by(jobs.c.created_at)
             return [dict(row) for row in db.execute(statement).mappings()]
 
     def claim_next_job(self, worker_id: str, lease_seconds: int = 60, job_id: str | None = None) -> dict | None:
         now = utc_now()
         with self.lock, self.engine.begin() as db:
-            condition = and_(jobs.c.status == "queued", jobs.c.available_at <= now)
+            condition = and_(
+                jobs.c.status == "queued", jobs.c.available_at <= now,
+                jobs.c.attempts < jobs.c.max_attempts,
+            )
             if job_id:
                 condition = and_(condition, jobs.c.id == job_id)
             statement = select(jobs).where(condition).order_by(jobs.c.created_at).with_for_update(skip_locked=True).limit(1)
@@ -1258,7 +1312,9 @@ class Repository:
             if execution_token:
                 condition = and_(condition, jobs.c.execution_token == execution_token)
             changed = db.execute(update(jobs).where(condition).values(
-                status="completed", result=result, completed_at=now, updated_at=now, lease_owner=None, lease_expires_at=None
+                status="completed", result=result, completed_at=now, updated_at=now,
+                lease_owner=None, lease_expires_at=None, last_error=None,
+                error_code=None, error_class=None, retryable=None, next_retry_at=None,
             ))
             if changed.rowcount:
                 attempt_condition = and_(job_attempts.c.job_id == job_id, job_attempts.c.worker_id == worker_id, job_attempts.c.completed_at.is_(None))
@@ -1296,7 +1352,16 @@ class Repository:
     def requeue_expired_jobs(self) -> int:
         now = utc_now()
         with self.engine.begin() as db:
+            expired = and_(jobs.c.status == "running", jobs.c.lease_expires_at < now)
+            db.execute(update(jobs).where(
+                expired, jobs.c.attempts >= jobs.c.max_attempts,
+            ).values(
+                status="failed", completed_at=now, dead_lettered_at=now,
+                last_error="Worker lease expired after the maximum number of attempts",
+                error_code="lease_expired", error_class="terminal", retryable="false",
+                lease_owner=None, lease_expires_at=None, updated_at=now,
+            ))
             result = db.execute(update(jobs).where(
-                jobs.c.status == "running", jobs.c.lease_expires_at < now
+                expired, jobs.c.attempts < jobs.c.max_attempts,
             ).values(status="queued", available_at=now, lease_owner=None, lease_expires_at=None, updated_at=now))
             return result.rowcount

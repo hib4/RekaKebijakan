@@ -38,7 +38,7 @@ Use `make up-d` or `make full-up-d` for detached startup, `make health` to check
 
 Copy `.env.example` to `.env` to customize host ports, CORS origins, upload limits, job delay, storage, or frontend build variables.
 
-Set `OASIS_RUNTIME_ENABLED=true`, `ZEP_API_KEY`, and a random `OASIS_RUNTIME_SERVICE_TOKEN` to enable OASIS stages 02 and 03. The social simulation sidecar is internal-only and its `/api/*` routes require the service token. `LLM_MODEL` is also passed to the runtime as `LLM_MODEL_NAME`; use `OASIS_RUNTIME_BASE_URL` to override its internal URL.
+Direct CAMEL/OASIS execution is enabled and selected by default. Configure `LLM_API_KEY` and `ZEP_API_KEY` before startup, or set `OASIS_ENABLED=false` and `DEFAULT_SIMULATION_ENGINE=deterministic` to run without OASIS. RekaKebijakan's worker runs its bundled simulation engine locally and requires no external source tree or HTTP simulation sidecar.
 
 To use Firebase Storage instead of local uploaded-document storage, set `STORAGE_BACKEND=firebase`, `FIREBASE_STORAGE_BUCKET=<your-bucket-name>`, and point `FIREBASE_CREDENTIALS_HOST_PATH` at a Firebase service-account JSON file on the host. Compose mounts that file at `GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/firebase-service-account.json` for the API and worker containers. The `secrets/` directory is git-ignored.
 
@@ -101,4 +101,12 @@ make test
 
 Run the deterministic, network-free quality gate with `make evaluation`. It emits JSON and enforces `EVALUATION_FAIL_THRESHOLD` (default `0.8`) for required-concept recall, citation validity, and citation coverage; fixture format and versioning are documented in `evaluations/README.md`.
 
-After `make full-up-d`, run `make smoke` to exercise the production frontend proxy, register/login cookie flow, document upload, all workflow stages, report generation, and citations. The smoke uses bounded timeouts and only attempts to remove the project it creates; set `BASE_URL` to target another deployment.
+After `make full-up-d`, run `make smoke` to exercise the production frontend proxy, register/login cookie flow, document upload, all five workflow steps, report citations, and report interaction. The smoke uses bounded timeouts and only attempts to remove the project it creates; set `BASE_URL` to target another deployment.
+
+To run the opt-in browser test against real OASIS, configure `LLM_API_KEY` and `ZEP_API_KEY` in `.env`, install Playwright Chromium with `cd frontend && npx playwright install chromium`, then run:
+
+```sh
+./scripts/oasis-e2e.sh
+```
+
+The runner starts the production Compose stack, drives Steps 1–5 through Chromium with five profiles and three rounds, and verifies OASIS environment provenance, Twitter and Reddit completion, normalized events, OASIS report generation, report interaction, and persisted raw actions. Set `KEEP_STACK=true` to retain containers after the run or `OASIS_STAGE_TIMEOUT_MS` to override the 15-minute per-stage timeout.

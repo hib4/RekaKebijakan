@@ -49,6 +49,7 @@ class EnvironmentInput(BaseModel):
     parallel_profile_count: int = Field(default=5, ge=1, le=20)
     max_profile_count: int | None = Field(default=None, ge=1, le=500)
     max_rounds: int = Field(default=40, ge=1, le=1000)
+    engine: Literal["deterministic", "oasis"] | None = None
 
 
 class InteractionInput(BaseModel):
@@ -85,6 +86,7 @@ class ScenarioConfig(BaseModel):
     response_mode: str | None = Field(default=None, max_length=40)
     max_rounds: int | None = Field(default=None, ge=1, le=1000)
     enable_graph_memory_update: bool | None = None
+    engine: Literal["deterministic", "oasis"] | None = None
 
 
 class ScenarioInput(BaseModel):
@@ -164,6 +166,7 @@ class PersonaBulkPatchInput(BaseModel):
 
 class ScenarioRunInput(BaseModel):
     expected_scenario_version: int | None = Field(default=None, ge=1)
+    engine: Literal["deterministic", "oasis"] | None = None
 
 
 class ScenarioCompareInput(BaseModel):
@@ -179,6 +182,7 @@ class RunInterviewInput(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     persona_ids: list[str] = Field(default_factory=list, max_length=10)
     group: str | None = Field(default=None, max_length=160)
+    platform: Literal["twitter", "reddit"] | None = None
 
 
 class ProjectDuplicateInput(BaseModel):

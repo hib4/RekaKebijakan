@@ -41,7 +41,7 @@ The API only enqueues workflow stages in normal deployments. `worker.py` claims 
 
 ## OASIS runtime
 
-Set `OASIS_RUNTIME_ENABLED=true`, `ZEP_API_KEY`, `OASIS_RUNTIME_BASE_URL`, and `OASIS_RUNTIME_SERVICE_TOKEN` to route environment and simulation jobs through the bundled social simulation sidecar. The worker remains authoritative for leases and retries while the runtime provides graph-derived OASIS profiles, generated behavior configuration, parallel Twitter/Reddit execution, and temporal Zep memory. Actions are imported idempotently into PostgreSQL and normalized with local source citations. Tests disable the sidecar and remain deterministic/network-free.
+Direct CAMEL/OASIS execution is enabled and selected by default. `LLM_API_KEY` and `ZEP_API_KEY` are required unless `OASIS_ENABLED=false` and `DEFAULT_SIMULATION_ENGINE=deterministic` are configured. The worker remains authoritative for leases and retries while the backend-owned runtime provides the simulation workflow. Tests disable direct OASIS and remain deterministic/network-free.
 
 `GET /health` reports process liveness. `GET /ready` also verifies that PostgreSQL accepts queries and is used by the container health check.
 

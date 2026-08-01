@@ -164,7 +164,7 @@ def run_summary(row: dict, state: dict | None = None) -> dict:
     events = (row.get("output_snapshot") or {}).get("simulation", {}).get("events") or simulation.get("events", [])
     rounds = int(row.get("input_snapshot", {}).get("environment", {}).get("config", {}).get("rounds", 5))
     return {
-        **row, "run_id": row["id"], "version": 1,
+        **row, "run_id": row["id"], "version": 1, "engine": row.get("engine", "deterministic"),
         "progress": 100 if row["status"] == "completed" else int(stage.get("progress", 0)),
         "current_round": max((int(item.get("round", 0)) for item in events), default=0),
         "total_rounds": rounds, "event_count": len(events),
@@ -511,13 +511,13 @@ async def run_scenario_v1(request: Request, project_id: str, scenario_id: str):
         raise RevisionConflict()
     try:
         run = await run_in_threadpool(
-            repository(request).prepare_scenario_run, project_id, scenario_id, user_id(request)
+            repository(request).prepare_scenario_run, project_id, scenario_id, user_id(request), None, model.engine
         )
     except ValueError as error:
         raise StageConflict(str(error)) from error
     if not run:
         raise ResourceNotFound()
-    state = await run_in_threadpool(service(request).start, run["simulation_id"], "simulation", {}, user_id(request), run["id"])
+    state = await run_in_threadpool(service(request).start, run["simulation_id"], "simulation", {"engine": run["engine"]}, user_id(request), run["id"])
     stored = await run_in_threadpool(repository(request).run, run["id"], user_id(request))
     return JSONResponse(jsonable_encoder(run_summary(stored, state)), status_code=202)
 
@@ -561,6 +561,22 @@ async def scenario_run_events_v1(request: Request, run_id: str, after: int = Que
     state = await run_in_threadpool(repository(request).get_for_user, row["simulation_id"], user_id(request))
     next_cursor = str(max([after, *[int(item.get("sequence", 0)) for item in items]])) if items else None
     return {"events": items, "items": items, "event_count": len(items), "next_cursor": next_cursor, "run": run_summary(row, state)}
+
+
+@v1_router.get("/runs/{run_id}/actions")
+async def scenario_run_actions_v1(request: Request, run_id: str, after: int = Query(default=0, ge=0), limit: int = Query(default=1000, ge=1, le=5000)):
+    items = await run_in_threadpool(repository(request).run_oasis_actions, run_id, user_id(request), after, limit)
+    if items is None:
+        raise ResourceNotFound()
+    return {"items": items, "next_cursor": str(items[-1]["sequence"]) if items else None}
+
+
+@v1_router.get("/runs/{run_id}/artifacts")
+async def scenario_run_artifacts_v1(request: Request, run_id: str):
+    artifacts = await run_in_threadpool(repository(request).run_oasis_artifacts, run_id, user_id(request))
+    if artifacts is None:
+        raise ResourceNotFound()
+    return {"posts": [], "comments": [], "timeline": [], "stats": [], **artifacts}
 
 
 @v1_router.get("/runs/{run_id}/provenance")
@@ -609,7 +625,7 @@ async def reproduce_scenario_run_v1(request: Request, run_id: str):
     prepared = await run_in_threadpool(repository(request).prepare_reproduction, run_id, user_id(request))
     if not prepared:
         raise ResourceNotFound()
-    state = await run_in_threadpool(service(request).start, prepared["simulation_id"], "simulation", {}, user_id(request), prepared["id"])
+    state = await run_in_threadpool(service(request).start, prepared["simulation_id"], "simulation", {"engine": prepared["engine"]}, user_id(request), prepared["id"])
     return state | {"run_id": prepared["id"], "reproduces_run_id": run_id}
 
 
@@ -625,7 +641,7 @@ async def create_run_interview_v1(request: Request, run_id: str):
         personas = run["input_snapshot"].get("environment", {}).get("personas", [])
         persona_ids = [item["id"] for item in personas if item.get("group") == model.group]
     result = await run_in_threadpool(
-        service(request).interview, run["simulation_id"], model.question, persona_ids, user_id(request)
+        service(request).interview, run["simulation_id"], model.question, persona_ids, user_id(request), run_id, model.platform
     )
     if not result:
         raise ResourceNotFound()
@@ -816,7 +832,7 @@ async def get_run(request: Request, simulation_id: str):
     return state["simulation"] | {
         "id": simulation_id, "simulation_id": simulation_id,
         "platform_counts": summary["platform_counts"], "platform_rounds": summary["rounds"],
-        "runtime": (mapping or {}).get("metadata", {}).get("runtime_status", {}),
+        "runtime": (mapping or {}).get("runtime_status") or (mapping or {}).get("metadata", {}).get("runtime_status", {}),
     }
 
 
@@ -848,7 +864,7 @@ async def oasis_status(request: Request, simulation_id: str):
         "enabled": bool(mapping), "mapping_status": (mapping or {}).get("status"),
         "zep_graph_id": (mapping or {}).get("zep_graph_id"),
         "external_simulation_id": (mapping or {}).get("external_simulation_id"),
-        "runtime": (mapping or {}).get("metadata", {}).get("runtime_status", {}),
+        "runtime": (mapping or {}).get("runtime_status") or (mapping or {}).get("metadata", {}).get("runtime_status", {}),
         **summary,
     }
 
@@ -860,6 +876,34 @@ async def runtime_graph(request: Request, simulation_id: str):
     if graph is None:
         return {"available": False}
     return {"available": True, **graph}
+
+
+@router.get("/simulations/{simulation_id}/posts")
+async def simulation_posts(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    return {"items": (mapping or {}).get("artifacts", {}).get("posts", [])}
+
+
+@router.get("/simulations/{simulation_id}/comments")
+async def simulation_comments(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    return {"items": (mapping or {}).get("artifacts", {}).get("comments", [])}
+
+
+@router.get("/simulations/{simulation_id}/timeline")
+async def simulation_timeline(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    return {"items": (mapping or {}).get("artifacts", {}).get("timeline", [])}
+
+
+@router.get("/simulations/{simulation_id}/agent-stats")
+async def simulation_agent_stats(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    mapping = await run_in_threadpool(repository(request).get_oasis_mapping, simulation_id)
+    return {"items": (mapping or {}).get("artifacts", {}).get("stats", [])}
 
 
 async def control(request: Request, simulation_id: str, action: str):
@@ -906,6 +950,22 @@ async def get_report(request: Request, simulation_id: str):
     return require_state(request, simulation_id)["report"] | {"simulation_id": simulation_id}
 
 
+@router.get("/reports/{simulation_id}/markdown")
+async def get_report_markdown(request: Request, simulation_id: str):
+    report = require_state(request, simulation_id)["report"]
+    return {"report_id": report.get("id"), "markdown": report.get("markdown_content", ""), "outline": report.get("outline")}
+
+
+@router.get("/reports/{simulation_id}/agent-log")
+async def get_report_agent_log(request: Request, simulation_id: str):
+    return {"items": require_state(request, simulation_id)["report"].get("agent_log", [])}
+
+
+@router.get("/reports/{simulation_id}/console-log")
+async def get_report_console_log(request: Request, simulation_id: str):
+    return {"items": require_state(request, simulation_id)["report"].get("console_log", [])}
+
+
 @router.get("/reports/{simulation_id}/evidence")
 async def get_evidence(request: Request, simulation_id: str):
     state = require_state(request, simulation_id)
@@ -930,6 +990,17 @@ async def create_interview(request: Request, simulation_id: str):
     if not result:
         raise ResourceNotFound()
     return JSONResponse(result, status_code=201)
+
+
+@router.post("/simulations/{simulation_id}/oasis/close")
+async def close_oasis_environment(request: Request, simulation_id: str):
+    try:
+        result = await run_in_threadpool(service(request).close_oasis_environment, simulation_id, user_id(request))
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
+    if not result:
+        raise ResourceNotFound()
+    return result
 
 
 @router.get("/simulations/{simulation_id}/interviews")

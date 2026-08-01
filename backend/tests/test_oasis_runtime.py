@@ -1,10 +1,8 @@
 from pathlib import Path
 
-import httpx
 import pytest
 
-from app.oasis_runtime import OasisRuntimeClient, normalize_action, normalize_environment, source_identity
-from app.provider_errors import ProviderTransportError
+from app.oasis_runtime import normalize_action, normalize_environment, source_identity
 from app.service import WorkflowService
 
 
@@ -67,71 +65,6 @@ def test_oasis_action_normalization_is_stable_and_cited():
     assert source_identity(action, 1) == source_identity(action, 1)
 
 
-def test_runtime_client_enforces_indonesian_locale():
-    client = OasisRuntimeClient("http://runtime", "token")
-    try:
-        assert client.client.headers["Accept-Language"] == "id-ID,id;q=0.9"
-    finally:
-        client.close()
-
-
-def test_runtime_client_preserves_error_response_message(monkeypatch):
-    client = OasisRuntimeClient("http://runtime", "token")
-    request = httpx.Request("POST", "http://runtime/api/bridge/environment/prepare")
-    response = httpx.Response(
-        500,
-        request=request,
-        json={"success": False, "error": "context locale contract failed"},
-    )
-    monkeypatch.setattr(client.client, "request", lambda *_args, **_kwargs: response)
-    try:
-        with pytest.raises(ProviderTransportError, match="context locale contract failed") as captured:
-            client.prepare_environment(
-                {"external_project_id": "project", "zep_graph_id": "graph"},
-                {"project": {"objective": "Uji kebijakan"}},
-                {},
-            )
-    finally:
-        client.close()
-
-    assert captured.value.details == {
-        "success": False,
-        "error": "context locale contract failed",
-    }
-
-
-def test_runtime_client_forwards_profile_generation_limits(monkeypatch):
-    client = OasisRuntimeClient("http://runtime", "token")
-    request = {}
-    monkeypatch.setattr(
-        client,
-        "_request",
-        lambda operation, method, path, **kwargs: request.update(
-            operation=operation, method=method, path=path, **kwargs
-        ) or {},
-    )
-    try:
-        client.prepare_environment(
-            {
-                "external_project_id": "project-remote",
-                "external_simulation_id": "simulation-remote",
-                "zep_graph_id": "graph-remote",
-            },
-            {"project": {"objective": "Uji kebijakan"}},
-            {
-                "max_profile_count": 10,
-                "use_llm_for_profiles": False,
-                "parallel_profile_count": 4,
-            },
-        )
-    finally:
-        client.close()
-
-    assert request["json"]["max_profile_count"] == 10
-    assert request["json"]["use_llm_for_profiles"] is False
-    assert request["json"]["parallel_profile_count"] == 4
-
-
 def test_source_identity_prefers_runtime_source_id():
     action = {"source_id": "run/twitter:42", "timestamp": "2026-01-01T00:00:00Z"}
     assert source_identity(action, 1) == "run/twitter:42"
@@ -153,7 +86,7 @@ class RuntimeRepository:
     def get_oasis_mapping(self, _simulation_id):
         return self.mapping
 
-    def clear_oasis_actions(self, _simulation_id):
+    def clear_oasis_actions(self, _simulation_id, _run_id=None):
         self.actions.clear()
 
     def upsert_oasis_mapping(self, _simulation_id, _project_id, values):
@@ -163,14 +96,14 @@ class RuntimeRepository:
     def job_control_state(self, _job_id, _execution_token):
         return "running"
 
-    def summarize_oasis_actions(self, _simulation_id):
+    def summarize_oasis_actions(self, _simulation_id, _run_id=None):
         return {"total_actions": len(self.actions)}
 
-    def append_oasis_actions(self, _simulation_id, actions):
+    def append_oasis_actions(self, _simulation_id, actions, _run_id=None):
         self.actions.extend(actions)
         return len(actions)
 
-    def list_oasis_actions(self, _simulation_id, limit=5000):
+    def list_oasis_actions(self, _simulation_id, after_sequence=0, limit=5000, run_id=None):
         return [{"event": action["event"]} for action in self.actions[:limit]]
 
     def mutate(self, _simulation_id, callback):

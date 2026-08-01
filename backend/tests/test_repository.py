@@ -44,6 +44,23 @@ def test_worker_lease_allows_only_one_claim(database_url):
     assert repository.finish_job("job-lease", "worker-a", claimed["execution_token"])
 
 
+def test_worker_does_not_claim_exhausted_job(database_url):
+    repository = Repository(database_url)
+    repository.create({
+        "id": "sim-exhausted", "project": {"id": "project-exhausted"},
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    assert repository.put_job("job-exhausted", "sim-exhausted", "graph", "queued", {})
+    with repository.engine.begin() as connection:
+        from app.database import jobs
+
+        connection.execute(
+            jobs.update().where(jobs.c.id == "job-exhausted").values(attempts=3, max_attempts=3)
+        )
+
+    assert repository.claim_next_job("worker-a") is None
+
+
 def test_full_text_chunk_search_is_scoped(database_url):
     repository = Repository(database_url)
     repository.create({"id": "sim-search", "project": {"id": "project-search"}, "updated_at": datetime.now(timezone.utc).isoformat()})

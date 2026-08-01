@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:oasis": "RUN_OASIS_E2E=true playwright test oasis-workflow.spec.ts --project=chromium",
     "preview": "vite preview"
   },
   "dependencies": {

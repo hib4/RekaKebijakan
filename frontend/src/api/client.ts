@@ -549,6 +549,23 @@ export type ApiRun = {
   event_count: number;
   created_at: string;
   updated_at: string;
+  engine?: "deterministic" | "oasis";
+};
+
+export type ApiOasisAction = {
+  sequence: number;
+  platform: string;
+  external_sequence: number;
+  round?: number | null;
+  event: ApiEventDto;
+  raw_action?: Record<string, unknown> | null;
+};
+
+export type ApiOasisArtifacts = {
+  posts: Record<string, unknown>[];
+  comments: Record<string, unknown>[];
+  timeline: Record<string, unknown>[];
+  stats: Record<string, unknown>[];
 };
 
 export type ApiRunEventPage = {
@@ -604,7 +621,7 @@ export const bulkUpdatePersonas = (projectId: string, scenarioId: string, input:
 export const submitGraphFeedback = (projectId: string, input: { target_type: "node" | "edge" | "graph"; target_id?: string; action: "accept" | "reject" | "comment"; comment?: string; expected_version: number }) =>
   jsonRequest<{ accepted: true; project_version: number }>(`/api/v1/projects/${encodeURIComponent(projectId)}/graph/feedback`, "POST", input);
 
-export const createRun = (projectId: string, scenarioId: string, input: { expected_scenario_version: number }) =>
+export const createRun = (projectId: string, scenarioId: string, input: { expected_scenario_version: number; engine?: "deterministic" | "oasis" }) =>
   jsonRequest<ApiRun>(`/api/v1/projects/${encodeURIComponent(projectId)}/scenarios/${encodeURIComponent(scenarioId)}/runs`, "POST", input);
 
 export const getRun = (runId: string) => request<ApiRun>(`/api/v1/runs/${encodeURIComponent(runId)}`);
@@ -614,10 +631,18 @@ export const getRunEvents = (runId: string, cursor?: string) => {
   return request<ApiRunEventPage>(`/api/v1/runs/${encodeURIComponent(runId)}/events${query}`);
 };
 
+export const getRunActions = (runId: string, cursor?: string) => {
+  const query = cursor ? `?after=${encodeURIComponent(cursor)}` : "";
+  return request<{ items: ApiOasisAction[]; next_cursor: string | null }>(`/api/v1/runs/${encodeURIComponent(runId)}/actions${query}`);
+};
+
+export const getRunArtifacts = (runId: string) =>
+  request<ApiOasisArtifacts>(`/api/v1/runs/${encodeURIComponent(runId)}/artifacts`);
+
 export const controlRun = (runId: string, action: "pause" | "resume" | "cancel", expectedVersion: number) =>
   jsonRequest<ApiRun>(`/api/v1/runs/${encodeURIComponent(runId)}/${action}`, "POST", { expected_version: expectedVersion });
 
-export const createInterview = (runId: string, input: { persona_ids?: string[]; group?: string; question: string }) =>
+export const createInterview = (runId: string, input: { persona_ids?: string[]; group?: string; question: string; platform?: "twitter" | "reddit" }) =>
   jsonRequest<{ id: string; answers: ApiInteractionMessageDto[] }>(`/api/v1/runs/${encodeURIComponent(runId)}/interviews`, "POST", input);
 
 export const sendRunInteraction = (runId: string, input: { tool: "report" | "evidence" | "compare" | "revision"; question: string }) =>

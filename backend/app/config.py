@@ -46,9 +46,10 @@ class Settings:
     max_pdf_pages: int
     max_extracted_chars: int
     max_chunks_per_document: int
-    oasis_runtime_enabled: bool
-    oasis_runtime_base_url: str
-    oasis_runtime_service_token: str | None
+    oasis_enabled: bool
+    oasis_runtime_dir: Path
+    oasis_data_dir: Path
+    default_simulation_engine: str
 
     @classmethod
     def load(cls, overrides: dict | None = None) -> "Settings":
@@ -96,9 +97,10 @@ class Settings:
             "MAX_PDF_PAGES": int(os.getenv("MAX_PDF_PAGES", "200")),
             "MAX_EXTRACTED_CHARS": int(os.getenv("MAX_EXTRACTED_CHARS", "2000000")),
             "MAX_CHUNKS_PER_DOCUMENT": int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "5000")),
-            "OASIS_RUNTIME_ENABLED": os.getenv("OASIS_RUNTIME_ENABLED", "false"),
-            "OASIS_RUNTIME_BASE_URL": os.getenv("OASIS_RUNTIME_BASE_URL", "http://oasis-runtime:5001"),
-            "OASIS_RUNTIME_SERVICE_TOKEN": os.getenv("OASIS_RUNTIME_SERVICE_TOKEN") or None,
+            "OASIS_ENABLED": os.getenv("OASIS_ENABLED", "true"),
+            "OASIS_RUNTIME_DIR": os.getenv("OASIS_RUNTIME_DIR", root / "oasis_engine_runtime"),
+            "OASIS_DATA_DIR": os.getenv("OASIS_DATA_DIR", data_dir / "oasis" / "simulations"),
+            "DEFAULT_SIMULATION_ENGINE": os.getenv("DEFAULT_SIMULATION_ENGINE", "oasis"),
         }
         override_values = overrides or {}
         values.update(override_values)
@@ -108,6 +110,8 @@ class Settings:
         if values["TESTING"] and "POLICY_PROVIDER" not in override_values:
             values["POLICY_PROVIDER"] = "deterministic"
             values["LLM_FALLBACK_POLICY"] = "deterministic"
+        if values["TESTING"] and "DEFAULT_SIMULATION_ENGINE" not in override_values:
+            values["DEFAULT_SIMULATION_ENGINE"] = "deterministic"
         origins = values["CORS_ORIGINS"]
         if isinstance(origins, str):
             origins = [item.strip() for item in origins.split(",") if item.strip()]
@@ -140,11 +144,14 @@ class Settings:
             production = production.strip().lower() in {"1", "true", "yes", "on"}
         if production and not secure:
             raise ValueError("SESSION_COOKIE_SECURE must be enabled in production")
-        oasis_runtime_enabled = values["OASIS_RUNTIME_ENABLED"]
-        if isinstance(oasis_runtime_enabled, str):
-            oasis_runtime_enabled = oasis_runtime_enabled.strip().lower() in {"1", "true", "yes", "on"}
-        if oasis_runtime_enabled and not values["OASIS_RUNTIME_SERVICE_TOKEN"]:
-            raise ValueError("OASIS_RUNTIME_SERVICE_TOKEN is required when the OASIS runtime is enabled")
+        oasis_enabled = values["OASIS_ENABLED"]
+        if isinstance(oasis_enabled, str):
+            oasis_enabled = oasis_enabled.strip().lower() in {"1", "true", "yes", "on"}
+        default_simulation_engine = str(values["DEFAULT_SIMULATION_ENGINE"]).strip().lower()
+        if default_simulation_engine not in {"deterministic", "oasis"}:
+            raise ValueError("DEFAULT_SIMULATION_ENGINE must be deterministic or oasis")
+        if oasis_enabled and not values["TESTING"] and (not values["LLM_API_KEY"] or not os.getenv("ZEP_API_KEY")):
+            raise ValueError("LLM_API_KEY and ZEP_API_KEY are required when direct OASIS is enabled")
         if int(values["AUTH_MAX_FAILURES"]) < 1 or int(values["AUTH_WINDOW_SECONDS"]) < 1:
             raise ValueError("Authentication rate-limit settings must be positive")
         limit_names = (
@@ -192,7 +199,8 @@ class Settings:
             max_pdf_pages=int(values["MAX_PDF_PAGES"]),
             max_extracted_chars=int(values["MAX_EXTRACTED_CHARS"]),
             max_chunks_per_document=int(values["MAX_CHUNKS_PER_DOCUMENT"]),
-            oasis_runtime_enabled=bool(oasis_runtime_enabled) and not bool(values["TESTING"]),
-            oasis_runtime_base_url=str(values["OASIS_RUNTIME_BASE_URL"]).rstrip("/"),
-            oasis_runtime_service_token=values["OASIS_RUNTIME_SERVICE_TOKEN"],
+            oasis_enabled=bool(oasis_enabled) and not bool(values["TESTING"]),
+            oasis_runtime_dir=Path(values["OASIS_RUNTIME_DIR"]),
+            oasis_data_dir=Path(values["OASIS_DATA_DIR"]),
+            default_simulation_engine=default_simulation_engine,
         )

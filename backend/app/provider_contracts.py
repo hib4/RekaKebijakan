@@ -254,7 +254,7 @@ class EnvironmentOutput(Contract):
 class EventOutput(Contract):
     id: str
     sequence: int = Field(gt=0)
-    round: int = Field(gt=0)
+    round: int = Field(ge=0)
     time: str
     channel: str
     persona_id: str

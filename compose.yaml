@@ -64,6 +64,10 @@ services:
       CHUNK_SIZE: ${CHUNK_SIZE:-1200}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-120}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-90}
+      OASIS_REPORT_TIMEOUT_SECONDS: ${OASIS_REPORT_TIMEOUT_SECONDS:-900}
+      REPORT_AGENT_MAX_TOOL_CALLS: ${REPORT_AGENT_MAX_TOOL_CALLS:-2}
+      REPORT_AGENT_MAX_REFLECTION_ROUNDS: ${REPORT_AGENT_MAX_REFLECTION_ROUNDS:-1}
       EMBEDDED_WORKER: "false"
       WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-180}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
@@ -75,16 +79,16 @@ services:
       PRODUCTION: ${PRODUCTION:-false}
       AUTH_MAX_FAILURES: ${AUTH_MAX_FAILURES:-10}
       AUTH_WINDOW_SECONDS: ${AUTH_WINDOW_SECONDS:-300}
-      OASIS_RUNTIME_BASE_URL: ${OASIS_RUNTIME_BASE_URL:-http://oasis-runtime:5001}
-      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
-      OASIS_RUNTIME_ENABLED: ${OASIS_RUNTIME_ENABLED:-false}
+      OASIS_ENABLED: ${OASIS_ENABLED:-true}
+      OASIS_RUNTIME_DIR: /opt/rekakebijakan/oasis_engine_runtime
+      OASIS_DATA_DIR: /app/data/oasis/simulations
+      DEFAULT_SIMULATION_ENGINE: ${DEFAULT_SIMULATION_ENGINE:-oasis}
+      ZEP_API_KEY: ${ZEP_API_KEY:-}
     ports:
       - "${BACKEND_PORT:-5001}:5001"
     depends_on:
       migrate:
         condition: service_completed_successfully
-      oasis-runtime:
-        condition: service_healthy
     volumes:
       - backend_data:/app/data
       - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/app/secrets/firebase-service-account.json:ro
@@ -119,6 +123,10 @@ services:
       CHUNK_SIZE: ${CHUNK_SIZE:-1200}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-120}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-90}
+      OASIS_REPORT_TIMEOUT_SECONDS: ${OASIS_REPORT_TIMEOUT_SECONDS:-900}
+      REPORT_AGENT_MAX_TOOL_CALLS: ${REPORT_AGENT_MAX_TOOL_CALLS:-2}
+      REPORT_AGENT_MAX_REFLECTION_ROUNDS: ${REPORT_AGENT_MAX_REFLECTION_ROUNDS:-1}
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-0.5}
       WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-180}
       JOB_DELAY: ${JOB_DELAY:-0.08}
@@ -135,51 +143,17 @@ services:
       FIREBASE_STORAGE_BUCKET: ${FIREBASE_STORAGE_BUCKET:-}
       FIREBASE_STORAGE_PREFIX: ${FIREBASE_STORAGE_PREFIX:-rekakebijakan}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/app/secrets/firebase-service-account.json}
-      OASIS_RUNTIME_BASE_URL: ${OASIS_RUNTIME_BASE_URL:-http://oasis-runtime:5001}
-      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
-      OASIS_RUNTIME_ENABLED: ${OASIS_RUNTIME_ENABLED:-false}
+      OASIS_ENABLED: ${OASIS_ENABLED:-true}
+      OASIS_RUNTIME_DIR: /opt/rekakebijakan/oasis_engine_runtime
+      OASIS_DATA_DIR: /app/data/oasis/simulations
+      DEFAULT_SIMULATION_ENGINE: ${DEFAULT_SIMULATION_ENGINE:-oasis}
+      ZEP_API_KEY: ${ZEP_API_KEY:-}
     volumes:
       - backend_data:/app/data
       - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/app/secrets/firebase-service-account.json:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
-      oasis-runtime:
-        condition: service_healthy
-    restart: unless-stopped
-    stop_grace_period: 30s
-
-  oasis-runtime:
-    build:
-      context: ./oasis-runtime
-    environment:
-      FLASK_HOST: 0.0.0.0
-      FLASK_PORT: 5001
-      FLASK_DEBUG: "false"
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL_NAME: ${LLM_MODEL:-gpt-4o-mini}
-      ZEP_API_KEY: ${ZEP_API_KEY:-}
-      OASIS_RUNTIME_SERVICE_TOKEN: ${OASIS_RUNTIME_SERVICE_TOKEN:-}
-      OASIS_STEP_TIMEOUT_SECONDS: ${OASIS_STEP_TIMEOUT_SECONDS:-180}
-      OASIS_RUN_STALE_TIMEOUT_SECONDS: ${OASIS_RUN_STALE_TIMEOUT_SECONDS:-600}
-      OASIS_RUN_MAX_SECONDS: ${OASIS_RUN_MAX_SECONDS:-3600}
-      OASIS_CONCURRENCY: ${OASIS_CONCURRENCY:-5}
-    expose:
-      - "5001"
-    volumes:
-      - oasis_runtime_data:/app/backend/uploads
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=2)
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
-    init: true
     restart: unless-stopped
     stop_grace_period: 30s
 
@@ -198,5 +172,4 @@ services:
 
 volumes:
   backend_data:
-  oasis_runtime_data:
   postgres_data:

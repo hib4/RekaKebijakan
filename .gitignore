@@ -35,3 +35,7 @@ backend/.pytest_cache/
 backend/**/*.pyc
 
 omnipredict/
+
+# Browser test artifacts
+frontend/playwright-report/
+frontend/test-results/

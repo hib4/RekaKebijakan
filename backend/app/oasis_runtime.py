@@ -3,100 +3,6 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
-import httpx
-
-from .provider_errors import ProviderResponseError, ProviderTransportError
-
-
-class OasisRuntimeClient:
-    name = "oasis-runtime"
-
-    def __init__(self, base_url: str, service_token: str, timeout: float = 3600):
-        self.client = httpx.Client(
-            base_url=base_url.rstrip("/"),
-            headers={"X-Service-Token": service_token, "Accept-Language": "id-ID,id;q=0.9"},
-            timeout=timeout,
-        )
-
-    def close(self) -> None:
-        self.client.close()
-
-    def _request(self, operation: str, method: str, path: str, **kwargs) -> dict:
-        try:
-            response = self.client.request(method, path, **kwargs)
-            response.raise_for_status()
-            payload = response.json()
-        except httpx.HTTPStatusError as error:
-            try:
-                error_payload = error.response.json()
-            except ValueError:
-                error_payload = None
-            message = (
-                error_payload.get("error")
-                if isinstance(error_payload, dict) and error_payload.get("error")
-                else str(error)
-            )
-            raise ProviderTransportError(operation, str(message), details=error_payload) from error
-        except (httpx.HTTPError, ValueError) as error:
-            raise ProviderTransportError(operation, str(error)) from error
-        if not isinstance(payload, dict) or not payload.get("success") or not isinstance(payload.get("data"), dict):
-            message = payload.get("error", "invalid OASIS runtime response") if isinstance(payload, dict) else "invalid OASIS runtime response"
-            raise ProviderResponseError(operation, str(message))
-        return payload["data"]
-
-    def sync_graph(self, simulation_id: str, state: dict, chunks: list[dict]) -> dict:
-        return self._request("environment", "POST", "/api/bridge/graph/sync", json={
-            "local_simulation_id": simulation_id,
-            "graph_revision": int(state.get("graph", {}).get("revision", 0)),
-            "project_name": state["project"]["name"],
-            "simulation_requirement": state["project"]["objective"],
-            "ontology": state["ontology"],
-            "chunks": chunks,
-            "locale": "id",
-        })
-
-    def prepare_environment(self, mapping: dict, state: dict, config: dict) -> dict:
-        return self._request("environment", "POST", "/api/bridge/environment/prepare", json={
-            "external_project_id": mapping["external_project_id"],
-            "external_simulation_id": mapping.get("external_simulation_id"),
-            "graph_id": mapping["zep_graph_id"],
-            "simulation_requirement": state["project"]["objective"],
-            "entity_types": config.get("entity_types"),
-            "use_llm_for_profiles": config.get("use_llm_for_profiles", True),
-            "parallel_profile_count": config.get("parallel_profile_count", 5),
-            "max_profile_count": config.get("max_profile_count"),
-            "locale": "id",
-        })
-
-    def start_simulation(self, mapping: dict, config: dict) -> dict:
-        return self._request("simulate", "POST", "/api/bridge/simulation/start", json={
-            "simulation_id": mapping["external_simulation_id"],
-            "graph_id": mapping["zep_graph_id"],
-            "max_rounds": config.get("max_rounds", 40),
-            "enable_graph_memory_update": config.get("enable_graph_memory_update", True),
-            "force": config.get("force", False),
-            "locale": "id",
-            "step_timeout_seconds": config.get("step_timeout_seconds"),
-            "stale_timeout_seconds": config.get("stale_timeout_seconds"),
-            "max_run_seconds": config.get("max_run_seconds"),
-            "oasis_concurrency": config.get("oasis_concurrency"),
-        })
-
-    def simulation_snapshot(self, external_simulation_id: str, cursor: str | None = None) -> dict:
-        return self._request(
-            "simulate", "GET", f"/api/bridge/simulation/{external_simulation_id}/snapshot",
-            params={"after": cursor} if cursor else None,
-        )
-
-    def runtime_graph(self, graph_id: str) -> dict:
-        return self._request("environment", "GET", f"/api/bridge/graph/{graph_id}")
-
-    def stop_simulation(self, external_simulation_id: str) -> dict:
-        return self._request(
-            "simulate", "POST", f"/api/bridge/simulation/{external_simulation_id}/stop"
-        )
-
-
 def profile_citations(profile: dict, graph: dict) -> tuple[list[str], list[dict]]:
     labels = {
         str(profile.get("name", "")).casefold(),
@@ -158,7 +64,8 @@ def normalize_environment(simulation_id: str, graph: dict, prepared: dict, reque
             "seed": simulation_id,
             "assumptions": raw_config.get("assumptions", []),
             "generation_reasoning": raw_config.get("generation_reasoning", "Generated by the OASIS runtime"),
-            "generated_by": "oasis-runtime",
+            "generated_by": "oasis-direct",
+            "engine": "oasis",
             "version": 1,
             "overrides": requested,
             "platforms": ["twitter", "reddit"],
@@ -187,7 +94,7 @@ def normalize_action(action: dict, sequence: int, personas: list[dict], graph_re
     ).hexdigest()[:16]
     return {
         "id": f"oasis-event-{digest}", "sequence": sequence,
-        "round": max(1, int(action.get("round_num", 1))), "time": occurred,
+        "round": max(0, int(action.get("round_num", action.get("round", 1)))), "time": occurred,
         "channel": str(action.get("platform", "oasis")),
         "persona_id": (persona or {}).get("id", f"oasis-{agent_id}"),
         "persona": str(name), "persona_name": str(name),
