@@ -183,6 +183,18 @@ def test_openai_timeout_is_classified_for_worker_retry():
     assert captured.value.retryable is True
 
 
+def test_openai_ontology_timeout_uses_deterministic_fallback():
+    chunks = [chunk()]
+    fallback = DeterministicPolicyProvider().ontology(project(), chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="deterministic",
+    )
+
+    assert provider.ontology(project(), chunks) == fallback
+
+
 def test_openai_accepts_fenced_json_from_compatible_gateway():
     class FencedCompletions(CapturingCompletions):
         def create(self, **kwargs):
@@ -229,6 +241,34 @@ def test_openai_graph_uses_compact_refinements_and_preserves_topology():
     assert result["edges"] == fallback["edges"]
     assert [node["id"] for node in result["nodes"]] == [node["id"] for node in fallback["nodes"]]
     assert all(node["summary"].startswith("Spesifik: ") for node in result["nodes"])
+
+
+def test_openai_graph_timeout_uses_deterministic_fallback():
+    chunks = [chunk()]
+    ontology = DeterministicPolicyProvider().ontology(project(), chunks)
+    fallback = DeterministicPolicyProvider().graph(project(), ontology, chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="deterministic",
+    )
+
+    assert provider.graph(project(), ontology, chunks) == fallback
+
+
+def test_openai_graph_timeout_is_raised_in_strict_mode():
+    chunks = [chunk()]
+    ontology = DeterministicPolicyProvider().ontology(project(), chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="raise",
+    )
+
+    with pytest.raises(ProviderTransportError) as captured:
+        provider.graph(project(), ontology, chunks)
+
+    assert captured.value.retryable is True
 
 
 def test_openai_environment_uses_compact_batches_and_preserves_local_structure():

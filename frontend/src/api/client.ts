@@ -36,11 +36,13 @@ export type ApiCitationDto = {
 };
 
 export type ApiGraphNodeDto = {
-  id: string;
+  id?: string;
+  uuid?: string;
   label?: string;
   name?: string;
   type?: string;
   entity_type?: string;
+  labels?: string[];
   summary?: string;
   description?: string;
   group?: string;
@@ -51,10 +53,14 @@ export type ApiGraphNodeDto = {
 
 export type ApiGraphEdgeDto = {
   id?: string;
-  source: string;
-  target: string;
+  uuid?: string;
+  source?: string;
+  target?: string;
+  source_node_uuid?: string;
+  target_node_uuid?: string;
   type?: string;
   relation_type?: string;
+  fact_type?: string;
   citations?: ApiCitationDto[];
 };
 

@@ -45,23 +45,33 @@ export function mapInteractionMessage(message: ApiInteractionMessageDto, index =
 
 export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId: string, previous?: WorkflowSession) {
   const projectName = snapshot.project?.name ?? snapshot.project?.project_name ?? `Simulasi ${simulationId}`;
-  const graphNodes = (snapshot.graph?.nodes ?? []).map((node, index) => ({
-    id: node.id,
-    label: node.label ?? node.name ?? node.id,
-    type: node.type ?? node.entity_type ?? "Stakeholder",
-    summary: node.summary ?? node.description ?? "Entity dari graph kebijakan.",
-    group: node.group,
-    x: node.x ?? 100 + (index % 4) * 180,
-    y: node.y ?? 90 + Math.floor(index / 4) * 130,
-    citations: citations(node.citations),
-  }));
-  const graphEdges = (snapshot.graph?.edges ?? []).map((edge, index) => ({
-    id: edge.id ?? `edge-${index}`,
-    source: edge.source,
-    target: edge.target,
-    type: edge.type ?? edge.relation_type ?? "RELATED_TO",
-    citations: citations(edge.citations),
-  }));
+  const graphNodes = (snapshot.graph?.nodes ?? []).flatMap((node, index) => {
+    const id = node.id ?? node.uuid;
+    if (!id) return [];
+    return [{
+      id,
+      label: node.label ?? node.name ?? id,
+      type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Stakeholder",
+      summary: node.summary ?? node.description ?? "Entity dari graph kebijakan.",
+      group: node.group,
+      x: node.x ?? 100 + (index % 4) * 180,
+      y: node.y ?? 90 + Math.floor(index / 4) * 130,
+      citations: citations(node.citations),
+    }];
+  });
+  const nodeIds = new Set(graphNodes.map((node) => node.id));
+  const graphEdges = (snapshot.graph?.edges ?? []).flatMap((edge, index) => {
+    const source = edge.source ?? edge.source_node_uuid;
+    const target = edge.target ?? edge.target_node_uuid;
+    if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return [];
+    return [{
+      id: edge.id ?? edge.uuid ?? `edge-${index}`,
+      source,
+      target,
+      type: edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
+      citations: citations(edge.citations),
+    }];
+  });
   const personas = (snapshot.environment?.personas ?? []).map((persona) => ({
     id: persona.id,
     name: persona.name ?? persona.id,
@@ -141,10 +151,10 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   if (session.steps[4].status === "completed" && session.steps[5].status === "locked") session.steps[5].status = "ready";
   session.viewMode = previous?.viewMode ?? (session.currentStep >= 4 ? "workbench" : "split");
   session.graph = { nodeCount: graphNodes.length, edgeCount: graphEdges.length, selectedNodeId: previous?.graph.selectedNodeId ?? null };
-  const rounds = snapshot.environment?.config?.max_rounds ?? snapshot.environment?.config?.rounds;
+  const rounds = snapshot.environment?.config?.rounds ?? snapshot.environment?.config?.max_rounds;
   session.environment = {
     personaCount: snapshot.environment?.persona_count ?? personas.reduce((sum, persona) => sum + persona.count, 0),
-    rounds: Math.max(1, rounds ?? 40),
+    rounds: Math.max(1, rounds ?? 10),
     socialization: snapshot.environment?.config?.socialization ?? "OASIS activity model",
     responseMode: snapshot.environment?.config?.response_mode ?? "LLMAction",
     platforms: snapshot.environment?.config?.platforms ?? snapshot.environment?.config?.channels ?? ["twitter", "reddit"],

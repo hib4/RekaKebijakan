@@ -12,6 +12,7 @@ from .errors import InvalidControl, ResourceNotFound, RevisionConflict, StageCon
 from .auth import current_user
 from .models import (
     EnvironmentInput,
+    EnvironmentUpdateInput,
     GraphFeedbackInput,
     InteractionInput,
     InterviewInput,
@@ -27,6 +28,7 @@ from .models import (
     ProjectUpdateInput,
     ScenarioInput,
     ScenarioUpdateInput,
+    SimulationInput,
 )
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
@@ -162,7 +164,8 @@ def run_summary(row: dict, state: dict | None = None) -> dict:
     simulation = state.get("simulation", {})
     stage = state.get("stages", {}).get("simulation", {})
     events = (row.get("output_snapshot") or {}).get("simulation", {}).get("events") or simulation.get("events", [])
-    rounds = int(row.get("input_snapshot", {}).get("environment", {}).get("config", {}).get("rounds", 5))
+    environment_config = row.get("input_snapshot", {}).get("environment", {}).get("config", {})
+    rounds = int(environment_config.get("rounds", environment_config.get("max_rounds", 10)))
     return {
         **row, "run_id": row["id"], "version": 1, "engine": row.get("engine", "deterministic"),
         "progress": 100 if row["status"] == "completed" else int(stage.get("progress", 0)),
@@ -736,6 +739,8 @@ async def stage_alias(request: Request, simulation_id: str, stage: str):
     payload = await silent_json(request)
     if stage == "environment":
         payload = EnvironmentInput.model_validate(payload).model_dump()
+    elif stage == "simulation":
+        payload = SimulationInput.model_validate(payload).model_dump(exclude_none=True)
     return await start_stage(request, simulation_id, stage, payload)
 
 
@@ -781,7 +786,10 @@ async def get_environment(request: Request, simulation_id: str):
 
 @router.patch("/simulations/{simulation_id}/environment")
 async def update_environment(request: Request, simulation_id: str):
-    config = EnvironmentInput.model_validate(await silent_json(request)).model_dump()
+    model = EnvironmentUpdateInput.model_validate(await silent_json(request))
+    config = model.model_dump(exclude_unset=True, exclude_none=True)
+    if model.rounds is not None:
+        config.update(rounds=model.rounds, max_rounds=model.rounds)
 
     def update(state):
         from .service import now
@@ -821,7 +829,8 @@ async def generate_config(request: Request, simulation_id: str):
 
 @router.post("/simulations/{simulation_id}/runs")
 async def create_run(request: Request, simulation_id: str):
-    return await start_stage(request, simulation_id, "simulation", await silent_json(request))
+    payload = SimulationInput.model_validate(await silent_json(request)).model_dump(exclude_none=True)
+    return await start_stage(request, simulation_id, "simulation", payload)
 
 
 @router.get("/runs/{simulation_id}")

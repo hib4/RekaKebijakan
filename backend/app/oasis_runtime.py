@@ -49,8 +49,7 @@ def normalize_environment(simulation_id: str, graph: dict, prepared: dict, reque
     time_config = raw_config.get("time_config", {})
     hours = int(time_config.get("total_simulation_hours", 40) or 40)
     minutes = int(time_config.get("minutes_per_round", 60) or 60)
-    natural_rounds = max(1, hours * 60 // max(1, minutes))
-    rounds = min(natural_rounds, int(requested.get("max_rounds", natural_rounds)))
+    rounds = int(requested.get("rounds", requested.get("max_rounds", 10)))
     return {
         "personas": personas,
         "persona_count": len(personas),

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { delay, http, HttpResponse } from "msw";
@@ -197,7 +197,7 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(maxActivePolls).toBe(1);
   });
 
-  it("keeps the runtime graph separate from the policy graph", async () => {
+  it("keeps the runtime graph separate and connects Zep-shaped edges", async () => {
     server.use(
       http.get("/backend/api/simulations/live-runtime-graph", () => HttpResponse.json(snapshot("simulation"))),
       http.get("/backend/api/simulations/live-runtime-graph/runtime-graph", () => HttpResponse.json({
@@ -205,17 +205,20 @@ describe("SimulationWorkflowPage live mode", () => {
         graph_id: "zep-1",
         source_revision: 2,
         mapping_status: "running",
-        node_count: 1,
-        edge_count: 0,
-        nodes: [{ id: "runtime-node", label: "Memori runtime", type: "Entity" }],
-        edges: [],
+        node_count: 2,
+        edge_count: 1,
+        nodes: [
+          { uuid: "runtime-a", name: "Memori A", labels: ["Entity"] },
+          { uuid: "runtime-b", name: "Memori B", labels: ["Entity"] },
+        ],
+        edges: [{ uuid: "runtime-edge", source_node_uuid: "runtime-a", target_node_uuid: "runtime-b", fact_type: "AFFECTS" }],
       })),
     );
     const user = userEvent.setup();
 
     renderWorkflow("/simulation/live-runtime-graph?step=simulation&mode=graph");
 
-    const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 1/0" });
+    const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 2/1" });
     const policyButton = screen.getByRole("button", { name: "Graf kebijakan" });
     expect(runtimeButton).toHaveClass("active");
     await user.click(policyButton);
@@ -226,6 +229,8 @@ describe("SimulationWorkflowPage live mode", () => {
 
     expect(runtimeButton).toHaveClass("active");
     expect(screen.getByText("OASIS / ZEP RUNTIME GRAPH")).toBeInTheDocument();
+    const graph = screen.getByRole("group", { name: /Graf stakeholder dan kebijakan/ });
+    await waitFor(() => expect(graph.querySelectorAll(".graph-edges line")).toHaveLength(1));
   });
 
   it("keeps the policy graph visible while the runtime graph is pending", async () => {
@@ -250,6 +255,7 @@ describe("SimulationWorkflowPage live mode", () => {
     let submitted: Record<string, unknown> | undefined;
     server.use(
       http.get("/backend/api/simulations/live-environment", () => HttpResponse.json(environmentReady)),
+      http.get("/backend/api/simulations/live-environment/runtime-graph", () => HttpResponse.json({ available: false })),
       http.post("/backend/api/simulations/live-environment/stages/environment/start", async ({ request }) => {
         submitted = await request.json() as Record<string, unknown>;
         return HttpResponse.json(environmentReady);
@@ -260,13 +266,16 @@ describe("SimulationWorkflowPage live mode", () => {
     renderWorkflow("/simulation/live-environment?step=environment&mode=workbench");
 
     const profileCount = await screen.findByRole("spinbutton", { name: "Jumlah maksimum profil" });
+    const rounds = screen.getByRole("spinbutton", { name: "Jumlah ronde simulasi" });
     const llmToggle = screen.getByRole("checkbox", { name: "Perkaya setiap profil dengan LLM (lebih lambat)" });
     expect(profileCount).toHaveValue(10);
     expect(llmToggle).not.toBeChecked();
+    fireEvent.change(rounds, { target: { value: "10" } });
     await user.click(screen.getByRole("button", { name: "Prepare OASIS Environment →" }));
 
     await waitFor(() => expect(submitted).toEqual({
-      max_rounds: 40,
+      rounds: 10,
+      max_rounds: 10,
       max_profile_count: 10,
       use_llm_for_profiles: false,
       parallel_profile_count: 5,

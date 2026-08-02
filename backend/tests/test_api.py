@@ -84,18 +84,28 @@ def test_round_validation_and_pause_resume(tmp_path, database_url):
         ).status_code == 201
         created = project(client, "Kebijakan A", b"Isi kebijakan")
         simulation_id = created.json()["simulation_id"]
-        invalid = client.post(f"/api/simulations/{simulation_id}/stages/environment/start", json={"rounds": 4})
+        invalid = client.post(f"/api/simulations/{simulation_id}/stages/environment/start", json={"rounds": 0})
         assert invalid.status_code == 422
         assert invalid.json()["error"]["code"] == "validation_error"
         start_and_wait(client, simulation_id, "graph")
-        start_and_wait(client, simulation_id, "environment", {"rounds": 3})
+        start_and_wait(client, simulation_id, "environment", {"rounds": 7})
         assert client.post(f"/api/simulations/{simulation_id}/stages/simulation/start", json={}).status_code == 202
         paused = client.post(f"/api/simulations/{simulation_id}/pause")
         assert paused.json()["simulation"]["status"] == "paused"
         resumed = client.post(f"/api/simulations/{simulation_id}/resume")
         assert resumed.json()["simulation"]["status"] == "running"
         final = wait_for(client, simulation_id, "simulation")
-        assert final["simulation"]["event_count"] == 18
+        assert final["simulation"]["event_count"] == 42
+
+
+def test_rounds_default_to_ten_and_simulation_payload_is_validated(client):
+    simulation_id = project(client, "Kebijakan Ronde", b"Kebijakan membutuhkan simulasi sepuluh ronde.").json()["simulation_id"]
+    start_and_wait(client, simulation_id, "graph")
+    environment = start_and_wait(client, simulation_id, "environment")
+    assert environment["environment"]["config"]["rounds"] == 10
+    assert environment["environment"]["config"]["max_rounds"] == 10
+    invalid = client.post(f"/api/simulations/{simulation_id}/stages/simulation/start", json={"rounds": 1001})
+    assert invalid.status_code == 422
 
 
 def test_environment_patch_and_all_interaction_tools(client):

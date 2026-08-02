@@ -4,6 +4,7 @@ import pytest
 
 from app.oasis_runtime import normalize_action, normalize_environment, source_identity
 from app.service import WorkflowService
+from app.provider_errors import ProviderResponseError
 
 
 def graph():
@@ -32,10 +33,11 @@ def test_oasis_environment_preserves_local_evidence():
         },
     }
 
-    environment = normalize_environment("sim-1", graph(), prepared, {"max_rounds": 40})
+    environment = normalize_environment("sim-1", graph(), prepared, {"rounds": 10})
 
     assert environment["persona_count"] == 1
-    assert environment["config"]["rounds"] == 40
+    assert environment["config"]["rounds"] == 10
+    assert environment["config"]["max_rounds"] == 10
     assert environment["config"]["platforms"] == ["twitter", "reddit"]
     assert environment["personas"][0]["id"] == "oasis-7"
     assert environment["personas"][0]["source_node_ids"] == ["stakeholder-1"]
@@ -126,7 +128,7 @@ def runtime_state():
     return {
         "project": {"id": "project-local"},
         "graph": {"revision": 2},
-        "environment": {"personas": [], "config": {"version": 1, "max_rounds": 2}},
+        "environment": {"personas": [], "config": {"version": 1, "rounds": 2}},
     }
 
 
@@ -192,17 +194,56 @@ def test_host_runtime_marks_mapping_failed_when_start_fails(tmp_path):
     assert repository.mapping["metadata"]["error"] == "runtime unavailable"
 
 
+def test_host_runtime_step_timeout_is_terminal_provider_error(tmp_path):
+    repository = RuntimeRepository()
+
+    class Runtime:
+        def start_simulation(self, _mapping, config):
+            assert config["step_timeout_seconds"] == 120
+            assert config["stale_timeout_seconds"] == 150
+
+        def simulation_snapshot(self, _simulation_id, _cursor):
+            return {
+                "status": {
+                    "runner_status": "failed",
+                    "error": "OASIS process exited; reddit step round 4 timed out after 120s",
+                },
+                "actions": [],
+            }
+
+    with pytest.raises(ProviderResponseError, match="reddit step round 4 timed out after 120s") as captured:
+        runtime_service(repository, Runtime(), tmp_path)._run_oasis_simulation(
+            {"id": "job-1", "simulation_id": "simulation-local", "execution_token": "token"},
+            runtime_state(), {},
+        )
+
+    assert captured.value.retryable is False
+
+
 def test_runtime_graph_is_supplemental_and_includes_mapping_metadata(tmp_path):
     repository = RuntimeRepository()
 
     class Runtime:
         def runtime_graph(self, graph_id):
             assert graph_id == "graph-remote"
-            return {"nodes": [{"id": "node-1"}], "edges": [], "node_count": 1, "edge_count": 0}
+            return {
+                "nodes": [
+                    {"uuid": "node-1", "name": "Satu", "labels": ["Stakeholder"]},
+                    {"uuid": "node-2", "name": "Dua", "labels": ["Policy"]},
+                ],
+                "edges": [{
+                    "uuid": "edge-1", "source_node_uuid": "node-1",
+                    "target_node_uuid": "node-2", "fact_type": "AFFECTS",
+                }],
+            }
 
     graph = runtime_service(repository, Runtime(), tmp_path).runtime_graph("simulation-local")
 
     assert graph["graph_id"] == "graph-remote"
     assert graph["source_revision"] == 2
     assert graph["mapping_status"] == "ready"
-    assert graph["nodes"] == [{"id": "node-1"}]
+    assert graph["node_count"] == 2
+    assert graph["edge_count"] == 1
+    assert graph["edges"][0]["source"] == "node-1"
+    assert graph["edges"][0]["target"] == "node-2"
+    assert graph["edges"][0]["type"] == "AFFECTS"

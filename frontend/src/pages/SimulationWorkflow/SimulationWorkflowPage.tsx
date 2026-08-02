@@ -317,8 +317,10 @@ function EnvironmentStep({
   session,
   start,
   maxProfileCount,
+  rounds,
   useLlmForProfiles,
   onMaxProfileCountChange,
+  onRoundsChange,
   onUseLlmForProfilesChange,
   next,
 }: {
@@ -326,8 +328,10 @@ function EnvironmentStep({
   session: WorkflowSession;
   start: () => void;
   maxProfileCount: number;
+  rounds: number;
   useLlmForProfiles: boolean;
   onMaxProfileCountChange: (value: number) => void;
+  onRoundsChange: (value: number) => void;
   onUseLlmForProfilesChange: (value: boolean) => void;
   next: () => void;
 }) {
@@ -439,6 +443,16 @@ function EnvironmentStep({
       </p>
       {step.status === "ready" && (
         <div className="environment-start-controls">
+          <label>
+            <span>Jumlah ronde simulasi</span>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              value={rounds}
+              onChange={(event) => onRoundsChange(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))}
+            />
+          </label>
           <label>
             <span>Jumlah maksimum profil</span>
             <input
@@ -1225,6 +1239,8 @@ export default function SimulationWorkflowPage() {
   const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
   const [graphSource, setGraphSource] = useState<"policy" | "runtime">("policy");
   const [maxProfileCount, setMaxProfileCount] = useState(10);
+  const [requestedRounds, setRequestedRounds] = useState<number | null>(null);
+  const effectiveRequestedRounds = requestedRounds ?? session.environment.rounds;
   const [useLlmForProfiles, setUseLlmForProfiles] = useState(false);
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
@@ -1261,26 +1277,38 @@ export default function SimulationWorkflowPage() {
     try {
       const graph = await getRuntimeGraph(simulationId);
       if (!graph.available) return;
-      setRuntimeDemo((current) => ({
-        ...(current ?? resolvedDemo),
-        id: `${simulationId}-runtime`,
-        title: `${resolvedDemo.title} · Memori runtime`,
-        graphNodes: graph.nodes.map((node, index) => ({
-          id: node.id,
-          label: node.label ?? node.name ?? node.id,
-          type: node.type ?? node.entity_type ?? "Entity",
+      const graphNodes = graph.nodes.flatMap((node, index) => {
+        const id = node.id ?? node.uuid;
+        if (!id) return [];
+        return [{
+          id,
+          label: node.label ?? node.name ?? id,
+          type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Entity",
           summary: node.summary ?? node.description ?? "Entitas hasil ekstraksi runtime.",
           x: 100 + (index % 5) * 150,
           y: 80 + Math.floor(index / 5) * 100,
           citations: [],
-        })),
-        graphEdges: graph.edges.map((edge, index) => ({
-          id: edge.id ?? `runtime-edge-${index}`,
-          source: edge.source,
-          target: edge.target,
-          type: edge.type ?? edge.relation_type ?? "RELATED_TO",
+        }];
+      });
+      const nodeIds = new Set(graphNodes.map((node) => node.id));
+      const graphEdges = graph.edges.flatMap((edge, index) => {
+        const source = edge.source ?? edge.source_node_uuid;
+        const target = edge.target ?? edge.target_node_uuid;
+        if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return [];
+        return [{
+          id: edge.id ?? edge.uuid ?? `runtime-edge-${index}`,
+          source,
+          target,
+          type: edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
           citations: [],
-        })),
+        }];
+      });
+      setRuntimeDemo((current) => ({
+        ...(current ?? resolvedDemo),
+        id: `${simulationId}-runtime`,
+        title: `${resolvedDemo.title} · Memori runtime`,
+        graphNodes,
+        graphEdges,
       }));
       if (session.currentStep >= 2) setGraphSource("runtime");
     } catch (cause) {
@@ -1609,9 +1637,9 @@ export default function SimulationWorkflowPage() {
   const startStep = (step: WorkflowStep) => {
     if (!localMode) {
       const config = step === 2
-        ? { max_rounds: 40, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, parallel_profile_count: 5 }
+        ? { rounds: effectiveRequestedRounds, max_rounds: effectiveRequestedRounds, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, parallel_profile_count: 5 }
         : step === 3
-          ? { max_rounds: session.environment.rounds, enable_graph_memory_update: true }
+          ? { rounds: session.environment.rounds, max_rounds: session.environment.rounds, enable_graph_memory_update: true }
           : undefined;
       setSession((current) => ({
         ...current,
@@ -1769,8 +1797,10 @@ export default function SimulationWorkflowPage() {
                 session={session}
                 start={() => startStep(2)}
                 maxProfileCount={maxProfileCount}
+                rounds={effectiveRequestedRounds}
                 useLlmForProfiles={useLlmForProfiles}
                 onMaxProfileCountChange={setMaxProfileCount}
+                onRoundsChange={setRequestedRounds}
                 onUseLlmForProfilesChange={setUseLlmForProfiles}
                 next={() => goStep(3)}
               />

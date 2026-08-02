@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 
 from .documents import chunk_text, extract_document
 from .errors import UploadQuotaExceeded
-from .provider_errors import ProviderError
+from .provider_errors import ProviderError, ProviderResponseError
 from .providers import PolicyProvider
 from .oasis_runtime import normalize_action, normalize_environment, source_identity
 from .repository import Repository
@@ -479,13 +479,20 @@ class WorkflowService:
             self.oasis_runtime.apply_persona_overrides(
                 mapping["external_simulation_id"], state["environment"].get("personas", [])
             )
+        requested_rounds = config.get("rounds")
+        if requested_rounds is None:
+            requested_rounds = config.get("max_rounds")
+        if requested_rounds is None:
+            requested_rounds = environment_config.get("rounds", environment_config.get("max_rounds", 10))
         run_config = {
-            "max_rounds": config.get("max_rounds") or environment_config.get("max_rounds", 40),
+            "rounds": int(requested_rounds),
+            "max_rounds": int(requested_rounds),
             "enable_graph_memory_update": config.get("enable_graph_memory_update", True),
             "force": config.get("force", False),
-            "step_timeout_seconds": config.get("step_timeout_seconds"),
-            "stale_timeout_seconds": config.get("stale_timeout_seconds"),
-            "max_run_seconds": config.get("max_run_seconds"),
+            "step_timeout_seconds": config.get("step_timeout_seconds", 120),
+            "step_cleanup_grace_seconds": config.get("step_cleanup_grace_seconds", 5),
+            "stale_timeout_seconds": config.get("stale_timeout_seconds", 150),
+            "max_run_seconds": config.get("max_run_seconds", 3600),
             "oasis_concurrency": config.get("oasis_concurrency"),
         }
         run_id = job.get("run_id")
@@ -540,7 +547,9 @@ class WorkflowService:
                 status = runtime.get("runner_status", "idle")
                 if status in terminal:
                     if status != "completed":
-                        raise RuntimeError(runtime.get("error") or f"OASIS runtime ended as {status}")
+                        raise ProviderResponseError(
+                            "simulate", runtime.get("error") or f"OASIS runtime ended as {status}"
+                        )
                     break
                 time.sleep(2)
         except Exception as error:
@@ -556,7 +565,10 @@ class WorkflowService:
         events = [dict(row["event"]) | {"sequence": index} for index, row in enumerate(rows, 1)]
         graph_memory = {}
         if run_config["enable_graph_memory_update"] and hasattr(self.oasis_runtime, "ingest_actions"):
-            graph_memory = self.oasis_runtime.ingest_actions(mapping["external_simulation_id"], mapping["zep_graph_id"])
+            graph_memory = self.oasis_runtime.ingest_actions(
+                mapping["external_simulation_id"], mapping["zep_graph_id"], run_id or job["id"],
+                [row.get("raw_action") or row.get("event") or {} for row in rows],
+            )
         artifacts = self.oasis_runtime.artifacts(mapping["external_simulation_id"]) if hasattr(self.oasis_runtime, "artifacts") else {}
         self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
             "external_project_id": mapping["external_project_id"],
@@ -576,7 +588,31 @@ class WorkflowService:
         if not mapping or not mapping.get("zep_graph_id") or not self.oasis_runtime:
             return None
         graph = self.oasis_runtime.runtime_graph(mapping["zep_graph_id"])
+        nodes = []
+        for item in graph.get("nodes", []):
+            node_id = item.get("id") or item.get("uuid")
+            if not node_id:
+                continue
+            labels = item.get("labels") or []
+            nodes.append(dict(item) | {
+                "id": str(node_id),
+                "label": item.get("label") or item.get("name") or str(node_id),
+                "type": item.get("type") or item.get("entity_type") or (labels[0] if labels else "Entity"),
+            })
+        node_ids = {item["id"] for item in nodes}
+        edges = []
+        for index, item in enumerate(graph.get("edges", [])):
+            source = item.get("source") or item.get("source_node_uuid")
+            target = item.get("target") or item.get("target_node_uuid")
+            if str(source) not in node_ids or str(target) not in node_ids:
+                continue
+            edges.append(dict(item) | {
+                "id": str(item.get("id") or item.get("uuid") or f"runtime-edge-{index}"),
+                "source": str(source), "target": str(target),
+                "type": item.get("type") or item.get("relation_type") or item.get("fact_type") or "RELATED_TO",
+            })
         return graph | {
+            "nodes": nodes, "edges": edges, "node_count": len(nodes), "edge_count": len(edges),
             "graph_id": mapping["zep_graph_id"],
             "source_revision": mapping["graph_revision"],
             "mapping_status": mapping["status"],

@@ -2,6 +2,8 @@ import importlib.util
 import json
 import subprocess
 import sys
+import textwrap
+import time
 import types
 from pathlib import Path
 
@@ -87,6 +89,7 @@ def test_prepare_uses_longer_bounded_timeout(monkeypatch, tmp_path: Path):
     runtime.mkdir()
     engine = DirectOasisEngine(runtime, tmp_path / "data", timeout=120)
     captured = {}
+    monkeypatch.setenv("OASIS_PREPARE_TIMEOUT_SECONDS", "900")
 
     def call(operation, payload, timeout=None):
         captured.update(operation=operation, payload=payload, timeout=timeout)
@@ -100,7 +103,7 @@ def test_prepare_uses_longer_bounded_timeout(monkeypatch, tmp_path: Path):
     )
 
     assert captured["operation"] == "prepare"
-    assert captured["timeout"] == 300
+    assert captured["timeout"] == 900
 
 
 def test_ingest_actions_uses_longer_bounded_timeout(monkeypatch, tmp_path: Path):
@@ -114,12 +117,17 @@ def test_ingest_actions_uses_longer_bounded_timeout(monkeypatch, tmp_path: Path)
         return {}
 
     monkeypatch.setattr(engine, "_call", call)
-    engine.ingest_actions("sim-1", "graph-1")
+    monkeypatch.setenv("OASIS_INGESTION_TIMEOUT_SECONDS", "900")
+    actions = [{"platform": "twitter", "action_type": "CREATE_POST"}]
+    engine.ingest_actions("sim-1", "graph-1", "run-1", actions)
 
     assert captured == {
         "operation": "ingest-actions",
-        "payload": {"simulation_id": "sim-1", "graph_id": "graph-1"},
-        "timeout": 300,
+        "payload": {
+            "simulation_id": "sim-1", "graph_id": "graph-1", "run_id": "run-1",
+            "actions": actions, "timeout_seconds": 900,
+        },
+        "timeout": 930,
     }
 
 
@@ -160,6 +168,73 @@ def test_start_simulation_resumes_alive_process(monkeypatch, tmp_path: Path):
     resumed = engine.start_simulation({"external_simulation_id": "sim-1"}, {"max_rounds": 3})
 
     assert resumed == existing
+
+
+def test_start_simulation_replaces_failed_alive_process(monkeypatch, tmp_path: Path):
+    runtime = tmp_path / "runtime"
+    (runtime / "scripts").mkdir(parents=True)
+    data = tmp_path / "data"
+    simulation = data / "sim-1"
+    simulation.mkdir(parents=True)
+    (simulation / "simulation_config.json").write_text("{}")
+    (simulation / "direct_runtime.json").write_text(json.dumps({"pid": 123, "runner_status": "failed"}))
+    engine = DirectOasisEngine(runtime, data)
+    alive = iter([True, False])
+    monkeypatch.setattr(engine, "_pid_alive", lambda _pid: next(alive, False))
+    monkeypatch.setattr(engine, "stop_simulation", lambda _simulation_id: {"runner_status": "stopped"})
+
+    class Process:
+        pid = 456
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: Process())
+
+    started = engine.start_simulation({"external_simulation_id": "sim-1"}, {"rounds": 10})
+
+    assert started["pid"] == 456
+    assert started["runner_status"] == "running"
+    assert started["max_rounds"] == 10
+
+
+def test_hard_step_timeout_exits_when_cancellation_hangs(tmp_path: Path):
+    runtime = Path("/opt/rekakebijakan/oasis_engine_runtime")
+    if not runtime.exists():
+        runtime = Path(__file__).resolve().parents[1] / "oasis_engine_runtime"
+    scripts = runtime / "scripts"
+    program = tmp_path / "hard_timeout_reproduction.py"
+    program.write_text(textwrap.dedent(f"""
+        import asyncio
+        import os
+        import sys
+        sys.path.insert(0, {str(scripts)!r})
+        from hard_timeout import HardOperationTimeout, run_with_hard_timeout
+
+        async def stuck():
+            while True:
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    pass
+
+        async def main():
+            await run_with_hard_timeout(
+                stuck(), timeout_seconds=0.25, cleanup_grace_seconds=0.25,
+                platform="twitter", phase="step", round_num=4,
+            )
+
+        try:
+            asyncio.run(main())
+        except HardOperationTimeout as error:
+            print(error, file=sys.stderr, flush=True)
+            os._exit(2)
+    """), encoding="utf-8")
+
+    started = time.monotonic()
+    result = subprocess.run([sys.executable, str(program)], text=True, capture_output=True, timeout=2)
+
+    assert time.monotonic() - started < 1.5
+    assert result.returncode == 2
+    assert "OASIS twitter step round 4 timed out after 0.25s" in result.stderr
+    assert "cancellation grace 0.25s expired" in result.stderr
 
 
 def test_sync_graph_reuses_existing_ontology(monkeypatch):
@@ -213,6 +288,45 @@ def test_sync_graph_reuses_existing_ontology(monkeypatch):
     assert result["episode_uuids"] == ["episode-1"]
 
 
+def test_ingest_actions_bridge_matches_bundled_updater_contract(monkeypatch, tmp_path: Path):
+    calls = {}
+
+    class Updater:
+        def __init__(self, graph_id, api_key=None, simulation_id=None):
+            calls.update(graph_id=graph_id, simulation_id=simulation_id, api_key=api_key)
+
+        def start(self):
+            calls["started"] = True
+
+        def add_activity_from_dict(self, item, platform):
+            calls.setdefault("actions", []).append((item, platform))
+
+        def stop(self, timeout_seconds=None):
+            calls["timeout_seconds"] = timeout_seconds
+
+        def get_stats(self):
+            return {"total": len(calls.get("actions", []))}
+
+    services = types.ModuleType("app.services")
+    updater_module = types.ModuleType("app.services.zep_graph_memory_updater")
+    updater_module.ZepGraphMemoryUpdater = Updater
+    monkeypatch.setitem(sys.modules, "app.services", services)
+    monkeypatch.setitem(sys.modules, "app.services.zep_graph_memory_updater", updater_module)
+    monkeypatch.setenv("OASIS_DATA_DIR", str(tmp_path))
+    payload = {
+        "simulation_id": "sim-1", "run_id": "run-1", "graph_id": "graph-1",
+        "actions": [{"platform": "twitter", "action_type": "CREATE_POST"}],
+        "timeout_seconds": 900,
+    }
+
+    result = oasis_direct_bridge.ingest_actions(payload)
+
+    assert result == {"total": 1}
+    assert calls["graph_id"] == "graph-1"
+    assert calls["simulation_id"] == "sim-1"
+    assert calls["timeout_seconds"] == 900
+
+
 def test_direct_engine_reads_incremental_platform_actions(tmp_path: Path):
     source = tmp_path / "source"
     (source / "scripts").mkdir(parents=True)
@@ -239,6 +353,32 @@ def test_direct_engine_reads_incremental_platform_actions(tmp_path: Path):
     assert first["status"]["runner_status"] == "completed"
     assert first["actions"][0]["round"] == 0
     assert second["actions"] == []
+
+
+def test_dead_child_reports_step_timeout_before_stale_timeout(monkeypatch, tmp_path: Path):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    simulation = tmp_path / "data" / "sim-1"
+    (simulation / "twitter").mkdir(parents=True)
+    (simulation / "reddit").mkdir(parents=True)
+    (simulation / "simulation_config.json").write_text("{}", encoding="utf-8")
+    (simulation / "direct_runtime.json").write_text(json.dumps({
+        "pid": 123, "runner_status": "running", "started_at": time.time() - 200,
+        "last_progress_at": time.time() - 200, "stale_timeout_seconds": 150,
+        "max_run_seconds": 3600, "max_rounds": 10,
+    }), encoding="utf-8")
+    (simulation / "simulation.log").write_text(
+        "Fatal timeout: OASIS reddit step round 4 timed out after 120s; "
+        "cancellation grace 5s expired\n", encoding="utf-8",
+    )
+    engine = DirectOasisEngine(runtime, tmp_path / "data")
+    monkeypatch.setattr(engine, "_pid_alive", lambda _pid: False)
+
+    status = engine.simulation_snapshot("sim-1")["status"]
+
+    assert status["runner_status"] == "failed"
+    assert "reddit step round 4 timed out after 120s" in status["error"]
+    assert "made no round progress" not in status["error"]
 
 
 def test_oasis_projection_preserves_initial_round():

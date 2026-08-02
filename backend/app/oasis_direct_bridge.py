@@ -166,19 +166,12 @@ def ingest_actions(payload: dict) -> dict:
         "run_id": payload["run_id"],
         "graph_id": payload["graph_id"],
         "status": "running",
-        "batches": checkpoint.get("batches") or {},
     }
-
-    def save_batch(batch_key: str, value: dict) -> None:
-        checkpoint["batches"][batch_key] = value
-        write_json(checkpoint_path, checkpoint)
 
     write_json(checkpoint_path, checkpoint)
     updater = ZepGraphMemoryUpdater(
         payload["graph_id"],
         simulation_id=payload["simulation_id"],
-        ingestion_batches=checkpoint["batches"],
-        checkpoint_batch=save_batch,
     )
     updater.start()
     for item in payload.get("actions") or []:

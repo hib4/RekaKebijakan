@@ -62,7 +62,7 @@ export function createWorkflowSession(simulationId: string, projectName: string)
       5: readyStep("locked"),
     },
     graph: { nodeCount: 0, edgeCount: 0, selectedNodeId: null },
-    environment: { personaCount: 0, rounds: 40, socialization: "OASIS activity model", responseMode: "LLMAction", platforms: ["twitter", "reddit"] },
+    environment: { personaCount: 0, rounds: 10, socialization: "OASIS activity model", responseMode: "LLMAction", platforms: ["twitter", "reddit"] },
     simulation: { status: "ready", eventCount: 0, speed: 1 },
     report: { progress: 0, sections: [], timestamps: [] },
     interaction: {

@@ -303,9 +303,9 @@ class ZepGraphMemoryUpdater:
         self._worker_thread.start()
         logger.info(f"ZepGraphMemoryUpdater started: graph_id={self.graph_id}")
     
-    def stop(self):
+    def stop(self, timeout_seconds=None):
         """Drain the worker, flush tail events, and wait for Cloud ingestion."""
-        deadline = time.time() + ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+        deadline = time.time() + float(timeout_seconds or ZEP_INGESTION_WAIT_TIMEOUT_SECONDS)
         # Serialize the accepting->closed transition with add_activity's
         # check+enqueue operation. This closes the small race where a producer
         # could enqueue after both the worker and final flush had exited.

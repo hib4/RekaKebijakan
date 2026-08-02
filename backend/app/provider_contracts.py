@@ -217,7 +217,7 @@ class PersonaOutput(Contract):
 
 
 class EnvironmentConfig(Contract):
-    rounds: int = Field(gt=0)
+    rounds: int = Field(ge=1, le=1000)
     socialization: str
     response_mode: str
     channels: list[str] = Field(min_length=1)
@@ -232,7 +232,7 @@ class EnvironmentConfig(Contract):
     platforms: list[str] | None = None
     total_simulation_hours: int | None = None
     minutes_per_round: int | None = None
-    max_rounds: int | None = None
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
     raw_config: dict[str, Any] | None = None
 
 

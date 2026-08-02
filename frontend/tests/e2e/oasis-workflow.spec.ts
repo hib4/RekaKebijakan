@@ -3,6 +3,8 @@ import { writeFile } from "node:fs/promises";
 
 const runOasisE2E = process.env.RUN_OASIS_E2E === "true";
 const stageTimeout = Number(process.env.OASIS_STAGE_TIMEOUT_MS ?? 900_000);
+const requestedRounds = Number(process.env.OASIS_E2E_ROUNDS ?? 10);
+const stepTimeoutSeconds = Number(process.env.OASIS_E2E_STEP_TIMEOUT_SECONDS ?? 120);
 
 type Snapshot = {
   stages: Record<string, { status: string; error?: unknown }>;
@@ -48,8 +50,8 @@ test.describe("OASIS workflow", () => {
         postData: JSON.stringify({
           ...payload,
           engine: "oasis",
-          rounds: 3,
-          max_rounds: 3,
+          rounds: requestedRounds,
+          max_rounds: requestedRounds,
           max_profile_count: 5,
           parallel_profile_count: 3,
           use_llm_for_profiles: false,
@@ -61,7 +63,15 @@ test.describe("OASIS workflow", () => {
       const request = route.request();
       const payload = request.postDataJSON() as Record<string, unknown>;
       await route.continue({
-        postData: JSON.stringify({ ...payload, engine: "oasis", max_rounds: 3 }),
+        postData: JSON.stringify({
+          ...payload,
+          engine: "oasis",
+          rounds: requestedRounds,
+          max_rounds: requestedRounds,
+          step_timeout_seconds: stepTimeoutSeconds,
+          stale_timeout_seconds: stepTimeoutSeconds + 30,
+          max_run_seconds: stageTimeout / 1000,
+        }),
         headers: { ...request.headers(), "content-type": "application/json" },
       });
     });
@@ -109,6 +119,7 @@ test.describe("OASIS workflow", () => {
       await page.getByRole("button", { name: "Continue to Env Setup →" }).click();
 
       await expect(page.getByRole("heading", { name: "Siapkan lingkungan simulasi" })).toBeVisible();
+      await page.getByRole("spinbutton", { name: "Jumlah ronde simulasi" }).fill(String(requestedRounds));
       await page.getByRole("spinbutton", { name: "Jumlah maksimum profil" }).fill("5");
       await page.getByRole("button", { name: "Prepare OASIS Environment →" }).click();
       await waitForStage(page, simulationId, "environment");
@@ -116,12 +127,12 @@ test.describe("OASIS workflow", () => {
       const environment = await responseJson<{
         persona_count: number;
         personas: Array<{ id: string }>;
-        config: { engine: string; generated_by: string };
+        config: { engine: string; generated_by: string; rounds: number };
       }>(await page.request.get(`/backend/api/simulations/${simulationId}/environment`));
       expect(environment.persona_count).toBeGreaterThan(0);
       expect(environment.persona_count).toBeLessThanOrEqual(5);
       expect(environment.personas.every((persona) => persona.id.startsWith("oasis-"))).toBeTruthy();
-      expect(environment.config).toMatchObject({ engine: "oasis", generated_by: "oasis-direct" });
+      expect(environment.config).toMatchObject({ engine: "oasis", generated_by: "oasis-direct", rounds: requestedRounds });
 
       await page.reload();
       await page.getByRole("button", { name: "Start Simulation →" }).click();
@@ -143,6 +154,7 @@ test.describe("OASIS workflow", () => {
         mapping_status: "completed",
         runtime: { runner_status: "completed", twitter_completed: true, reddit_completed: true },
       });
+      expect(oasisStatus.runtime).toMatchObject({ total_rounds: requestedRounds });
       expect(oasisStatus.zep_graph_id).toBeTruthy();
       expect(oasisStatus.external_simulation_id).toBeTruthy();
       expect(oasisStatus.total_actions).toBeGreaterThan(0);

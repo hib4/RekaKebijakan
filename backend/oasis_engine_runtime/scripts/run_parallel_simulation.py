@@ -73,8 +73,11 @@ import random
 import signal
 import sqlite3
 import warnings
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
+
+from hard_timeout import HardOperationTimeout, run_with_hard_timeout
 
 
 # Global variables for signal handling.
@@ -168,10 +171,26 @@ try:
         generate_twitter_agent_graph,
         generate_reddit_agent_graph
     )
+    import oasis.social_agent.agent_environment as oasis_agent_environment
+    import oasis.social_platform.database as oasis_database
 except ImportError as e:
     print(f"Error: missing dependency {e}")
     print("Install dependencies first: pip install oasis-ai camel-ai")
     sys.exit(1)
+
+
+_task_db_path: ContextVar[str | None] = ContextVar("oasis_task_db_path", default=None)
+_original_get_db_path = oasis_database.get_db_path
+
+
+def _get_task_db_path() -> str:
+    return _task_db_path.get() or _original_get_db_path()
+
+
+# camel-oasis resolves the database path from a process-global helper during
+# agent actions. Use task-local paths because Twitter and Reddit run together.
+oasis_database.get_db_path = _get_task_db_path
+oasis_agent_environment.get_db_path = _get_task_db_path
 
 
 # Available Twitter actions. INTERVIEW can only be triggered manually via ManualAction.
@@ -1132,8 +1151,7 @@ async def run_twitter_simulation(
     # OASIS Twitter uses CSV format.
     profile_path = os.path.join(simulation_dir, "twitter_profiles.csv")
     if not os.path.exists(profile_path):
-        log_info(f"Error: profile file does not exist: {profile_path}")
-        return result
+        raise FileNotFoundError(f"Twitter profile file does not exist: {profile_path}")
     
     result.agent_graph = await generate_twitter_agent_graph(
         profile_path=profile_path,
@@ -1149,6 +1167,7 @@ async def run_twitter_simulation(
             agent_names[agent_id] = getattr(agent, 'name', f'Agent_{agent_id}')
     
     db_path = os.path.join(simulation_dir, "twitter_simulation.db")
+    _task_db_path.set(db_path)
     if os.path.exists(db_path):
         os.remove(db_path)
     
@@ -1159,7 +1178,12 @@ async def run_twitter_simulation(
         semaphore=30,  # Limit concurrent LLM requests to prevent API overload.
     )
     
-    await result.env.reset()
+    step_timeout_seconds = float(config.get("_step_timeout_seconds", 120))
+    cleanup_grace_seconds = float(config.get("_step_cleanup_grace_seconds", 5))
+    await run_with_hard_timeout(
+        result.env.reset(), timeout_seconds=step_timeout_seconds,
+        cleanup_grace_seconds=cleanup_grace_seconds, platform="twitter", phase="reset",
+    )
     log_info("Environment started")
     
     if action_logger:
@@ -1203,7 +1227,11 @@ async def run_twitter_simulation(
                 pass
         
         if initial_actions:
-            await result.env.step(initial_actions)
+            await run_with_hard_timeout(
+                result.env.step(initial_actions), timeout_seconds=step_timeout_seconds,
+                cleanup_grace_seconds=cleanup_grace_seconds, platform="twitter",
+                phase="initial_posts", round_num=0,
+            )
             log_info(f"Published {len(initial_actions)} initial posts")
     
     # Record the end of round 0.
@@ -1216,12 +1244,9 @@ async def run_twitter_simulation(
     minutes_per_round = time_config.get("minutes_per_round", 30)
     total_rounds = (total_hours * 60) // minutes_per_round
     
-    # Truncate if a maximum round count was specified.
+    # The user-selected count is exact; generated time only controls simulated timestamps.
     if max_rounds is not None and max_rounds > 0:
-        original_rounds = total_rounds
-        total_rounds = min(total_rounds, max_rounds)
-        if total_rounds < original_rounds:
-            log_info(f"Round count truncated: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
+        total_rounds = max_rounds
     
     start_time = datetime.now()
     
@@ -1251,7 +1276,11 @@ async def run_twitter_simulation(
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
-        await result.env.step(actions)
+        await run_with_hard_timeout(
+            result.env.step(actions), timeout_seconds=step_timeout_seconds,
+            cleanup_grace_seconds=cleanup_grace_seconds, platform="twitter",
+            phase="step", round_num=round_num + 1,
+        )
         
         # Get and record the actions actually executed from the database.
         actual_actions, last_rowid = fetch_new_actions_from_db(
@@ -1323,8 +1352,7 @@ async def run_reddit_simulation(
     
     profile_path = os.path.join(simulation_dir, "reddit_profiles.json")
     if not os.path.exists(profile_path):
-        log_info(f"Error: profile file does not exist: {profile_path}")
-        return result
+        raise FileNotFoundError(f"Reddit profile file does not exist: {profile_path}")
     
     result.agent_graph = await generate_reddit_agent_graph(
         profile_path=profile_path,
@@ -1340,6 +1368,7 @@ async def run_reddit_simulation(
             agent_names[agent_id] = getattr(agent, 'name', f'Agent_{agent_id}')
     
     db_path = os.path.join(simulation_dir, "reddit_simulation.db")
+    _task_db_path.set(db_path)
     if os.path.exists(db_path):
         os.remove(db_path)
     
@@ -1350,7 +1379,12 @@ async def run_reddit_simulation(
         semaphore=30,  # Limit concurrent LLM requests to prevent API overload.
     )
     
-    await result.env.reset()
+    step_timeout_seconds = float(config.get("_step_timeout_seconds", 120))
+    cleanup_grace_seconds = float(config.get("_step_cleanup_grace_seconds", 5))
+    await run_with_hard_timeout(
+        result.env.reset(), timeout_seconds=step_timeout_seconds,
+        cleanup_grace_seconds=cleanup_grace_seconds, platform="reddit", phase="reset",
+    )
     log_info("Environment started")
     
     if action_logger:
@@ -1402,7 +1436,11 @@ async def run_reddit_simulation(
                 pass
         
         if initial_actions:
-            await result.env.step(initial_actions)
+            await run_with_hard_timeout(
+                result.env.step(initial_actions), timeout_seconds=step_timeout_seconds,
+                cleanup_grace_seconds=cleanup_grace_seconds, platform="reddit",
+                phase="initial_posts", round_num=0,
+            )
             log_info(f"Published {len(initial_actions)} initial posts")
     
     # Record the end of round 0.
@@ -1415,12 +1453,9 @@ async def run_reddit_simulation(
     minutes_per_round = time_config.get("minutes_per_round", 30)
     total_rounds = (total_hours * 60) // minutes_per_round
     
-    # Truncate if a maximum round count was specified.
+    # The user-selected count is exact; generated time only controls simulated timestamps.
     if max_rounds is not None and max_rounds > 0:
-        original_rounds = total_rounds
-        total_rounds = min(total_rounds, max_rounds)
-        if total_rounds < original_rounds:
-            log_info(f"Round count truncated: {original_rounds} -> {total_rounds} (max_rounds={max_rounds})")
+        total_rounds = max_rounds
     
     start_time = datetime.now()
     
@@ -1450,7 +1485,11 @@ async def run_reddit_simulation(
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
-        await result.env.step(actions)
+        await run_with_hard_timeout(
+            result.env.step(actions), timeout_seconds=step_timeout_seconds,
+            cleanup_grace_seconds=cleanup_grace_seconds, platform="reddit",
+            phase="step", round_num=round_num + 1,
+        )
         
         # Get and record the actions actually executed from the database.
         actual_actions, last_rowid = fetch_new_actions_from_db(
@@ -1492,6 +1531,18 @@ async def run_reddit_simulation(
 async def main():
     parser = argparse.ArgumentParser(description='OASIS dual-platform parallel simulation')
     parser.add_argument(
+        '--step-timeout-seconds',
+        type=float,
+        default=120,
+        help='Maximum seconds for each OASIS reset or step operation'
+    )
+    parser.add_argument(
+        '--step-cleanup-grace-seconds',
+        type=float,
+        default=5,
+        help='Seconds allowed for cancellation before the simulation process exits'
+    )
+    parser.add_argument(
         '--config', 
         type=str, 
         required=True,
@@ -1531,6 +1582,8 @@ async def main():
         sys.exit(1)
     
     config = load_config(args.config)
+    config["_step_timeout_seconds"] = args.step_timeout_seconds
+    config["_step_cleanup_grace_seconds"] = args.step_cleanup_grace_seconds
     simulation_dir = os.path.dirname(args.config) or "."
     wait_for_commands = not args.no_wait
     
@@ -1685,6 +1738,9 @@ if __name__ == "__main__":
     setup_signal_handlers()
     try:
         asyncio.run(main())
+    except HardOperationTimeout as error:
+        print(f"Fatal timeout: {error}", file=sys.stderr, flush=True)
+        os._exit(2)
     except KeyboardInterrupt:
         print("\nProgram interrupted")
     except SystemExit:

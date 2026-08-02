@@ -88,9 +88,10 @@ class DirectOasisEngine:
             "simulation_requirement": state["project"]["objective"],
             "ontology": state["ontology"],
             "chunks": chunks,
-        })
+        }, timeout=max(self.timeout, 660))
 
     def prepare_environment(self, mapping: dict, state: dict, config: dict) -> dict:
+        prepare_timeout = float(os.getenv("OASIS_PREPARE_TIMEOUT_SECONDS", "900"))
         return self._call("prepare", {
             "simulation_id": state["id"],
             "project_id": state["project"]["id"],
@@ -98,7 +99,7 @@ class DirectOasisEngine:
             "simulation_requirement": state["project"]["objective"],
             "document_text": "\n\n".join(item.get("text", "") for item in config.pop("_chunks", [])),
             "config": config,
-        }, timeout=max(self.timeout, 300))
+        }, timeout=max(self.timeout, prepare_timeout))
 
     def start_simulation(self, mapping: dict, config: dict) -> dict:
         simulation_id = mapping["external_simulation_id"]
@@ -108,8 +109,10 @@ class DirectOasisEngine:
             raise ProviderResponseError("simulate", "OASIS configuration does not exist")
         status_path = simulation_dir / "direct_runtime.json"
         old = self._read_json(status_path)
-        if self._pid_alive(old.get("pid")):
+        if old.get("runner_status") == "running" and self._pid_alive(old.get("pid")):
             return old
+        if self._pid_alive(old.get("pid")):
+            self.stop_simulation(simulation_id)
         for relative in ("twitter/actions.jsonl", "reddit/actions.jsonl", "env_status.json"):
             path = simulation_dir / relative
             if path.exists():
@@ -118,7 +121,9 @@ class DirectOasisEngine:
             str(self.runtime_python),
             str(self.runtime_dir / "scripts" / "run_parallel_simulation.py"),
             "--config", str(config_path),
-            "--max-rounds", str(int(config.get("max_rounds") or 40)),
+            "--max-rounds", str(int(config.get("rounds", config.get("max_rounds", 10)))),
+            "--step-timeout-seconds", str(float(config.get("step_timeout_seconds") or 120)),
+            "--step-cleanup-grace-seconds", str(float(config.get("step_cleanup_grace_seconds") or 5)),
         ]
         log = (simulation_dir / "simulation.log").open("w", encoding="utf-8")
         process = subprocess.Popen(
@@ -132,8 +137,11 @@ class DirectOasisEngine:
         log.close()
         runtime = {
             "runner_status": "running", "pid": process.pid, "started_at": time.time(),
-            "max_run_seconds": config.get("max_run_seconds"), "cursors": {"twitter": 0, "reddit": 0},
-            "max_rounds": int(config.get("max_rounds") or 40),
+            "last_progress_at": time.time(), "last_progress_signature": "0:0:false:false",
+            "max_run_seconds": config.get("max_run_seconds") or 3600,
+            "stale_timeout_seconds": config.get("stale_timeout_seconds") or 150,
+            "cursors": {"twitter": 0, "reddit": 0},
+            "max_rounds": int(config.get("rounds", config.get("max_rounds", 10))),
         }
         self._write_json(status_path, runtime)
         return runtime
@@ -210,7 +218,12 @@ class DirectOasisEngine:
             actions.extend(platform_actions)
             rounds[platform] = max((int(item.get("round", 0)) for item in self._read_all_log(simulation_dir / platform / "actions.jsonl")), default=0)
         pid_alive = self._pid_alive(runtime.get("pid"))
+        progress_signature = f"{rounds.get('twitter', 0)}:{rounds.get('reddit', 0)}:{completed.get('twitter', False)}:{completed.get('reddit', False)}"
+        if runtime.get("last_progress_signature") != progress_signature:
+            runtime["last_progress_signature"] = progress_signature
+            runtime["last_progress_at"] = time.time()
         max_seconds = runtime.get("max_run_seconds")
+        stale_seconds = runtime.get("stale_timeout_seconds")
         if max_seconds and time.time() - float(runtime.get("started_at", time.time())) > float(max_seconds):
             self.stop_simulation(simulation_id)
             runtime["runner_status"] = "failed"
@@ -219,10 +232,17 @@ class DirectOasisEngine:
             runtime["runner_status"] = "completed"
         elif not pid_alive:
             runtime["runner_status"] = "failed"
+            log_tail = self._read_text_tail(simulation_dir / "simulation.log")
             runtime["error"] = "OASIS process exited before both platforms completed"
+            if log_tail:
+                runtime["error"] += f"; last output: {log_tail}"
+        elif stale_seconds and time.time() - float(runtime.get("last_progress_at", time.time())) > float(stale_seconds):
+            self.stop_simulation(simulation_id)
+            runtime["runner_status"] = "failed"
+            runtime["error"] = "OASIS simulation made no round progress before its stale timeout"
         generated_config = self._read_json(simulation_dir / "simulation_config.json")
         natural_rounds = int(generated_config.get("time_config", {}).get("total_simulation_hours", 1) * 60 / max(1, generated_config.get("time_config", {}).get("minutes_per_round", 60)))
-        total_rounds = max(1, min(natural_rounds, int(runtime.get("max_rounds") or natural_rounds)))
+        total_rounds = max(1, int(runtime.get("max_rounds") or natural_rounds))
         current_round = max(rounds.values(), default=0)
         status = runtime | {
             "current_round": current_round,
@@ -249,6 +269,14 @@ class DirectOasisEngine:
                     os.killpg(int(pid), signal.SIGTERM)
                 except ProcessLookupError:
                     pass
+                deadline = time.monotonic() + 5
+                while self._pid_alive(pid) and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                if self._pid_alive(pid):
+                    try:
+                        os.killpg(int(pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
         return {"runner_status": "stopped"}
 
     def interview(self, simulation_id: str, interviews: list[dict], platform: str | None = None) -> dict:
@@ -273,11 +301,15 @@ class DirectOasisEngine:
             "simulation_requirement": simulation_requirement,
         }, timeout=max(self.timeout, report_timeout))
 
-    def ingest_actions(self, simulation_id: str, graph_id: str) -> dict:
+    def ingest_actions(self, simulation_id: str, graph_id: str, run_id: str, actions: list[dict]) -> dict:
+        ingestion_timeout = float(os.getenv("OASIS_INGESTION_TIMEOUT_SECONDS", "900"))
         return self._call(
             "ingest-actions",
-            {"simulation_id": simulation_id, "graph_id": graph_id},
-            timeout=max(self.timeout, 300),
+            {
+                "simulation_id": simulation_id, "graph_id": graph_id, "run_id": run_id,
+                "actions": actions, "timeout_seconds": ingestion_timeout,
+            },
+            timeout=max(self.timeout, ingestion_timeout + 30),
         )
 
     def report_chat(self, simulation_id: str, graph_id: str, simulation_requirement: str,
@@ -346,6 +378,11 @@ class DirectOasisEngine:
             return False
         try:
             os.kill(int(pid), 0)
+            stat_path = Path(f"/proc/{int(pid)}/stat")
+            if stat_path.exists():
+                fields = stat_path.read_text(encoding="utf-8").split()
+                if len(fields) > 2 and fields[2] == "Z":
+                    return False
             return True
         except (OSError, ValueError):
             return False
@@ -393,3 +430,10 @@ class DirectOasisEngine:
             except json.JSONDecodeError:
                 continue
         return records
+
+    @staticmethod
+    def _read_text_tail(path: Path, limit: int = 2000) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")[-limit:].strip()
+        except OSError:
+            return ""
