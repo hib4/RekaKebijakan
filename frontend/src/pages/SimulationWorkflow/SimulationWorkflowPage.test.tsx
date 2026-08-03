@@ -268,8 +268,10 @@ describe("SimulationWorkflowPage live mode", () => {
     const profileCount = await screen.findByRole("spinbutton", { name: "Jumlah maksimum profil" });
     const rounds = screen.getByRole("spinbutton", { name: "Jumlah ronde simulasi" });
     const llmToggle = screen.getByRole("checkbox", { name: "Perkaya setiap profil dengan LLM (lebih lambat)" });
+    const configLlmToggle = screen.getByRole("checkbox", { name: "Perkaya konfigurasi simulasi dengan LLM (lebih lambat)" });
     expect(profileCount).toHaveValue(10);
     expect(llmToggle).not.toBeChecked();
+    expect(configLlmToggle).not.toBeChecked();
     fireEvent.change(rounds, { target: { value: "10" } });
     await user.click(screen.getByRole("button", { name: "Prepare OASIS Environment →" }));
 
@@ -278,6 +280,7 @@ describe("SimulationWorkflowPage live mode", () => {
       max_rounds: 10,
       max_profile_count: 10,
       use_llm_for_profiles: false,
+      use_llm_for_config: false,
       parallel_profile_count: 5,
     }));
   });

@@ -104,6 +104,7 @@ def test_rounds_default_to_ten_and_simulation_payload_is_validated(client):
     environment = start_and_wait(client, simulation_id, "environment")
     assert environment["environment"]["config"]["rounds"] == 10
     assert environment["environment"]["config"]["max_rounds"] == 10
+    assert environment["environment"]["config"]["overrides"]["use_llm_for_config"] is False
     invalid = client.post(f"/api/simulations/{simulation_id}/stages/simulation/start", json={"rounds": 1001})
     assert invalid.status_code == 422
 

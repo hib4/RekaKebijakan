@@ -319,9 +319,11 @@ function EnvironmentStep({
   maxProfileCount,
   rounds,
   useLlmForProfiles,
+  useLlmForConfig,
   onMaxProfileCountChange,
   onRoundsChange,
   onUseLlmForProfilesChange,
+  onUseLlmForConfigChange,
   next,
 }: {
   demo: DemoCase;
@@ -330,9 +332,11 @@ function EnvironmentStep({
   maxProfileCount: number;
   rounds: number;
   useLlmForProfiles: boolean;
+  useLlmForConfig: boolean;
   onMaxProfileCountChange: (value: number) => void;
   onRoundsChange: (value: number) => void;
   onUseLlmForProfilesChange: (value: boolean) => void;
+  onUseLlmForConfigChange: (value: boolean) => void;
   next: () => void;
 }) {
   const step = session.steps[2];
@@ -470,6 +474,14 @@ function EnvironmentStep({
               onChange={(event) => onUseLlmForProfilesChange(event.target.checked)}
             />
             <span>Perkaya setiap profil dengan LLM (lebih lambat)</span>
+          </label>
+          <label className="profile-llm-toggle">
+            <input
+              type="checkbox"
+              checked={useLlmForConfig}
+              onChange={(event) => onUseLlmForConfigChange(event.target.checked)}
+            />
+            <span>Perkaya konfigurasi simulasi dengan LLM (lebih lambat)</span>
           </label>
           <button className="button primary start-action" onClick={start}>
             Prepare OASIS Environment →
@@ -1242,6 +1254,7 @@ export default function SimulationWorkflowPage() {
   const [requestedRounds, setRequestedRounds] = useState<number | null>(null);
   const effectiveRequestedRounds = requestedRounds ?? session.environment.rounds;
   const [useLlmForProfiles, setUseLlmForProfiles] = useState(false);
+  const [useLlmForConfig, setUseLlmForConfig] = useState(false);
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
   });
@@ -1637,7 +1650,7 @@ export default function SimulationWorkflowPage() {
   const startStep = (step: WorkflowStep) => {
     if (!localMode) {
       const config = step === 2
-        ? { rounds: effectiveRequestedRounds, max_rounds: effectiveRequestedRounds, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, parallel_profile_count: 5 }
+        ? { rounds: effectiveRequestedRounds, max_rounds: effectiveRequestedRounds, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, use_llm_for_config: useLlmForConfig, parallel_profile_count: 5 }
         : step === 3
           ? { rounds: session.environment.rounds, max_rounds: session.environment.rounds, enable_graph_memory_update: true }
           : undefined;
@@ -1799,9 +1812,11 @@ export default function SimulationWorkflowPage() {
                 maxProfileCount={maxProfileCount}
                 rounds={effectiveRequestedRounds}
                 useLlmForProfiles={useLlmForProfiles}
+                useLlmForConfig={useLlmForConfig}
                 onMaxProfileCountChange={setMaxProfileCount}
                 onRoundsChange={setRequestedRounds}
                 onUseLlmForProfilesChange={setUseLlmForProfiles}
+                onUseLlmForConfigChange={setUseLlmForConfig}
                 next={() => goStep(3)}
               />
             )}

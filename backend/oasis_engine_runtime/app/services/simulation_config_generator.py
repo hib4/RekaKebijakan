@@ -245,6 +245,7 @@ class SimulationConfigGenerator:
         entities: List[EntityNode],
         enable_twitter: bool = True,
         enable_reddit: bool = True,
+        use_llm: bool = False,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> SimulationParameters:
         """Generate a complete simulation configuration in stages.
@@ -258,6 +259,7 @@ class SimulationConfigGenerator:
             entities: Filtered entity list.
             enable_twitter: Whether to enable Twitter.
             enable_reddit: Whether to enable Reddit.
+            use_llm: Whether to refine configuration with the LLM.
             progress_callback: Callback (current_step, total_steps, message).
 
         Returns:
@@ -289,13 +291,19 @@ class SimulationConfigGenerator:
         # Step 1: Generate time configuration
         report_progress(1, t('progress.generatingTimeConfig'))
         num_entities = len(entities)
-        time_config_result = self._generate_time_config(context, num_entities)
+        time_config_result = (
+            self._generate_time_config(context, num_entities)
+            if use_llm else self._get_default_time_config(num_entities)
+        )
         time_config = self._parse_time_config(time_config_result, num_entities)
         reasoning_parts.append(f"{t('progress.timeConfigLabel')}: {time_config_result.get('reasoning', t('common.success'))}")
         
         # Step 2: Generate event configuration
         report_progress(2, t('progress.generatingEventConfig'))
-        event_config_result = self._generate_event_config(context, simulation_requirement, entities)
+        event_config_result = self._generate_event_config(context, simulation_requirement, entities) if use_llm else {
+            "hot_topics": [], "narrative_direction": "", "initial_posts": [],
+            "reasoning": "Using the default configuration",
+        }
         event_config = self._parse_event_config(event_config_result)
         reasoning_parts.append(f"{t('progress.eventConfigLabel')}: {event_config_result.get('reasoning', t('common.success'))}")
         
@@ -315,7 +323,8 @@ class SimulationConfigGenerator:
                 context=context,
                 entities=batch_entities,
                 start_idx=start_idx,
-                simulation_requirement=simulation_requirement
+                simulation_requirement=simulation_requirement,
+                use_llm=use_llm,
             )
             all_agent_configs.extend(batch_configs)
         
@@ -803,7 +812,8 @@ Return JSON without Markdown:
         context: str,
         entities: List[EntityNode],
         start_idx: int,
-        simulation_requirement: str
+        simulation_requirement: str,
+        use_llm: bool = True,
     ) -> List[AgentActivityConfig]:
         """Generate agent configuration in batches."""
         
@@ -855,11 +865,14 @@ Return JSON without Markdown:
 
         system_prompt = "You are a social media behavior analysis expert. Return only valid JSON and adapt the configuration to the target audience's daily habits. Write all natural-language content in English. The stance value must be one of: supportive, opposing, neutral, observer. Keep JSON field names and numeric values unchanged."
 
-        try:
-            result = self._call_llm_with_retry(prompt, system_prompt)
-            llm_configs = {cfg["agent_id"]: cfg for cfg in result.get("agent_configs", [])}
-        except Exception as e:
-            logger.warning(f"LLM agent batch generation failed: {e}; using rule-based generation")
+        if use_llm:
+            try:
+                result = self._call_llm_with_retry(prompt, system_prompt)
+                llm_configs = {cfg["agent_id"]: cfg for cfg in result.get("agent_configs", [])}
+            except Exception as e:
+                logger.warning(f"LLM agent batch generation failed: {e}; using rule-based generation")
+                llm_configs = {}
+        else:
             llm_configs = {}
         
         # Build AgentActivityConfig objects

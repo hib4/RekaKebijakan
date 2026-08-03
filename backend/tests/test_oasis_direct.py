@@ -288,6 +288,58 @@ def test_sync_graph_reuses_existing_ontology(monkeypatch):
     assert result["episode_uuids"] == ["episode-1"]
 
 
+def test_prepare_bridge_forwards_fast_deterministic_options(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    class State:
+        def __init__(self, simulation_id, project_id, graph_id):
+            captured.update(simulation_id=simulation_id, project_id=project_id, graph_id=graph_id)
+            self.simulation_id = simulation_id
+
+        def to_dict(self):
+            return {"simulation_id": self.simulation_id}
+
+    class Manager:
+        def _save_simulation_state(self, _state):
+            pass
+
+        def prepare_simulation(self, *args, **kwargs):
+            captured.update(prepare_args=args, prepare_kwargs=kwargs)
+            return State(args[0], "project-1", "graph-1")
+
+        def get_profiles(self, _simulation_id, _platform):
+            return []
+
+        def get_simulation_config(self, _simulation_id):
+            return {}
+
+    services = types.ModuleType("app.services")
+    manager_module = types.ModuleType("app.services.simulation_manager")
+    manager_module.SimulationManager = Manager
+    manager_module.SimulationState = State
+    monkeypatch.setitem(sys.modules, "app.services", services)
+    monkeypatch.setitem(sys.modules, "app.services.simulation_manager", manager_module)
+    monkeypatch.setenv("OASIS_DATA_DIR", str(tmp_path))
+
+    result = oasis_direct_bridge.prepare({
+        "simulation_id": "sim-1", "project_id": "project-1", "graph_id": "graph-1",
+        "simulation_requirement": "Requirement", "document_text": "Evidence",
+        "config": {
+            "use_llm_for_profiles": False, "use_llm_for_config": False,
+            "parallel_profile_count": 5, "max_profile_count": 10,
+        },
+    })
+
+    assert result["state"]["simulation_id"] == "sim-1"
+    assert captured["prepare_kwargs"] == {
+        "defined_entity_types": None,
+        "use_llm_for_profiles": False,
+        "use_llm_for_config": False,
+        "parallel_profile_count": 5,
+        "max_profile_count": 10,
+    }
+
+
 def test_ingest_actions_bridge_matches_bundled_updater_contract(monkeypatch, tmp_path: Path):
     calls = {}
 

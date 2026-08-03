@@ -52,6 +52,7 @@ def prepare(payload: dict) -> dict:
         payload["simulation_id"], payload["simulation_requirement"], payload.get("document_text", ""),
         defined_entity_types=config.get("entity_types"),
         use_llm_for_profiles=config.get("use_llm_for_profiles", True),
+        use_llm_for_config=config.get("use_llm_for_config", False),
         parallel_profile_count=config.get("parallel_profile_count", 5),
         max_profile_count=config.get("max_profile_count"),
     )

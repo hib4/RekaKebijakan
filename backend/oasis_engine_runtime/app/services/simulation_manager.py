@@ -248,6 +248,7 @@ class SimulationManager:
         document_text: str,
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
+        use_llm_for_config: bool = False,
         progress_callback: Optional[callable] = None,
         parallel_profile_count: int = 3,
         max_profile_count: Optional[int] = None,
@@ -269,6 +270,7 @@ class SimulationManager:
             document_text: Source document used by the LLM for context.
             defined_entity_types: Optional predefined entity types.
             use_llm_for_profiles: Whether to generate detailed profiles with the LLM.
+            use_llm_for_config: Whether to generate simulation configuration with the LLM.
             progress_callback: Progress callback (stage, progress, message).
             parallel_profile_count: Number of profiles generated in parallel; defaults to 3.
             max_profile_count: Maximum number of profiles to generate.
@@ -436,7 +438,8 @@ class SimulationManager:
                 document_text=document_text,
                 entities=filtered.entities,
                 enable_twitter=state.enable_twitter,
-                enable_reddit=state.enable_reddit
+                enable_reddit=state.enable_reddit,
+                use_llm=use_llm_for_config,
             )
             
             if progress_callback:

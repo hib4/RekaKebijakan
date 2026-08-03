@@ -288,8 +288,8 @@ class OasisProfileGenerator:
         name = entity.name
         user_name = self._generate_username(name)
         
-        # Build contextual information
-        context = self._build_entity_context(entity)
+        # Rule-based profiles do not consume the enriched context.
+        context = self._build_entity_context(entity) if use_llm else ""
         
         if use_llm:
             # Generate a detailed persona with the LLM

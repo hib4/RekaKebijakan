@@ -46,6 +46,7 @@ class EnvironmentInput(BaseModel):
     response_mode: str = Field(default="Responsif", max_length=40)
     entity_types: list[str] | None = Field(default=None, max_length=100)
     use_llm_for_profiles: bool = True
+    use_llm_for_config: bool = False
     parallel_profile_count: int = Field(default=5, ge=1, le=20)
     max_profile_count: int | None = Field(default=None, ge=1, le=500)
     max_rounds: int | None = Field(default=None, ge=1, le=1000)
@@ -68,6 +69,7 @@ class EnvironmentUpdateInput(BaseModel):
     response_mode: str | None = Field(default=None, max_length=40)
     entity_types: list[str] | None = Field(default=None, max_length=100)
     use_llm_for_profiles: bool | None = None
+    use_llm_for_config: bool | None = None
     parallel_profile_count: int | None = Field(default=None, ge=1, le=20)
     max_profile_count: int | None = Field(default=None, ge=1, le=500)
     max_rounds: int | None = Field(default=None, ge=1, le=1000)
