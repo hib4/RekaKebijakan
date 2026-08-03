@@ -617,7 +617,7 @@ class SimulationRunner:
         return state
     
     @classmethod
-    def _monitor_simulation(cls, simulation_id: str, locale: str = 'en'):
+    def _monitor_simulation(cls, simulation_id: str, locale: str = 'id'):
         """Monitor the simulation process and parse action logs."""
         set_locale(locale)
         sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)

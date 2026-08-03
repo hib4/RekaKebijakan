@@ -17,6 +17,7 @@ import {
   startStage,
   updateEnvironment,
 } from "../../api/client";
+import type { ApiRuntimeGraph, ApiSimulationSnapshot, SimulationStreamEvent } from "../../api/client";
 import {
   getWorkspaceProjectBySimulation,
   getWorkspaceReportBySimulation,
@@ -25,8 +26,8 @@ import {
 } from "../../data/localWorkspace";
 import {
   demoCases,
-  entityTypes,
-  relationTypes,
+  entityTypes as fallbackEntityTypes,
+  relationTypes as fallbackRelationTypes,
   suggestedQuestions,
 } from "./workflowData";
 import { intakeToDemoCase, loadProjectIntake } from "./projectIntake";
@@ -55,23 +56,26 @@ import type { InteractionMessage, WorkflowSession } from "./workflowSession";
 import { useAutoFollow } from "./useAutoFollow";
 import { mapBackendSnapshot, mapInteractionMessage } from "./backendWorkflow";
 import { CitationDrawer } from "../../components/CitationDrawer/CitationDrawer";
+import { Markdown } from "../../components/Markdown/Markdown";
+import { mergeRuntimeGraphEvent, mergeSimulationStreamEvent } from "./simulationStream";
+import { useSimulationStream } from "./useSimulationStream";
 import "./SimulationWorkflow.css";
 
 const graphTasks = [
   {
-    title: "Policy Ontology Generation",
+    title: "Penyusunan ontologi kebijakan",
     operation: "ONTOLOGY EXTRACTION",
     description:
       "Mengekstrak isu, stakeholder, klausul, kekhawatiran publik, dan narasi risiko.",
   },
   {
-    title: "Stakeholder Graph Build",
+    title: "Pembangunan graf stakeholder",
     operation: "GRAPH ASSEMBLY",
     description:
       "Menyusun entity dan relasi menjadi graf kebijakan yang dapat ditinjau.",
   },
   {
-    title: "Graph Build Complete",
+    title: "Pembangunan graf selesai",
     operation: "COVERAGE VALIDATION",
     description:
       "Memvalidasi cakupan stakeholder dan jejak bukti sebelum Environment Setup.",
@@ -79,29 +83,29 @@ const graphTasks = [
 ];
 const environmentTasks = [
   {
-    title: "Generate Persona Profiles",
+    title: "Buat profil persona",
     operation: "PERSONA GENERATION",
     description:
       "Membentuk persona sintetis berdasarkan kelompok stakeholder yang tersedia.",
   },
   {
-    title: "Generate Simulation Config",
+    title: "Buat konfigurasi simulasi",
     operation: "CONFIGURATION GENERATION",
     description:
       "Menyiapkan ronde, kanal reaksi, pengaruh, dan respons pemerintah.",
   },
   {
-    title: "Environment Ready",
+    title: "Lingkungan siap",
     operation: "READINESS VALIDATION",
     description: "Memeriksa cakupan persona dan kesiapan konfigurasi.",
   },
 ];
 const reportTasks = [
-  "Planning / Outline",
-  "Evidence Selection",
-  "Section Writing",
-  "Risk Review",
-  "Complete",
+  "Perencanaan / kerangka",
+  "Pemilihan bukti",
+  "Penulisan bagian",
+  "Tinjauan risiko",
+  "Selesai",
 ];
 
 function stepQuery(step: WorkflowStep) {
@@ -215,11 +219,15 @@ function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
 function GraphBuildStep({
   demo,
   session,
+  entityTypes,
+  relationTypes,
   start,
   next,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
+  entityTypes: string[];
+  relationTypes: string[];
   start: () => void;
   next: () => void;
 }) {
@@ -230,12 +238,11 @@ function GraphBuildStep({
   return (
     <div className="step-scroll" ref={scrollRef}>
       <div className="step-intro">
-        <span>STEP 1/5</span>
+          <span>TAHAP 1/5</span>
         <h1 tabIndex={-1}>Bangun graf kebijakan</h1>
-        <p>
-          Entity dan relasi muncul bertahap sesuai proses ekstraksi dan
-          validasi.
-        </p>
+        <p aria-live="polite">{step.status === "processing" && step.activeTask
+          ? step.activeTask
+          : "Entity dan relasi muncul bertahap sesuai proses ekstraksi dan validasi."}</p>
       </div>
       {graphTasks.map((task, index) => (
         <StepCard
@@ -300,12 +307,12 @@ function GraphBuildStep({
       ))}
       {step.status === "ready" && (
         <button className="button primary start-action" onClick={start}>
-          Start Graph Build →
+          Mulai membangun graf →
         </button>
       )}
       {step.status === "completed" && (
         <button className="button primary start-action" onClick={next}>
-          Continue to Env Setup →
+          Lanjut ke penyiapan lingkungan →
         </button>
       )}
     </div>
@@ -350,11 +357,11 @@ function EnvironmentStep({
   return (
     <div className="step-scroll" ref={scrollRef}>
       <div className="step-intro">
-        <span>STEP 2/5</span>
+          <span>TAHAP 2/5</span>
         <h1 tabIndex={-1}>Siapkan lingkungan simulasi</h1>
-        <p>
-          Graf kebijakan tetap menjadi sumber tinjauan. OASIS membentuk graf runtime Zep terpisah untuk persona, relasi hasil ekstraksi, dan memori simulasi.
-        </p>
+        <p aria-live="polite">{step.status === "processing" && step.activeTask
+          ? step.activeTask
+          : "Graf kebijakan tetap menjadi sumber tinjauan. OASIS membentuk graf runtime Zep terpisah untuk persona, relasi hasil ekstraksi, dan memori simulasi."}</p>
       </div>
       {environmentTasks.map((task, index) => (
         <StepCard
@@ -484,13 +491,13 @@ function EnvironmentStep({
             <span>Perkaya konfigurasi simulasi dengan LLM (lebih lambat)</span>
           </label>
           <button className="button primary start-action" onClick={start}>
-            Prepare OASIS Environment →
+            Siapkan lingkungan OASIS →
           </button>
         </div>
       )}
       {step.status === "completed" && (
         <button className="button primary start-action" onClick={next}>
-          Start Simulation →
+          Mulai simulasi →
         </button>
       )}
     </div>
@@ -569,6 +576,7 @@ function SimulationStep({
   report: () => void;
 }) {
   const run = session.simulation;
+  const step = session.steps[3];
   const events = demo.events.slice(0, run.eventCount);
   const round =
     run.status === "completed"
@@ -581,9 +589,9 @@ function SimulationStep({
   return (
     <div className="step-scroll simulation-step" ref={scrollRef}>
       <div className="step-intro">
-        <span>STEP 3/5</span>
+          <span>TAHAP 3/5</span>
         <h1 tabIndex={-1}>Jalankan simulasi OASIS</h1>
-        <p>{demo.question}</p>
+        <p aria-live="polite">{step.status === "processing" && step.activeTask ? step.activeTask : demo.question}</p>
       </div>
       <div className="channel-grid">
         {session.environment.platforms.map((channel) => {
@@ -598,27 +606,27 @@ function SimulationStep({
                 <h3>{channel}</h3>
                 <span className={run.status}>
                   {run.status === "completed"
-                    ? "Completed"
+                    ? "Selesai"
                     : run.status === "running"
-                      ? "Running"
+                      ? "Berjalan"
                       : run.status === "paused"
-                        ? "Paused"
-                        : "Ready"}
+                        ? "Dijeda"
+                        : "Siap"}
                 </span>
               </header>
               <dl>
                 <div>
-                  <dt>Round</dt>
+                  <dt>Ronde</dt>
                   <dd>
                     {lastRound}/{session.environment.rounds}
                   </dd>
                 </div>
                 <div>
-                  <dt>Elapsed</dt>
+                  <dt>Waktu</dt>
                   <dd>{events.at(-1)?.time ?? "00:00"}</dd>
                 </div>
                 <div>
-                  <dt>Acts/events</dt>
+                  <dt>Aksi/event</dt>
                   <dd>{count}</dd>
                 </div>
               </dl>
@@ -628,16 +636,16 @@ function SimulationStep({
       </div>
       <div className="workflow-simulation-summary">
         <span>
-          <b>{events.length}</b>Total events
+          <b>{events.length}</b>Total event
         </span>
         <span>
           <b>
             {round}/{session.environment.rounds}
           </b>
-          Round progress
+           Progres ronde
         </span>
         <label>
-          Speed
+          Kecepatan
           <select
             value={run.speed}
             onChange={(event) =>
@@ -657,7 +665,7 @@ function SimulationStep({
         </label>
         {run.status === "ready" && (
           <button className="button primary" onClick={start}>
-            Start Simulation →
+            Mulai simulasi →
           </button>
         )}
         {run.status === "running" && (
@@ -679,7 +687,7 @@ function SimulationStep({
               )
             }
           >
-            Pause
+            Jeda
           </button>
         )}
         {run.status === "paused" && (
@@ -702,7 +710,7 @@ function SimulationStep({
                 )
               }
             >
-              Resume
+              Lanjutkan
             </button>
             <button
               className="button secondary"
@@ -719,7 +727,7 @@ function SimulationStep({
                 })
               }
             >
-              Next event
+              Event berikutnya
             </button>
           </>
         )}
@@ -761,7 +769,7 @@ function SimulationStep({
       {run.status === "completed" && (
         <div className="simulation-complete-action">
           <button className="button primary" onClick={report}>
-            Buka Report →
+            Buka laporan →
           </button>
         </div>
       )}
@@ -781,7 +789,7 @@ function ReportPreview({
   return (
     <article className="report-preview">
       <header>
-        <span>POLICY SIMULATION REPORT</span>
+        <span>LAPORAN SIMULASI KEBIJAKAN</span>
         <h1>{demo.reportTitle}</h1>
         <p>
           Disusun dari simulasi skenario · {demo.events.length} event · {demo.personas.reduce((sum, persona) => sum + persona.count, 0)} persona sintetis
@@ -796,9 +804,7 @@ function ReportPreview({
               <h2>{section.title}</h2>
               {stored ? (
                 <>
-                  {stored.content.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
+                  <Markdown>{stored.content.join("\n\n")}</Markdown>
                   <CitationDrawer
                     citations={stored.citations}
                     label="Lihat sumber bagian"
@@ -843,9 +849,13 @@ function ReportStep({
       />
       <aside className="report-progress" ref={scrollRef}>
         <div className="step-intro">
-          <span>STEP 4/5</span>
-          <h1 tabIndex={-1}>Generate policy report</h1>
-          <p>Dokumen dan jejak proses diperbarui dari artifact yang sama.</p>
+          <span>TAHAP 4/5</span>
+          <h1 tabIndex={-1}>Susun laporan kebijakan</h1>
+          <p aria-live="polite">
+            {step.status === "processing" && step.activeTask
+              ? step.activeTask
+              : "Dokumen dan jejak proses diperbarui dari artefak yang sama."}
+          </p>
         </div>
         <div className="report-metrics">
           <span>
@@ -858,7 +868,7 @@ function ReportStep({
             <b>{demo.events.length}</b>Event dipilih
           </span>
           <span>
-            <b>{session.report.progress}%</b>Progress
+            <b>{session.report.progress}%</b>Progres
           </span>
         </div>
         <div className="progress-timeline">
@@ -893,16 +903,16 @@ function ReportStep({
         </div>
         {step.status === "ready" && (
           <button className="button primary" onClick={start}>
-            Generate Report →
+            Susun laporan →
           </button>
         )}
         {step.status === "completed" && (
           <>
             <span className="report-complete-badge">
-              ✓ Report completed and saved
+              ✓ Laporan selesai dan tersimpan
             </span>
             <button className="button primary" onClick={next}>
-              Go to Interaction →
+              Buka interaksi →
             </button>
           </>
         )}
@@ -912,15 +922,15 @@ function ReportStep({
 }
 
 const tools = [
-  ["report", "Report Agent", "Ajukan pertanyaan dengan kutipan laporan."],
+  ["report", "Agen Laporan", "Ajukan pertanyaan dengan kutipan laporan."],
   [
     "persona",
-    "Persona Group Interview",
+    "Wawancara Kelompok Persona",
     "Wawancarai kelompok stakeholder sintetis.",
   ],
-  ["evidence", "Evidence Trace", "Telusuri insight ke event dan graph."],
-  ["compare", "Scenario Compare", "Bandingkan baseline dan asumsi revisi."],
-  ["revision", "Revision Notes", "Susun catatan revisi kebijakan."],
+  ["evidence", "Jejak Bukti", "Telusuri insight ke event dan graf."],
+  ["compare", "Perbandingan Skenario", "Bandingkan baseline dan asumsi revisi."],
+  ["revision", "Catatan Revisi", "Susun catatan revisi kebijakan."],
 ] as const;
 
 function InteractionStep({
@@ -1087,7 +1097,7 @@ function InteractionStep({
       />
       <aside className="interaction-tools" ref={scrollRef}>
         <div className="step-intro">
-          <span>STEP 5/5</span>
+          <span>TAHAP 5/5</span>
           <h1 tabIndex={-1}>Interaksi dengan hasil</h1>
           <p>Setiap alat memiliki konteks dan keluaran yang berbeda.</p>
         </div>
@@ -1106,7 +1116,7 @@ function InteractionStep({
         </div>
         {tool === "persona" && (
           <label className="persona-select">
-            Persona group
+            Kelompok persona
             <select
               value={group}
               onChange={(event) => setGroup(event.target.value)}
@@ -1122,7 +1132,7 @@ function InteractionStep({
         )}
         {tool === "evidence" && (
           <div className="tool-artifact">
-            <b>Evidence chain</b>
+            <b>Rantai bukti</b>
             <span>
               Report §3 → Event {demo.events[0]?.id} →{" "}
               {demo.graphNodes[0]?.label}
@@ -1143,7 +1153,7 @@ function InteractionStep({
         )}
         {tool === "revision" && (
           <div className="tool-artifact">
-            <b>Revision workspace</b>
+            <b>Ruang kerja revisi</b>
             <span>
               Catatan dapat diedit melalui percakapan dan diekspor sebagai
               Markdown.
@@ -1163,11 +1173,11 @@ function InteractionStep({
                   (message) => message.tool === tool || message.id === "welcome",
                 )
                 .map((message) => (
-                  <p key={message.id} className={message.role}>
+                  <div key={message.id} className={`chat-message ${message.role}`}>
                     <b>{message.author}</b>
-                    {message.text}
+                    <Markdown>{message.text}</Markdown>
                     <CitationDrawer citations={message.citations} label="Lihat sumber jawaban" />
-                  </p>
+                  </div>
                 ))}
               {typing && (
                 <p className="agent typing">
@@ -1205,14 +1215,14 @@ function InteractionStep({
               type="submit"
               disabled={!input.trim() || typing}
             >
-              Send →
+              Kirim →
             </button>
             <button
               className="button secondary"
               type="button"
               onClick={exportNotes}
             >
-              Export .md
+              Ekspor .md
             </button>
           </div>
         </form>
@@ -1249,7 +1259,14 @@ export default function SimulationWorkflowPage() {
   const [backendLoaded, setBackendLoaded] = useState(localMode);
   const [backendError, setBackendError] = useState("");
   const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
+  const [runtimeMappingStatus, setRuntimeMappingStatus] = useState("");
+  const [policyOntology, setPolicyOntology] = useState<{ entityTypes: string[]; relationTypes: string[] }>({ entityTypes: [], relationTypes: [] });
   const [graphSource, setGraphSource] = useState<"policy" | "runtime">("policy");
+  const backendSnapshotRef = useRef<ApiSimulationSnapshot | null>(null);
+  const runtimeGraphRef = useRef<Extract<ApiRuntimeGraph, { available: true }> | null>(null);
+  const graphSourceChosen = useRef(false);
+  const autoSelectedRuntime = useRef(false);
+  const graphSelections = useRef<{ policy: string | null; runtime: string | null }>({ policy: null, runtime: null });
   const [maxProfileCount, setMaxProfileCount] = useState(10);
   const [requestedRounds, setRequestedRounds] = useState<number | null>(null);
   const effectiveRequestedRounds = requestedRounds ?? session.environment.rounds;
@@ -1264,6 +1281,11 @@ export default function SimulationWorkflowPage() {
 
   const applyBackendSnapshot = useCallback(
     (snapshot: Awaited<ReturnType<typeof getSimulation>>) => {
+      backendSnapshotRef.current = snapshot;
+      setPolicyOntology({
+        entityTypes: snapshot.ontology?.entity_types?.map((type) => type.name) ?? [],
+        relationTypes: snapshot.ontology?.relation_types?.map((type) => type.name) ?? [],
+      });
       setSession((current) => {
         const mapped = mapBackendSnapshot(snapshot, simulationId, current);
         setResolvedDemo(mapped.demo);
@@ -1285,11 +1307,9 @@ export default function SimulationWorkflowPage() {
       setBackendLoading(false);
     }
   }, [applyBackendSnapshot, simulationId]);
-  const loadRuntimeGraph = useCallback(async () => {
-    if (localMode) return;
-    try {
-      const graph = await getRuntimeGraph(simulationId);
-      if (!graph.available) return;
+  const applyRuntimeGraph = useCallback((graph: Extract<ApiRuntimeGraph, { available: true }>) => {
+      runtimeGraphRef.current = graph;
+      setRuntimeMappingStatus(graph.mapping_status);
       const graphNodes = graph.nodes.flatMap((node, index) => {
         const id = node.id ?? node.uuid;
         if (!id) return [];
@@ -1323,18 +1343,52 @@ export default function SimulationWorkflowPage() {
         graphNodes,
         graphEdges,
       }));
-      if (session.currentStep >= 2) setGraphSource("runtime");
+      if (!graphSourceChosen.current && !autoSelectedRuntime.current && session.currentStep >= 2) {
+        autoSelectedRuntime.current = true;
+        setGraphSource("runtime");
+      }
+  }, [resolvedDemo, session.currentStep, simulationId]);
+  const loadRuntimeGraph = useCallback(async () => {
+    if (localMode) return;
+    try {
+      const graph = await getRuntimeGraph(simulationId);
+      if (!graph.available) return;
+      applyRuntimeGraph(graph);
     } catch (cause) {
       // Runtime topology is supplemental; the policy workflow remains usable
       // while Zep is unavailable or before Stage 02 creates the graph.
       if (cause instanceof ApiError && cause.status === 401) setBackendError(cause.message);
     }
-  }, [localMode, resolvedDemo, session.currentStep, simulationId]);
+  }, [applyRuntimeGraph, localMode, simulationId]);
   useEffect(() => {
     if (localMode) return;
     const timer = window.setTimeout(loadBackend, 0);
     return () => window.clearTimeout(timer);
   }, [loadBackend, localMode]);
+  const handleStreamEvent = useCallback((message: SimulationStreamEvent) => {
+    if (message.type === "graph.snapshot" || message.type === "graph.delta") {
+      const current = backendSnapshotRef.current;
+      if (current) {
+        const policy = mergeSimulationStreamEvent(current, message);
+        if (policy !== current) {
+          applyBackendSnapshot(policy);
+          return;
+        }
+      }
+      const graph = mergeRuntimeGraphEvent(runtimeGraphRef.current, message);
+      if (graph) applyRuntimeGraph(graph);
+      return;
+    }
+    const current = backendSnapshotRef.current;
+    if (!current) return;
+    const merged = mergeSimulationStreamEvent(current, message);
+    if (merged !== current) applyBackendSnapshot(merged);
+  }, [applyBackendSnapshot, applyRuntimeGraph]);
+  const stream = useSimulationStream({
+    simulationId,
+    enabled: !localMode && backendLoaded,
+    onEvent: handleStreamEvent,
+  });
   const backendPolling =
     (!localMode &&
       Object.values(session.steps).some(
@@ -1342,7 +1396,7 @@ export default function SimulationWorkflowPage() {
       )) ||
     (!localMode && session.simulation.status === "running");
   useEffect(() => {
-    if (!backendPolling) return;
+    if (!backendPolling || stream.healthy) return;
     let cancelled = false;
     let timer: number | undefined;
     const poll = async () => {
@@ -1354,18 +1408,18 @@ export default function SimulationWorkflowPage() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [backendPolling, loadBackend]);
+  }, [backendPolling, loadBackend, stream.healthy]);
   const runtimeGraphPolling = !localMode && session.steps[2].status !== "locked";
   useEffect(() => {
     if (!runtimeGraphPolling) return;
     const active = session.simulation.status === "running" || session.steps[2].status === "processing";
     const initialTimer = window.setTimeout(loadRuntimeGraph, 0);
-    const pollTimer = active ? window.setInterval(loadRuntimeGraph, 5000) : undefined;
+    const pollTimer = active && !stream.healthy ? window.setInterval(loadRuntimeGraph, 5000) : undefined;
     return () => {
       window.clearTimeout(initialTimer);
       if (pollTimer) window.clearInterval(pollTimer);
     };
-  }, [loadRuntimeGraph, runtimeGraphPolling, session.simulation.status, session.steps]);
+  }, [loadRuntimeGraph, runtimeGraphPolling, session.simulation.status, session.steps, stream.healthy]);
 
   const updateWorkflow = (next: WorkflowSession) => {
     if (!localMode && session.simulation.status !== next.simulation.status) {
@@ -1760,9 +1814,39 @@ export default function SimulationWorkflowPage() {
   const displayedDemo = graphSource === "runtime" && runtimeDemo ? runtimeDemo : resolvedDemo;
   const displayedNodeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphNodes.length : session.graph.nodeCount;
   const displayedEdgeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphEdges.length : session.graph.edgeCount;
+  const policyEntityTypes = policyOntology.entityTypes.length
+    ? policyOntology.entityTypes
+    : [...new Set(resolvedDemo.graphNodes.map((node) => node.type))];
+  const policyRelationTypes = policyOntology.relationTypes.length
+    ? policyOntology.relationTypes
+    : [...new Set(resolvedDemo.graphEdges.map((edge) => edge.type))];
+  const displayedGraphBusy = graphSource === "policy"
+    ? session.steps[1].status === "processing"
+    : runtimeMappingStatus === "running";
+  const chooseGraphSource = (source: "policy" | "runtime") => {
+    if (source === "runtime" && !runtimeDemo) return;
+    graphSourceChosen.current = true;
+    graphSelections.current[graphSource] = session.graph.selectedNodeId;
+    setGraphSource(source);
+    setSession((current) => ({
+      ...current,
+      graph: { ...current.graph, selectedNodeId: graphSelections.current[source] },
+    }));
+  };
+  const connectionLabel = localMode
+    ? "Mode demo lokal"
+    : stream.status === "connected"
+      ? "Pembaruan langsung tersambung"
+      : stream.status === "connecting"
+        ? "Menghubungkan pembaruan langsung"
+        : stream.status === "reconnecting"
+          ? "Menyambungkan ulang · polling aktif"
+          : stream.status === "error"
+            ? "Pembaruan langsung gagal · polling aktif"
+            : "Pembaruan langsung berhenti";
   return (
     <div className="simulation-workflow">
-      <WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} />
+      <WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} connectionStatus={stream.status} connectionLabel={connectionLabel} />
       {backendError && (
         <p className="inline-alert error workflow-api-error" role="alert">
           {backendError} <button onClick={loadBackend}>Coba lagi</button>
@@ -1773,23 +1857,25 @@ export default function SimulationWorkflowPage() {
           <div className="graph-column">
             {session.currentStep >= 2 && (
               <div className="graph-source-toggle" aria-label="Sumber graf">
-                <button className={graphSource === "policy" ? "active" : ""} onClick={() => setGraphSource("policy")}>Graf kebijakan</button>
-                <button className={graphSource === "runtime" ? "active" : ""} disabled={!runtimeDemo} onClick={() => setGraphSource("runtime")}>Graf runtime {runtimeDemo ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}` : "memuat"}</button>
+                <button className={graphSource === "policy" ? "active" : ""} aria-pressed={graphSource === "policy"} onClick={() => chooseGraphSource("policy")}>Graf kebijakan</button>
+                <button className={graphSource === "runtime" ? "active" : ""} aria-pressed={graphSource === "runtime"} disabled={!runtimeDemo} onClick={() => chooseGraphSource("runtime")}>Graf runtime {runtimeDemo ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}` : "memuat"}</button>
               </div>
             )}
             <PolicyGraph
               demo={displayedDemo}
               nodeCount={displayedNodeCount}
               edgeCount={displayedEdgeCount}
-              graphLabel={graphSource === "runtime" ? "OASIS / ZEP RUNTIME GRAPH" : "POLICY KNOWLEDGE GRAPH"}
+              graphLabel={graphSource === "runtime" ? "GRAF RUNTIME OASIS / ZEP" : "GRAF PENGETAHUAN KEBIJAKAN"}
+              isBusy={displayedGraphBusy}
               activeNodeId={graphActiveNode}
               selectedNodeId={session.graph.selectedNodeId}
-              onSelect={(id) =>
+              onSelect={(id) => {
+                graphSelections.current[graphSource] = id;
                 setSession((current) => ({
-                  ...current,
-                  graph: { ...current.graph, selectedNodeId: id },
-                }))
-              }
+                   ...current,
+                   graph: { ...current.graph, selectedNodeId: id },
+                 }));
+               }}
               onLog={log}
             />
           </div>
@@ -1800,6 +1886,8 @@ export default function SimulationWorkflowPage() {
               <GraphBuildStep
                 demo={resolvedDemo}
                 session={session}
+                entityTypes={policyEntityTypes.length ? policyEntityTypes : fallbackEntityTypes}
+                relationTypes={policyRelationTypes.length ? policyRelationTypes : fallbackRelationTypes}
                 start={() => startStep(1)}
                 next={() => goStep(2)}
               />

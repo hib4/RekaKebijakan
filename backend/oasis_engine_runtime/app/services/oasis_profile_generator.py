@@ -16,7 +16,7 @@ from datetime import datetime
 from openai import OpenAI
 from ..config import Config
 from ..utils.logger import get_logger
-from ..utils.locale import get_locale, set_locale, t
+from ..utils.locale import get_language_instruction, get_locale, set_locale, t
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from ..utils.zep import (
     call_zep_read_with_retry,
@@ -27,6 +27,10 @@ from ..utils.zep import (
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
 logger = get_logger('rekakebijakan.oasis_profile')
+
+
+def _localized(indonesian: Any, english: Any) -> Any:
+    return english if get_locale() == 'en' else indonesian
 
 
 def _coerce_to_str(value: Any) -> str:
@@ -110,7 +114,7 @@ class OasisAgentProfile:
         """Normalize structured LLM fields once at the profile boundary."""
         self.bio = _coerce_to_str(self.bio) or self.name
         self.persona = _coerce_to_str(self.persona) or (
-            f"{self.name} is a participant in social discussions."
+            t('generated.participant', name=self.name)
         )
         self.country = _coerce_to_str(self.country) or None
         self.profession = _coerce_to_str(self.profession) or None
@@ -314,7 +318,9 @@ class OasisProfileGenerator:
             user_name=user_name,
             name=name,
             bio=profile_data.get("bio", f"{entity_type}: {name}"),
-            persona=profile_data.get("persona", entity.summary or f"A {entity_type} named {name}."),
+            persona=profile_data.get("persona", entity.summary or t(
+                'generated.typedParticipant', name=name, type=entity_type
+            )),
             karma=profile_data.get("karma", random.randint(500, 5000)),
             friend_count=profile_data.get("friend_count", random.randint(50, 500)),
             follower_count=profile_data.get("follower_count", random.randint(100, 1000)),
@@ -586,7 +592,9 @@ class OasisProfileGenerator:
                     if "bio" not in result or not result["bio"]:
                         result["bio"] = entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}"
                     if "persona" not in result or not result["persona"]:
-                        result["persona"] = entity_summary or f"{entity_name} is a {entity_type}."
+                        result["persona"] = entity_summary or t(
+                            'generated.typedParticipant', name=entity_name, type=entity_type
+                        )
                     
                     return result
                     
@@ -682,7 +690,9 @@ class OasisProfileGenerator:
         persona_match = re.search(r'"persona"\s*:\s*"([^"]*)', content)  # May be truncated
         
         bio = bio_match.group(1) if bio_match else (entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}")
-        persona = persona_match.group(1) if persona_match else (entity_summary or f"{entity_name} is a {entity_type}.")
+        persona = persona_match.group(1) if persona_match else (
+            entity_summary or t('generated.typedParticipant', name=entity_name, type=entity_type)
+        )
         
         # Mark meaningful partial content as repaired
         if bio_match or persona_match:
@@ -697,7 +707,9 @@ class OasisProfileGenerator:
         logger.warning("JSON repair failed; returning a basic structure")
         return {
             "bio": entity_summary[:200] if entity_summary else f"{entity_type}: {entity_name}",
-            "persona": entity_summary or f"{entity_name} is a {entity_type}."
+            "persona": entity_summary or t(
+                'generated.typedParticipant', name=entity_name, type=entity_type
+            )
         }
     
     def _get_system_prompt(self, is_individual: bool) -> str:
@@ -706,7 +718,7 @@ class OasisProfileGenerator:
             "You are an expert in generating social media user profiles for public-opinion "
             "simulations. Create detailed, realistic personas that reflect the available facts. "
             "Return valid JSON, and do not include unescaped newlines in string values. "
-            "All generated natural-language content must be in English."
+            f"{get_language_instruction()}"
         )
     
     def _build_individual_persona_prompt(
@@ -737,14 +749,14 @@ Generate JSON containing these fields:
 1. bio: A 200-word social media biography.
 2. persona: A detailed 2,000-word plain-text persona covering basic details, background, personality, social media behavior, positions, distinctive traits, and memories of the entity's relationship and reactions to the event.
 3. age: An integer age.
-4. gender: The English string "male" or "female".
+4. gender: The protocol enum "male" or "female"; do not translate it.
 5. mbti: An MBTI type such as INTJ or ENFP.
-6. country: An English country name such as "China".
-7. profession: The profession in English.
-8. interested_topics: An array of topics in English.
+6. country: A country name in the requested natural language.
+7. profession: The profession in the requested natural language.
+8. interested_topics: An array of topics in the requested natural language.
 
 Important:
-- Write all generated natural-language content in English.
+- {get_language_instruction()}
 - Field values must be strings or numbers, with no newline characters.
 - persona must be one coherent prose passage.
 - Keep the content consistent with the entity information.
@@ -779,14 +791,14 @@ Generate JSON containing these fields:
 1. bio: A professional 200-word official account biography.
 2. persona: A detailed 2,000-word plain-text account profile covering the institution's basic information, account role, communication style, publishing patterns, official positions, operating habits, and memories of its relationship and reactions to the event.
 3. age: The integer 30, used as the virtual age of an institutional account.
-4. gender: The English string "other" for a non-personal account.
+4. gender: The protocol enum "other" for a non-personal account; do not translate it.
 5. mbti: An MBTI type describing the account style, such as ISTJ for rigorous and conservative.
-6. country: An English country name such as "China".
-7. profession: An English description of the institution's function.
-8. interested_topics: An array of focus areas in English.
+6. country: A country name in the requested natural language.
+7. profession: A description of the institution's function in the requested natural language.
+8. interested_topics: An array of focus areas in the requested natural language.
 
 Important:
-- Write all generated natural-language content in English.
+- {get_language_instruction()}
 - All field values must be strings or numbers; null values are not allowed.
 - persona must be one coherent prose passage without newline characters.
 - age must be the integer 30 and gender must be the string "other".
@@ -803,66 +815,102 @@ Important:
         
         # Generate personas according to entity type
         entity_type_lower = entity_type.lower()
+        countries = _localized(
+            [
+                "Tiongkok", "Amerika Serikat", "Britania Raya", "Jepang", "Jerman",
+                "Prancis", "Kanada", "Australia", "Brasil", "India", "Korea Selatan",
+            ],
+            self.COUNTRIES,
+        )
         
         if entity_type_lower in ["student", "alumni"]:
             return {
-                "bio": f"{entity_type} with interests in academics and social issues.",
-                "persona": f"{entity_name} is a {entity_type.lower()} who is actively engaged in academic and social discussions. They enjoy sharing perspectives and connecting with peers.",
+                "bio": _localized(
+                    f"{entity_type} yang tertarik pada bidang akademik dan isu sosial.",
+                    f"{entity_type} with interests in academics and social issues.",
+                ),
+                "persona": _localized(
+                    f"{entity_name} aktif dalam diskusi akademik dan sosial, senang berbagi pandangan, serta berinteraksi dengan rekan sebaya.",
+                    f"{entity_name} is a {entity_type.lower()} who is actively engaged in academic and social discussions. They enjoy sharing perspectives and connecting with peers.",
+                ),
                 "age": random.randint(18, 30),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(self.MBTI_TYPES),
-                "country": random.choice(self.COUNTRIES),
-                "profession": "Student",
-                "interested_topics": ["Education", "Social Issues", "Technology"],
+                "country": random.choice(countries),
+                "profession": _localized("Pelajar", "Student"),
+                "interested_topics": _localized(
+                    ["Pendidikan", "Isu Sosial", "Teknologi"],
+                    ["Education", "Social Issues", "Technology"],
+                ),
             }
         
         elif entity_type_lower in ["publicfigure", "expert", "faculty"]:
             return {
-                "bio": f"Expert and thought leader in their field.",
-                "persona": f"{entity_name} is a recognized {entity_type.lower()} who shares insights and opinions on important matters. They are known for their expertise and influence in public discourse.",
+                "bio": _localized("Pakar dan pemimpin pemikiran di bidangnya.", "Expert and thought leader in their field."),
+                "persona": _localized(
+                    f"{entity_name} adalah {entity_type.lower()} yang dikenal karena membagikan wawasan tentang isu penting serta berpengaruh dalam diskursus publik.",
+                    f"{entity_name} is a recognized {entity_type.lower()} who shares insights and opinions on important matters. They are known for their expertise and influence in public discourse.",
+                ),
                 "age": random.randint(35, 60),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(["ENTJ", "INTJ", "ENTP", "INTP"]),
-                "country": random.choice(self.COUNTRIES),
-                "profession": entity_attributes.get("occupation", "Expert"),
-                "interested_topics": ["Politics", "Economics", "Culture & Society"],
+                "country": random.choice(countries),
+                "profession": entity_attributes.get("occupation", _localized("Pakar", "Expert")),
+                "interested_topics": _localized(
+                    ["Politik", "Ekonomi", "Budaya dan Masyarakat"],
+                    ["Politics", "Economics", "Culture & Society"],
+                ),
             }
         
         elif entity_type_lower in ["mediaoutlet", "socialmediaplatform"]:
             return {
-                "bio": f"Official account for {entity_name}. News and updates.",
-                "persona": f"{entity_name} is a media entity that reports news and facilitates public discourse. The account shares timely updates and engages with the audience on current events.",
+                "bio": _localized(f"Akun resmi {entity_name}. Berita dan pembaruan.", f"Official account for {entity_name}. News and updates."),
+                "persona": _localized(
+                    f"{entity_name} adalah entitas media yang memberitakan peristiwa dan memfasilitasi diskursus publik melalui pembaruan terkini serta interaksi dengan audiens.",
+                    f"{entity_name} is a media entity that reports news and facilitates public discourse. The account shares timely updates and engages with the audience on current events.",
+                ),
                 "age": 30,  # Virtual age for an institutional account
                 "gender": "other",  # Institutions use "other"
                 "mbti": "ISTJ",  # Rigorous, conservative institutional style
-                "country": "China",
+                "country": _localized("Indonesia", "China"),
                 "profession": "Media",
-                "interested_topics": ["General News", "Current Events", "Public Affairs"],
+                "interested_topics": _localized(
+                    ["Berita Umum", "Peristiwa Terkini", "Urusan Publik"],
+                    ["General News", "Current Events", "Public Affairs"],
+                ),
             }
         
         elif entity_type_lower in ["university", "governmentagency", "ngo", "organization"]:
             return {
-                "bio": f"Official account of {entity_name}.",
-                "persona": f"{entity_name} is an institutional entity that communicates official positions, announcements, and engages with stakeholders on relevant matters.",
+                "bio": _localized(f"Akun resmi {entity_name}.", f"Official account of {entity_name}."),
+                "persona": _localized(
+                    f"{entity_name} adalah entitas institusional yang menyampaikan sikap resmi dan pengumuman serta berinteraksi dengan pemangku kepentingan.",
+                    f"{entity_name} is an institutional entity that communicates official positions, announcements, and engages with stakeholders on relevant matters.",
+                ),
                 "age": 30,  # Virtual age for an institutional account
                 "gender": "other",  # Institutions use "other"
                 "mbti": "ISTJ",  # Rigorous, conservative institutional style
-                "country": "China",
+                "country": _localized("Indonesia", "China"),
                 "profession": entity_type,
-                "interested_topics": ["Public Policy", "Community", "Official Announcements"],
+                "interested_topics": _localized(
+                    ["Kebijakan Publik", "Komunitas", "Pengumuman Resmi"],
+                    ["Public Policy", "Community", "Official Announcements"],
+                ),
             }
         
         else:
             # Default persona
             return {
                 "bio": entity_summary[:150] if entity_summary else f"{entity_type}: {entity_name}",
-                "persona": entity_summary or f"{entity_name} is a {entity_type.lower()} participating in social discussions.",
+                "persona": entity_summary or t(
+                    'generated.typedParticipant', name=entity_name, type=entity_type.lower()
+                ),
                 "age": random.randint(25, 50),
                 "gender": random.choice(["male", "female"]),
                 "mbti": random.choice(self.MBTI_TYPES),
-                "country": random.choice(self.COUNTRIES),
+                "country": random.choice(countries),
                 "profession": entity_type,
-                "interested_topics": ["General", "Social Issues"],
+                "interested_topics": _localized(["Umum", "Isu Sosial"], ["General", "Social Issues"]),
             }
     
     def set_graph_id(self, graph_id: str):
@@ -964,7 +1012,7 @@ Important:
                     user_name=self._generate_username(entity.name),
                     name=entity.name,
                     bio=f"{entity_type}: {entity.name}",
-                    persona=entity.summary or f"A participant in social discussions.",
+                    persona=entity.summary or t('generated.genericParticipant'),
                     source_entity_uuid=entity.uuid,
                     source_entity_type=entity_type,
                 )
@@ -1020,7 +1068,7 @@ Important:
                         user_name=self._generate_username(entity.name),
                         name=entity.name,
                         bio=f"{entity_type}: {entity.name}",
-                        persona=entity.summary or "A participant in social discussions.",
+                        persona=entity.summary or t('generated.genericParticipant'),
                         source_entity_uuid=entity.uuid,
                         source_entity_type=entity_type,
                     )
@@ -1166,7 +1214,7 @@ Important:
                 "age": profile.age if profile.age else 30,
                 "gender": self._normalize_gender(profile.gender),
                 "mbti": profile.mbti if profile.mbti else "ISTJ",
-                "country": profile.country if profile.country else "China",
+                "country": profile.country if profile.country else _localized("Indonesia", "China"),
             }
             
             # Optional fields

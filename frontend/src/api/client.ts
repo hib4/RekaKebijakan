@@ -64,9 +64,24 @@ export type ApiGraphEdgeDto = {
   citations?: ApiCitationDto[];
 };
 
-export type ApiRuntimeGraph = {
+export type ApiGraphKind = "policy" | "runtime";
+
+export type ApiGraphStreamMetadata = {
+  graph_kind?: ApiGraphKind;
+  graph_id?: string;
+  build_id?: string;
+  revision?: number;
+  milestone?: string;
+  milestone_index?: number;
+  milestone_count?: number;
+  milestone_progress?: number;
+  removed_node_ids?: string[];
+  removed_edge_ids?: string[];
+};
+
+export type ApiRuntimeGraph = ({
   available: false;
-} | {
+} | ({
   available: true;
   graph_id: string;
   source_revision: number;
@@ -75,7 +90,7 @@ export type ApiRuntimeGraph = {
   edge_count: number;
   nodes: ApiGraphNodeDto[];
   edges: ApiGraphEdgeDto[];
-};
+} & ApiGraphStreamMetadata)) & ApiGraphStreamMetadata;
 
 export type ApiPersonaDto = {
   id: string;
@@ -128,6 +143,8 @@ export type ApiReportSectionDto = {
   title: string;
   content?: string | string[];
   paragraphs?: string[];
+  content_markdown?: string;
+  completed_at?: string;
   citations?: ApiCitationDto[];
 };
 
@@ -156,7 +173,12 @@ export type ApiSimulationSnapshot = {
     question?: string;
   };
   stages?: Partial<Record<ApiStageName, ApiStageDto>>;
-  graph?: ApiStageDto & { nodes?: ApiGraphNodeDto[]; edges?: ApiGraphEdgeDto[] };
+  graph?: ApiStageDto & ApiGraphStreamMetadata & {
+    nodes?: ApiGraphNodeDto[];
+    edges?: ApiGraphEdgeDto[];
+    node_count?: number;
+    edge_count?: number;
+  };
   environment?: ApiStageDto & {
     personas?: ApiPersonaDto[];
     persona_count?: number;
@@ -170,7 +192,13 @@ export type ApiSimulationSnapshot = {
     events?: ApiEventDto[]; event_count?: number; speed?: number;
     runtime?: { current_round?: number; twitter_current_round?: number; reddit_current_round?: number; total_rounds?: number };
   };
-  report?: ApiStageDto & { title?: string; sections?: ApiReportSectionDto[]; risks?: ApiRiskDto[] };
+  report?: ApiStageDto & {
+    title?: string;
+    sections?: ApiReportSectionDto[];
+    risks?: ApiRiskDto[];
+    outline?: { title?: string; summary?: string; sections?: { title: string }[] };
+    current_section?: string | null;
+  };
   interactions?: { messages?: ApiInteractionMessageDto[] } | ApiInteractionMessageDto[];
   logs?: { id?: string; time?: string; level?: string; message: string }[];
   updated_at?: string;
@@ -183,6 +211,55 @@ export type ApiSimulationSnapshot = {
     analysis_summary?: string;
     citations?: ApiCitationDto[];
   };
+};
+
+export type SimulationStreamEventType =
+  | "snapshot"
+  | "simulation.event"
+  | "graph.snapshot"
+  | "graph.delta"
+  | "report.progress"
+  | "report.section"
+  | "stage.updated";
+
+export type SimulationStreamPayload = {
+  state?: ApiSimulationSnapshot;
+  event?: ApiEventDto;
+  event_count?: number;
+  graph_kind?: ApiGraphKind;
+  graph_id?: string;
+  build_id?: string;
+  revision?: number;
+  milestone?: string;
+  milestone_index?: number;
+  milestone_count?: number;
+  milestone_progress?: number;
+  graph?: ApiRuntimeGraph | (ApiGraphStreamMetadata & Partial<Exclude<ApiRuntimeGraph, { available: false }>> & {
+    nodes?: ApiGraphNodeDto[];
+    edges?: ApiGraphEdgeDto[];
+    removed_node_ids?: string[];
+    removed_edge_ids?: string[];
+  });
+  report?: ApiSimulationSnapshot["report"];
+  section?: ApiReportSectionDto;
+  progress?: number;
+  stage?: ApiStageName | (ApiStageDto & { name: ApiStageName });
+  status?: ApiRunStatus;
+  active_task?: string | null;
+  [key: string]: unknown;
+};
+
+export type SimulationStreamEvent = {
+  id?: string;
+  type: SimulationStreamEventType;
+  data: SimulationStreamPayload;
+};
+
+export type SimulationStreamOptions = {
+  signal?: AbortSignal;
+  lastEventId?: string;
+  onOpen?: () => void;
+  onEvent: (event: SimulationStreamEvent) => void;
 };
 
 export type CreateProjectInput = {
@@ -338,6 +415,72 @@ export function createProject(input: CreateProjectInput, options: CreateProjectO
 
 export const getSimulation = (simulationId: string) =>
   request<ApiSimulationSnapshot>(`/api/simulations/${encodeURIComponent(simulationId)}`);
+
+export async function connectSimulationStream(simulationId: string, options: SimulationStreamOptions) {
+  const path = `/api/simulations/${encodeURIComponent(simulationId)}/stream`;
+  const headers = new Headers({ Accept: "text/event-stream" });
+  if (options.lastEventId) headers.set("Last-Event-ID", options.lastEventId);
+  const response = await fetch(`${API_URL}${path}`, {
+    credentials: "include",
+    headers,
+    signal: options.signal,
+  });
+  if (!response.ok) {
+    notifyExpiredSession(path, response.status);
+    const payload = await response.json().catch(() => null) as ApiErrorPayload | null;
+    throw apiErrorFromPayload(payload, response.status);
+  }
+  if (!response.body) throw new Error("Server tidak menyediakan aliran pembaruan.");
+
+  options.onOpen?.();
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let eventName = "message";
+  let eventId: string | undefined;
+  let dataLines: string[] = [];
+  const dispatch = () => {
+    if (!dataLines.length) return;
+    try {
+      const parsed = JSON.parse(dataLines.join("\n")) as SimulationStreamPayload & {
+        type?: SimulationStreamEventType;
+        data?: SimulationStreamPayload;
+        payload?: SimulationStreamPayload;
+      };
+      const type = (eventName === "message" ? parsed.type : eventName) as SimulationStreamEventType;
+      const supported: SimulationStreamEventType[] = ["snapshot", "simulation.event", "graph.snapshot", "graph.delta", "report.progress", "report.section", "stage.updated"];
+      if (supported.includes(type)) {
+        options.onEvent({ id: eventId, type, data: parsed.data ?? parsed.payload ?? parsed });
+      }
+    } catch {
+      // A malformed event is isolated to its SSE frame; later frames remain usable.
+    } finally {
+      eventName = "message";
+      eventId = undefined;
+      dataLines = [];
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line) {
+        dispatch();
+      } else if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("id:")) {
+        eventId = line.slice(3).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+  }
+  if (buffer) dataLines.push(buffer.startsWith("data:") ? buffer.slice(5).trimStart() : buffer);
+  dispatch();
+}
 
 export const getRuntimeGraph = (simulationId: string) =>
   request<ApiRuntimeGraph>(`/api/simulations/${encodeURIComponent(simulationId)}/runtime-graph`);

@@ -1,6 +1,10 @@
 {
+  "id": {
+    "label": "Bahasa Indonesia",
+    "llmInstruction": "Tulis semua konten bahasa alami dalam bahasa Indonesia. Pertahankan nama field JSON, enum, identifier mesin, nama tool, dan penanda protokol persis seperti yang ditentukan."
+  },
   "en": {
     "label": "English",
-    "llmInstruction": "Please respond in English."
+    "llmInstruction": "Write all natural-language content in English. Keep JSON field names, enums, machine identifiers, tool names, and protocol markers exactly as specified."
   }
 }

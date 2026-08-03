@@ -126,7 +126,7 @@ class GraphBuilderService:
         chunk_size: int,
         chunk_overlap: int,
         batch_size: int,
-        locale: str = 'en'
+        locale: str = 'id'
     ):
         """Graph construction worker."""
         set_locale(locale)

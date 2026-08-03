@@ -28,14 +28,25 @@ def test_bundled_oasis_locale_assets_load(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    module.set_locale("en")
-    assert module.get_language_instruction() == "Please respond in English."
+    assert module.get_locale() == "id"
+    assert "bahasa Indonesia" in module.get_language_instruction()
+    assert module.t("common.confirm") == "Konfirmasi"
+
+    module.set_locale("en-US")
+    assert module.get_locale() == "en"
+    assert "in English" in module.get_language_instruction()
     assert module.t("common.confirm") == "Confirm"
 
     module.set_locale("zh")
-    assert module.get_locale() == "en"
-    assert module.get_language_instruction() == "Please respond in English."
-    assert module.t("common.confirm") == "Confirm"
+    assert module.get_locale() == "id"
+    assert module.t("common.confirm") == "Konfirmasi"
+
+    module.set_locale("id-ID")
+    assert module.get_locale() == "id"
+
+    flask.has_request_context = lambda: True
+    flask.request.headers["Accept-Language"] = "en-US;q=0.4, id-ID;q=0.9"
+    assert module.get_locale() == "id"
 
 
 def test_direct_engine_timeout_reports_last_sync_stage(monkeypatch, tmp_path: Path):
@@ -145,11 +156,59 @@ def test_report_uses_configured_bounded_timeout(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(engine, "_call", call)
     engine.generate_report("sim-1", "graph-1", "Objective")
 
-    assert captured == {
-        "operation": "report",
-        "payload": {"simulation_id": "sim-1", "graph_id": "graph-1", "simulation_requirement": "Objective"},
-        "timeout": 900,
+    assert captured["operation"] == "report"
+    assert captured["timeout"] == 900
+    assert captured["payload"] | {} == {
+        "simulation_id": "sim-1", "graph_id": "graph-1", "simulation_requirement": "Objective",
+        "language": "id", "report_id": captured["payload"]["report_id"],
     }
+    assert captured["payload"]["report_id"].startswith("report_")
+
+
+def test_report_progress_reads_outline_and_completed_sections(tmp_path: Path):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    engine = DirectOasisEngine(runtime, tmp_path / "simulations")
+    folder = tmp_path / "reports" / "report-live"
+    folder.mkdir(parents=True)
+    (folder / "progress.json").write_text(json.dumps({
+        "status": "generating", "progress": 55, "message": "Menyusun rekomendasi",
+        "current_section": "Rekomendasi", "updated_at": "2026-08-03T08:00:00",
+    }), encoding="utf-8")
+    (folder / "outline.json").write_text(json.dumps({
+        "title": "Laporan", "sections": [{"title": "Ringkasan"}, {"title": "Rekomendasi"}],
+    }), encoding="utf-8")
+    (folder / "section_01.md").write_text("## Ringkasan\n\n**Temuan utama**", encoding="utf-8")
+
+    progress = engine._report_progress("report-live")
+
+    assert progress["progress"] == 55
+    assert progress["current_section"] == "Rekomendasi"
+    assert progress["generated_sections"] == [{
+        "index": 0, "title": "Ringkasan", "content": "**Temuan utama**",
+    }]
+
+
+def test_streaming_bridge_delivers_messages_before_result(tmp_path: Path):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    bridge = tmp_path / "stream_bridge.py"
+    bridge.write_text(textwrap.dedent("""
+        import json
+        import sys
+        json.load(sys.stdin)
+        print(json.dumps({"kind": "milestone", "progress": 0.5}), flush=True)
+        print(json.dumps({"kind": "node", "node": {"uuid": "node-1"}}), flush=True)
+        print(json.dumps({"kind": "result", "data": {"graph_id": "graph-1"}}), flush=True)
+    """), encoding="utf-8")
+    engine = DirectOasisEngine(runtime, tmp_path / "data")
+    engine.bridge = bridge
+    received = []
+
+    result = engine._call_stream("sync-graph-stream", {}, received.append, timeout=5)
+
+    assert [message["kind"] for message in received] == ["milestone", "node"]
+    assert result == {"graph_id": "graph-1"}
 
 
 def test_start_simulation_resumes_alive_process(monkeypatch, tmp_path: Path):
@@ -286,6 +345,72 @@ def test_sync_graph_reuses_existing_ontology(monkeypatch):
     assert calls["texts"] == ("graph-1", ["Evidence"])
     assert result["graph_id"] == "graph-1"
     assert result["episode_uuids"] == ["episode-1"]
+
+
+def test_sync_graph_emits_runtime_milestones_and_topology(monkeypatch):
+    emitted = []
+
+    class Info:
+        def to_dict(self):
+            return {"node_count": 1, "edge_count": 1}
+
+    class Submission:
+        batch_id = "batch-1"
+
+    class Builder:
+        def create_graph(self, name, graph_id=None, graph_id_callback=None):
+            if graph_id_callback:
+                graph_id_callback(graph_id)
+            return graph_id
+
+        def set_ontology(self, _graph_id, ontology):
+            assert ontology["edge_types"][0]["name"] == "AFFECTS"
+
+        def add_text_batches(self, _graph_id, _texts, progress_callback=None, batch_created_callback=None):
+            if batch_created_callback:
+                batch_created_callback(None, "operation-1")
+                batch_created_callback("batch-1", "operation-1")
+            if progress_callback:
+                progress_callback("Bukti terkirim", 1.0)
+            return Submission()
+
+        def _wait_for_batch(self, submission, progress_callback=None):
+            if progress_callback:
+                progress_callback("Memproses bukti", 0.5)
+                progress_callback("Selesai", 1.0)
+            return ["episode-1"]
+
+        def get_graph_data(self, _graph_id):
+            return {
+                "nodes": [{"uuid": "node-1", "name": "Warga"}],
+                "edges": [{"uuid": "edge-1", "source_node_uuid": "node-1", "target_node_uuid": "node-1"}],
+                "node_count": 1, "edge_count": 1,
+            }
+
+        def _get_graph_info(self, _graph_id):
+            return Info()
+
+    services = types.ModuleType("app.services")
+    graph_builder = types.ModuleType("app.services.graph_builder")
+    graph_builder.GraphBuilderService = Builder
+    monkeypatch.setitem(sys.modules, "app.services", services)
+    monkeypatch.setitem(sys.modules, "app.services.graph_builder", graph_builder)
+
+    result = oasis_direct_bridge.sync_graph({
+        "simulation_id": "sim-1", "project_name": "Project", "graph_id": "graph-1",
+        "build_id": "build-1", "chunks": [{"text": "Evidence"}],
+        "ontology": {"entity_types": [{"name": "Stakeholder"}], "relation_types": [{
+            "name": "AFFECTS", "source_types": ["Stakeholder"], "target_types": ["Stakeholder"],
+        }]},
+    }, emit=emitted.append)
+
+    assert result["graph_id"] == "graph-1"
+    kinds = [event["kind"] for event in emitted]
+    assert "milestone" in kinds
+    assert "node" in kinds
+    assert "edge" in kinds
+    assert "snapshot" in kinds
+    assert emitted[-1]["milestone"] == "completed"
 
 
 def test_prepare_bridge_forwards_fast_deterministic_options(monkeypatch, tmp_path: Path):

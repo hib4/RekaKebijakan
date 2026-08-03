@@ -18,7 +18,7 @@ from openai import OpenAI
 
 from ..config import Config
 from ..utils.logger import get_logger
-from ..utils.locale import t
+from ..utils.locale import get_language_instruction, t
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
@@ -302,7 +302,7 @@ class SimulationConfigGenerator:
         report_progress(2, t('progress.generatingEventConfig'))
         event_config_result = self._generate_event_config(context, simulation_requirement, entities) if use_llm else {
             "hot_topics": [], "narrative_direction": "", "initial_posts": [],
-            "reasoning": "Using the default configuration",
+            "reasoning": t('generated.defaultConfigReasoning'),
         }
         event_config = self._parse_event_config(event_config_result)
         reasoning_parts.append(f"{t('progress.eventConfigLabel')}: {event_config_result.get('reasoning', t('common.success'))}")
@@ -572,7 +572,7 @@ Example:
     "off_peak_hours": [0, 1, 2, 3, 4, 5],
     "morning_hours": [6, 7, 8],
     "work_hours": [9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-    "reasoning": "Explanation of the time configuration for this event"
+    "reasoning": "Natural-language explanation of the time configuration for this event"
 }}
 
 Field descriptions:
@@ -584,9 +584,12 @@ Field descriptions:
 - off_peak_hours (int array): Off-peak hours, usually overnight.
 - morning_hours (int array): Morning hours.
 - work_hours (int array): Working hours.
-- reasoning (string): A brief English explanation of the configuration."""
+- reasoning (string): A brief natural-language explanation of the configuration."""
 
-        system_prompt = "You are a social media simulation expert. Return only valid JSON. Adapt the time configuration to the target audience's daily habits. Write all natural-language content in English."
+        system_prompt = (
+            "You are a social media simulation expert. Return only valid JSON. Adapt the time "
+            f"configuration to the target audience's daily habits. {get_language_instruction()}"
+        )
 
         try:
             return self._call_llm_with_retry(prompt, system_prompt)
@@ -605,7 +608,7 @@ Field descriptions:
             "off_peak_hours": [0, 1, 2, 3, 4, 5],
             "morning_hours": [6, 7, 8],
             "work_hours": [9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-            "reasoning": "Using the default daily schedule with one hour per round"
+            "reasoning": t('generated.defaultTimeReasoning')
         }
     
     def _parse_time_config(self, result: Dict[str, Any], num_entities: int) -> TimeSimulationConfig:
@@ -684,9 +687,9 @@ Simulation requirements: {simulation_requirement}
 
 ## Task
 Generate event configuration JSON:
-- Extract trending topic keywords in English.
-- Describe the narrative direction in English.
-- Create initial post content in English, and specify poster_type for every post.
+- Extract trending topic keywords in the requested natural language.
+- Describe the narrative direction in the requested natural language.
+- Create initial post content in the requested natural language, and specify poster_type for every post.
 
 Important: Select poster_type from the available entity types above so each initial post can be assigned to an appropriate agent. Official statements should use Official or University, news should use MediaOutlet, and student views should use Student.
 
@@ -701,7 +704,11 @@ Return JSON without Markdown:
     "reasoning": "<brief explanation>"
 }}"""
 
-        system_prompt = "You are a public-opinion analysis expert. Return only valid JSON. The poster_type value must exactly match an available entity type in English PascalCase. Write content, narrative_direction, hot_topics, and reasoning in English."
+        system_prompt = (
+            "You are a public-opinion analysis expert. Return only valid JSON. The poster_type "
+            "value must exactly match an available entity type in English PascalCase; it is a "
+            f"machine identifier and must not be translated. {get_language_instruction()}"
+        )
 
         try:
             return self._call_llm_with_retry(prompt, system_prompt)
@@ -711,7 +718,7 @@ Return JSON without Markdown:
                 "hot_topics": [],
                 "narrative_direction": "",
                 "initial_posts": [],
-                "reasoning": "Using the default configuration"
+                "reasoning": t('generated.defaultConfigReasoning')
             }
     
     def _parse_event_config(self, result: Dict[str, Any]) -> EventConfig:
@@ -863,7 +870,12 @@ Return JSON without Markdown:
     ]
 }}"""
 
-        system_prompt = "You are a social media behavior analysis expert. Return only valid JSON and adapt the configuration to the target audience's daily habits. Write all natural-language content in English. The stance value must be one of: supportive, opposing, neutral, observer. Keep JSON field names and numeric values unchanged."
+        system_prompt = (
+            "You are a social media behavior analysis expert. Return only valid JSON and adapt "
+            "the configuration to the target audience's daily habits. The stance value must be "
+            "one of: supportive, opposing, neutral, observer. Keep JSON field names, enum values, "
+            f"and numeric values unchanged. {get_language_instruction()}"
+        )
 
         if use_llm:
             try:

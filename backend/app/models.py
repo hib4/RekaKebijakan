@@ -38,6 +38,7 @@ class ProjectInput(BaseModel):
     project_name: str = Field(min_length=2, max_length=160)
     institution: str = Field(min_length=2, max_length=160)
     objective: str = Field(min_length=2, max_length=1000)
+    language: Literal["id", "en"] = "id"
 
 
 class EnvironmentInput(BaseModel):

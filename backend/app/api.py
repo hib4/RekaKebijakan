@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from json import JSONDecodeError
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from .errors import InvalidControl, ResourceNotFound, RevisionConflict, StageConflict, UnsupportedDocument
@@ -730,6 +731,39 @@ async def dashboard_v1(request: Request):
 @router.get("/simulations/{simulation_id}")
 async def get_simulation(request: Request, simulation_id: str):
     return require_state(request, simulation_id)
+
+
+@router.get("/simulations/{simulation_id}/stream")
+async def simulation_stream(request: Request, simulation_id: str):
+    require_state(request, simulation_id)
+    raw_cursor = request.headers.get("last-event-id") or request.query_params.get("after") or "0"
+    try:
+        cursor = max(0, int(raw_cursor))
+    except ValueError:
+        cursor = 0
+
+    async def events():
+        nonlocal cursor
+        yield "retry: 2000\n: aliran terhubung\n\n"
+        heartbeat_at = asyncio.get_running_loop().time()
+        while not await request.is_disconnected():
+            rows = await run_in_threadpool(repository(request).list_workflow_events, simulation_id, cursor, 200)
+            for row in rows:
+                cursor = int(row["sequence"])
+                payload = json.dumps(jsonable_encoder(row["payload"]), ensure_ascii=False, separators=(",", ":"))
+                yield f"id: {cursor}\nevent: {row['type']}\ndata: {payload}\n\n"
+            now = asyncio.get_running_loop().time()
+            if now - heartbeat_at >= 15:
+                yield f": heartbeat {cursor}\n\n"
+                heartbeat_at = now
+            if not rows:
+                await asyncio.sleep(0.5)
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    })
 
 
 @router.post("/simulations/{simulation_id}/stages/{stage}/start")

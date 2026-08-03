@@ -9,6 +9,7 @@ import re
 from typing import Dict, Any, List, Optional
 from ..utils.llm_client import LLMClient
 from ..utils.file_parser import split_text_into_chunks
+from ..utils.locale import get_language_instruction, t
 from ..utils.ontology import (
     MAX_ONTOLOGY_TYPES,
     normalize_ontology_attributes,
@@ -80,7 +81,7 @@ Return JSON with this structure:
     "entity_types": [
         {
             "name": "Entity type name in English PascalCase",
-            "description": "Brief English description, no more than 100 characters",
+            "description": "Brief natural-language description, no more than 100 characters",
             "attributes": [
                 {
                     "name": "English attribute name in snake_case",
@@ -94,7 +95,7 @@ Return JSON with this structure:
     "edge_types": [
         {
             "name": "Relationship type name in English UPPER_SNAKE_CASE",
-            "description": "Brief English description, no more than 100 characters",
+            "description": "Brief natural-language description, no more than 100 characters",
             "source_targets": [
                 {"source": "Source entity type", "target": "Target entity type"}
             ],
@@ -183,7 +184,13 @@ class OntologyGenerator:
             additional_context
         )
         
-        system_prompt = f"{ONTOLOGY_SYSTEM_PROMPT}\n\nIMPORTANT: All generated content must be in English. Entity type names MUST use English PascalCase (e.g., 'PersonEntity', 'MediaOrganization'). Relationship type names MUST use English UPPER_SNAKE_CASE (e.g., 'WORKS_FOR'). Attribute names MUST use English snake_case."
+        system_prompt = (
+            f"{ONTOLOGY_SYSTEM_PROMPT}\n\n{get_language_instruction()} "
+            "Descriptions, examples, and analysis_summary are natural-language content. "
+            "Entity type names MUST remain English PascalCase (e.g., 'PersonEntity', "
+            "'MediaOrganization'). Relationship type names MUST remain English "
+            "UPPER_SNAKE_CASE (e.g., 'WORKS_FOR'). Attribute names MUST remain English snake_case."
+        )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
@@ -442,7 +449,7 @@ Design entity and relationship types suitable for public-opinion simulation from
                 entity["examples"] = []
             description = entity.get("description")
             if not isinstance(description, str) or not description:
-                description = f"A {normalized_name} entity."
+                description = t('generated.ontologyEntityDescription', name=normalized_name)
             entity["description"] = (
                 description[:97] + "..." if len(description) > 100 else description
             )
@@ -459,22 +466,22 @@ Design entity and relationship types suitable for public-opinion simulation from
         # Fallback type definitions.
         person_fallback = {
             "name": "Person",
-            "description": "Any individual person not fitting other specific person types.",
+            "description": t('generated.personFallbackDescription'),
             "attributes": [
-                {"name": "full_name", "type": "text", "description": "Full name of the person"},
-                {"name": "role", "type": "text", "description": "Role or occupation"}
+                {"name": "full_name", "type": "text", "description": t('generated.fullNameDescription')},
+                {"name": "role", "type": "text", "description": t('generated.roleDescription')}
             ],
-            "examples": ["ordinary citizen", "anonymous netizen"]
+            "examples": [t('generated.ordinaryCitizen'), t('generated.anonymousNetizen')]
         }
         
         organization_fallback = {
             "name": "Organization",
-            "description": "Any organization not fitting other specific organization types.",
+            "description": t('generated.organizationFallbackDescription'),
             "attributes": [
-                {"name": "org_name", "type": "text", "description": "Name of the organization"},
-                {"name": "org_type", "type": "text", "description": "Type of organization"}
+                {"name": "org_name", "type": "text", "description": t('generated.organizationNameDescription')},
+                {"name": "org_type", "type": "text", "description": t('generated.organizationTypeDescription')}
             ],
-            "examples": ["small business", "community group"]
+            "examples": [t('generated.smallBusiness'), t('generated.communityGroup')]
         }
         
         # Check for existing fallback types.
@@ -569,7 +576,7 @@ Design entity and relationship types suitable for public-opinion simulation from
             )
             description = edge.get("description")
             if not isinstance(description, str) or not description:
-                description = f"A {normalized_name} relationship."
+                description = t('generated.ontologyRelationshipDescription', name=normalized_name)
             edge["description"] = (
                 description[:97] + "..." if len(description) > 100 else description
             )

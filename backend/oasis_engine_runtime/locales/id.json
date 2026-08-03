@@ -1,0 +1,50 @@
+{
+  "common": {
+    "confirm": "Konfirmasi",
+    "success": "Berhasil",
+    "unknownError": "Kesalahan tidak diketahui"
+  },
+  "generated": {
+    "participant": "{name} adalah peserta dalam diskusi sosial.",
+    "typedParticipant": "{name} adalah {type} yang berpartisipasi dalam diskusi sosial.",
+    "genericParticipant": "Seorang peserta dalam diskusi sosial.",
+    "defaultTimeReasoning": "Menggunakan jadwal harian bawaan dengan satu jam per putaran",
+    "defaultConfigReasoning": "Menggunakan konfigurasi bawaan",
+    "ontologyEntityDescription": "Entitas {name}.",
+    "ontologyRelationshipDescription": "Relasi {name}.",
+    "personFallbackDescription": "Individu yang tidak termasuk dalam tipe orang yang lebih spesifik.",
+    "fullNameDescription": "Nama lengkap orang tersebut",
+    "roleDescription": "Peran atau pekerjaan",
+    "ordinaryCitizen": "warga biasa",
+    "anonymousNetizen": "warganet anonim",
+    "organizationFallbackDescription": "Organisasi yang tidak termasuk dalam tipe organisasi yang lebih spesifik.",
+    "organizationNameDescription": "Nama organisasi",
+    "organizationTypeDescription": "Tipe organisasi",
+    "smallBusiness": "usaha kecil",
+    "communityGroup": "kelompok masyarakat",
+    "noInterviewProfiles": "Tidak ditemukan profil agen yang dapat diwawancarai.",
+    "automaticSelection": "Dipilih secara otomatis berdasarkan relevansi",
+    "defaultSelection": "Menggunakan strategi pemilihan bawaan",
+    "interviewViewQuestion": "Apa pandangan Anda mengenai {topic}?",
+    "interviewImpactQuestion": "Bagaimana hal ini memengaruhi Anda atau kelompok yang Anda wakili?",
+    "interviewSolutionQuestion": "Menurut Anda, bagaimana persoalan ini sebaiknya diselesaikan atau diperbaiki?",
+    "noInterviews": "Tidak ada wawancara yang selesai.",
+    "interviewCountSummary": "Mewawancarai {count} orang: {names}",
+    "noPlatformResponse": "Tidak ada respons pada platform ini.",
+    "reportTitle": "Laporan Prakiraan Masa Depan",
+    "reportSummary": "Analisis tren dan risiko masa depan yang diprakirakan oleh simulasi",
+    "reportSectionFindings": "Skenario Prakiraan dan Temuan Utama",
+    "reportSectionBehavior": "Perilaku Kelompok dalam Prakiraan",
+    "reportSectionRisks": "Prospek Tren dan Peringatan Risiko",
+    "reportSectionRecommendations": "Rekomendasi Kebijakan dan Mitigasi",
+    "noReport": "Belum ada laporan.",
+    "firstReportSection": "Ini adalah bagian pertama."
+  },
+  "report": {
+    "sectionGenFailedContent": "(Bagian ini gagal dibuat karena respons model kosong. Silakan coba lagi.)"
+  },
+  "progress": {
+    "zepSearchQuery": "Semua informasi, aktivitas, peristiwa, hubungan, dan latar belakang tentang {name}",
+    "profileGenerated": "[Dibuat] {name} ({type})"
+  }
+}

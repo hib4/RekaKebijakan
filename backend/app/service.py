@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import json
+import queue
 import threading
 import time
 import uuid
@@ -15,7 +16,7 @@ from werkzeug.utils import secure_filename
 
 from .documents import chunk_text, extract_document
 from .errors import UploadQuotaExceeded
-from .provider_errors import ProviderError, ProviderResponseError
+from .provider_errors import ProviderError, ProviderResponseError, ProviderTransportError
 from .providers import PolicyProvider
 from .oasis_runtime import normalize_action, normalize_environment, source_identity
 from .repository import Repository
@@ -42,6 +43,7 @@ def upgrade_state(state: dict) -> dict:
     state.setdefault("interviews", {"items": []})
     state.setdefault("graph_feedback", {"items": []})
     state.setdefault("provider", {})
+    state.setdefault("project", {}).setdefault("language", "id")
     state.setdefault("stages", {})
     for index, stage in enumerate(STAGES):
         state["stages"].setdefault(stage, {"status": "ready" if index == 0 else "locked", "progress": 0, "active_task": None})
@@ -116,6 +118,7 @@ class WorkflowService:
             "project": {
                 "id": project_id, "name": project["project_name"], "project_name": project["project_name"],
                 "institution": project["institution"], "objective": project["objective"], "question": project["objective"],
+                "language": project.get("language", "id"),
             },
             "stages": {}, "graph": {"revision": 0, "nodes": [], "edges": []}, "environment": {},
             "simulation": {"events": [], "event_count": 0, "speed": 1},
@@ -351,8 +354,31 @@ class WorkflowService:
         if self.repository.job_control_state(job["id"], job["execution_token"]) != "running":
             return False
         if stage == "graph":
+            build_id = f"graph-build-{uuid.uuid4().hex[:12]}"
+            graph_revision = int(state.get("graph", {}).get("revision", 0)) + 1
+            self.repository.mutate_with_events(
+                simulation_id,
+                lambda current: self._start_policy_graph_build(current, build_id, graph_revision),
+                lambda current: [
+                    ("graph.snapshot", {"graph": self._policy_graph_payload(current["graph"])}),
+                    ("stage.updated", {"stage": {"name": "graph", **current["stages"]["graph"]}}),
+                ],
+            )
             ontology = self.provider.ontology(state["project"], chunks)
+            self.repository.mutate(
+                simulation_id,
+                lambda current: self._publish_policy_ontology(current, ontology),
+            )
+            fallback_provider = getattr(self.provider, "fallback_provider", None)
+            baseline = fallback_provider.graph(state["project"], ontology, chunks) if fallback_provider else None
+            if baseline:
+                self._stream_policy_graph(simulation_id, build_id, graph_revision, baseline, 35, 58)
             graph = self.provider.graph(state["project"], ontology, chunks)
+            graph["revision"] = graph_revision
+            self._stream_policy_graph(
+                simulation_id, build_id, graph_revision, graph,
+                59 if baseline else 35, 66,
+            )
             self._validate_graph(graph)
             result = {"ontology": ontology, "graph": graph}
         elif stage == "environment":
@@ -392,6 +418,11 @@ class WorkflowService:
                 raw_report = self.oasis_runtime.generate_report(
                     mapping.get("external_simulation_id") or simulation_id,
                     mapping["zep_graph_id"], state["project"]["objective"],
+                    language=state.get("project", {}).get("language", "id"),
+                    progress_callback=lambda partial: self.repository.mutate(
+                        simulation_id,
+                        lambda current: self._update_oasis_report_progress(current, partial, chunks),
+                    ),
                 )
                 result = {"report": self._project_oasis_report(raw_report, chunks)}
             else:
@@ -423,6 +454,7 @@ class WorkflowService:
     def _prepare_oasis_environment(
         self, simulation_id: str, state: dict, chunks: list[dict], config: dict,
     ) -> dict:
+        config = dict(config) | {"language": state.get("project", {}).get("language", "id")}
         mapping = self.repository.get_oasis_mapping(simulation_id)
         graph_revision = int(state["graph"].get("revision", 0))
         evidence_hash = hashlib.sha256("\n".join(
@@ -436,18 +468,44 @@ class WorkflowService:
             not mapping or mapping.get("graph_revision") != graph_revision or not mapping.get("zep_graph_id")
             or mapping_metadata.get("evidence_hash") != evidence_hash
             or mapping_metadata.get("ontology_hash") != ontology_hash
+            or mapping.get("status") not in {"graph_ready", "ready", "completed"}
         ):
             self.repository.mutate(
-                simulation_id, lambda current: self._progress(current, "environment", 10, "Menyinkronkan bukti ke Zep")
+                simulation_id, lambda current: self._progress(current, "environment", 16, "Menyinkronkan bukti ke Zep")
             )
-            synced = self.oasis_runtime.sync_graph(simulation_id, state, chunks)
+            resumable = bool(
+                mapping and mapping.get("status") == "creating" and mapping.get("zep_graph_id")
+                and mapping_metadata.get("evidence_hash") == evidence_hash
+                and mapping_metadata.get("ontology_hash") == ontology_hash
+            )
+            existing_sync = mapping_metadata.get("graph_sync", {}) if resumable else {}
+            graph_id = mapping["zep_graph_id"] if resumable else f"rekakebijakan_{uuid.uuid4().hex[:16]}"
+            build_id = existing_sync.get("build_id") or f"runtime-build-{uuid.uuid4().hex[:12]}"
+            graph_metadata = dict(mapping_metadata) | {
+                "evidence_hash": evidence_hash, "ontology_hash": ontology_hash,
+                "graph_sync": existing_sync or {"build_id": build_id, "status": "creating", "progress": 0},
+            }
+            self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
+                "external_project_id": simulation_id, "zep_graph_id": graph_id,
+                "graph_revision": graph_revision, "status": "creating", "config": config,
+                "metadata": graph_metadata,
+            })
+            synced = self.oasis_runtime.sync_graph(
+                simulation_id, state, chunks, graph_id=graph_id,
+                progress_callback=lambda message: self._publish_runtime_graph_progress(
+                    simulation_id, state["project"]["id"], graph_revision,
+                    graph_id, build_id, graph_metadata, config, message,
+                ),
+                checkpoint=existing_sync if resumable else None,
+            )
             mapping = self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
                 "external_project_id": synced["project_id"], "zep_graph_id": synced["graph_id"],
                 "graph_revision": graph_revision, "status": "graph_ready", "config": config,
-                "metadata": {
+                "metadata": graph_metadata | {
                     "graph_info": synced.get("graph_info", {}), "episode_uuids": synced.get("episode_uuids", []),
                     "ontology": synced.get("ontology", {}),
                     "evidence_hash": evidence_hash, "ontology_hash": ontology_hash,
+                    "graph_sync": {"build_id": build_id, "status": "completed", "progress": 100},
                 },
             })
         self.repository.mutate(
@@ -467,7 +525,164 @@ class WorkflowService:
                 "profiles_count": external_state.get("profiles_count", 0),
             },
         })
+        try:
+            graph = self.runtime_graph(simulation_id)
+            if graph is not None:
+                self.repository.append_workflow_event(
+                    simulation_id, "graph.snapshot", {"graph": {
+                        "available": True, "graph_kind": "runtime",
+                        "build_id": (mapping.get("metadata") or {}).get("graph_sync", {}).get("build_id"),
+                        **graph,
+                    }},
+                )
+        except Exception:
+            # Zep may need a short consistency window after initial ingestion.
+            pass
         return environment
+
+    def _publish_runtime_graph_progress(
+        self, simulation_id: str, project_id: str, graph_revision: int,
+        graph_id: str, build_id: str, metadata: dict, config: dict, message: dict,
+    ) -> None:
+        kind = message.get("kind")
+        progress = min(100, max(0, int(float(message.get("progress", 0) or 0) * 100)))
+        if kind == "milestone":
+            sync = {
+                "build_id": build_id, "status": message.get("milestone", "processing"),
+                "progress": progress, "message": message.get("message"),
+                "batch_id": message.get("batch_id"), "operation_id": message.get("operation_id"),
+            }
+            metadata["graph_sync"] = sync
+            self.repository.upsert_oasis_mapping(simulation_id, project_id, {
+                "external_project_id": simulation_id, "zep_graph_id": graph_id,
+                "graph_revision": graph_revision, "status": "creating", "config": config,
+                "metadata": metadata,
+            })
+
+            def update_stage(current: dict) -> None:
+                stage_progress = max(
+                    int(current["stages"]["environment"].get("progress", 0)),
+                    min(34, 16 + int(progress * 0.18)),
+                )
+                self._progress(
+                    current, "environment", stage_progress,
+                    message.get("message") or "Membangun graf runtime",
+                )
+
+            self.repository.mutate_with_events(
+                simulation_id,
+                update_stage,
+                lambda current: [
+                    ("stage.updated", {"stage": {"name": "environment", **current["stages"]["environment"]}}),
+                    ("graph.delta", {"graph": {
+                        "available": True, "graph_kind": "runtime", "graph_id": graph_id,
+                        "build_id": build_id, "revision": graph_revision,
+                        "mapping_status": "creating", "milestone": message.get("message"),
+                        "milestone_progress": progress, "nodes": [], "edges": [],
+                    }}),
+                ],
+            )
+            return
+
+        if kind in {"node", "edge"}:
+            item_key = "nodes" if kind == "node" else "edges"
+            self.repository.append_workflow_event(simulation_id, "graph.delta", {"graph": {
+                "available": True, "graph_kind": "runtime", "graph_id": graph_id,
+                "build_id": build_id, "revision": graph_revision,
+                "mapping_status": "creating", "milestone_progress": progress,
+                "nodes": [message["node"]] if kind == "node" else [],
+                "edges": [message["edge"]] if kind == "edge" else [],
+                "node_count": message.get("node_count"), "edge_count": message.get("edge_count"),
+                "removed_node_ids": [], "removed_edge_ids": [], "item_kind": item_key,
+            }})
+            return
+
+        if kind == "snapshot" and isinstance(message.get("graph"), dict):
+            graph = message["graph"]
+            self.repository.append_workflow_event(simulation_id, "graph.snapshot", {"graph": {
+                "available": True, "graph_kind": "runtime", "graph_id": graph_id,
+                "build_id": build_id, "revision": graph_revision,
+                "source_revision": graph_revision, "mapping_status": "graph_ready",
+                **graph,
+            }})
+
+    def _start_policy_graph_build(self, state: dict, build_id: str, revision: int) -> None:
+        graph = state.setdefault("graph", {})
+        graph.update({
+            "graph_kind": "policy", "graph_id": f"policy:{state['id']}",
+            "build_id": build_id, "revision": revision,
+            "nodes": [], "edges": [], "status": "running", "progress": 20,
+            "active_task": "Menyusun ontology kebijakan",
+        })
+        state["stages"]["graph"].update(
+            status="running", progress=20, active_task="Menyusun ontology kebijakan",
+        )
+        self._touch(state)
+        self._sync_stages(state)
+
+    def _publish_policy_ontology(self, state: dict, ontology: dict) -> None:
+        state["ontology"] = ontology
+        state["graph"]["progress"] = 32
+        state["graph"]["active_task"] = "Ontology selesai; menyusun entitas graf"
+        state["stages"]["graph"].update(
+            status="running", progress=32, active_task="Ontology selesai; menyusun entitas graf",
+        )
+        self._touch(state)
+        self._sync_stages(state)
+
+    @staticmethod
+    def _policy_graph_payload(graph: dict, *, nodes: list[dict] | None = None,
+                              edges: list[dict] | None = None) -> dict:
+        return {
+            "available": True, "graph_kind": "policy", "graph_id": graph.get("graph_id"),
+            "build_id": graph.get("build_id"), "revision": graph.get("revision", 0),
+            "mapping_status": graph.get("status", "building"),
+            "milestone": graph.get("active_task"), "milestone_progress": graph.get("progress", 0),
+            "node_count": len(graph.get("nodes", [])), "edge_count": len(graph.get("edges", [])),
+            "nodes": graph.get("nodes", []) if nodes is None else nodes,
+            "edges": graph.get("edges", []) if edges is None else edges,
+            "removed_node_ids": [], "removed_edge_ids": [],
+        }
+
+    def _stream_policy_graph(self, simulation_id: str, build_id: str, revision: int,
+                             graph: dict, start_progress: int, end_progress: int) -> None:
+        items = [("node", item) for item in graph.get("nodes", [])]
+        items.extend(("edge", item) for item in graph.get("edges", []))
+        total = max(1, len(items))
+        for index, (kind, item) in enumerate(items, 1):
+            progress = start_progress + int((end_progress - start_progress) * index / total)
+
+            def mutate(current: dict, kind=kind, item=item, progress=progress) -> None:
+                current_graph = current["graph"]
+                if current_graph.get("build_id") != build_id:
+                    return
+                key = "nodes" if kind == "node" else "edges"
+                values = current_graph.setdefault(key, [])
+                existing = next((position for position, value in enumerate(values) if value.get("id") == item.get("id")), None)
+                if existing is None:
+                    values.append(item)
+                else:
+                    values[existing] = values[existing] | item
+                current_graph.update(progress=progress, active_task=(
+                    "Menyusun entitas graf" if kind == "node" else "Menghubungkan relasi graf"
+                ))
+                current["stages"]["graph"].update(
+                    status="running", progress=progress, active_task=current_graph["active_task"],
+                )
+                self._touch(current)
+                self._sync_stages(current)
+
+            self.repository.mutate_with_events(
+                simulation_id,
+                mutate,
+                lambda current, kind=kind, item=item: [
+                    ("graph.delta", {"graph": self._policy_graph_payload(
+                        current["graph"], nodes=[item] if kind == "node" else [],
+                        edges=[item] if kind == "edge" else [],
+                    )}),
+                    ("stage.updated", {"stage": {"name": "graph", **current["stages"]["graph"]}}),
+                ],
+            )
 
     def _run_oasis_simulation(self, job: dict, state: dict, config: dict) -> dict:
         simulation_id = job["simulation_id"]
@@ -500,6 +715,38 @@ class WorkflowService:
         terminal = {"completed", "failed", "stopped"}
         runtime = {}
         cursor = None
+        graph_queue: queue.Queue[list[dict] | None] = queue.Queue()
+        graph_errors: list[Exception] = []
+        graph_memory: dict = {}
+        graph_thread: threading.Thread | None = None
+        if run_config["enable_graph_memory_update"] and hasattr(self.oasis_runtime, "ingest_actions"):
+            def ingest_graph_memory() -> None:
+                batch_number = 0
+                while (batch := graph_queue.get()) is not None:
+                    batch_number += 1
+                    try:
+                        graph_memory.update(self.oasis_runtime.ingest_actions(
+                            mapping["external_simulation_id"], mapping["zep_graph_id"],
+                            f"{run_id or job['id']}-live-{batch_number}", batch,
+                        ))
+                        graph = self.runtime_graph(simulation_id)
+                        if graph is not None:
+                            self.repository.append_workflow_event(
+                                simulation_id, "graph.snapshot", {"graph": {
+                                    "available": True, "graph_kind": "runtime",
+                                    "build_id": (mapping.get("metadata") or {}).get("graph_sync", {}).get("build_id"),
+                                    **graph,
+                                }},
+                            )
+                    except Exception as error:
+                        graph_errors.append(error)
+                    finally:
+                        graph_queue.task_done()
+
+            graph_thread = threading.Thread(
+                target=ingest_graph_memory, name=f"graph-memory-{simulation_id}", daemon=True,
+            )
+            graph_thread.start()
         try:
             self.oasis_runtime.start_simulation(mapping, run_config)
             self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
@@ -531,6 +778,8 @@ class WorkflowService:
                         "event": normalized, "raw_action": action, "occurred_at": action.get("timestamp"),
                     })
                 self.repository.append_oasis_actions(simulation_id, incoming, run_id)
+                if graph_thread and incoming:
+                    graph_queue.put([item["raw_action"] for item in incoming])
                 progress = int(float(runtime.get("progress_percent", 0) or 0))
                 self.repository.mutate(
                     simulation_id,
@@ -553,6 +802,9 @@ class WorkflowService:
                     break
                 time.sleep(2)
         except Exception as error:
+            if graph_thread:
+                graph_queue.put(None)
+                graph_thread.join(timeout=30)
             self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
                 "external_project_id": mapping["external_project_id"],
                 "external_simulation_id": mapping["external_simulation_id"],
@@ -561,14 +813,15 @@ class WorkflowService:
                 "metadata": dict(mapping.get("metadata") or {}) | {"runtime_status": runtime, "error": str(error)},
             })
             raise
+        if graph_thread:
+            graph_queue.put(None)
+            graph_thread.join(timeout=float(run_config["max_run_seconds"]))
+            if graph_thread.is_alive():
+                raise ProviderTransportError("graph_memory", "Runtime graph synchronization timed out")
+            if graph_errors:
+                raise graph_errors[0]
         rows = self.repository.list_oasis_actions(simulation_id, limit=5000, run_id=run_id)
         events = [dict(row["event"]) | {"sequence": index} for index, row in enumerate(rows, 1)]
-        graph_memory = {}
-        if run_config["enable_graph_memory_update"] and hasattr(self.oasis_runtime, "ingest_actions"):
-            graph_memory = self.oasis_runtime.ingest_actions(
-                mapping["external_simulation_id"], mapping["zep_graph_id"], run_id or job["id"],
-                [row.get("raw_action") or row.get("event") or {} for row in rows],
-            )
         artifacts = self.oasis_runtime.artifacts(mapping["external_simulation_id"]) if hasattr(self.oasis_runtime, "artifacts") else {}
         self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
             "external_project_id": mapping["external_project_id"],
@@ -630,13 +883,20 @@ class WorkflowService:
                 "locator": {"char_start": chunk.get("char_start"), "char_end": chunk.get("char_end")},
                 "quote": chunk.get("text", "")[:300], "label": "Dokumen sumber",
             }
+        generated = raw.get("generated_sections")
+        source_sections = generated if isinstance(generated, list) else outline.get("sections") or []
         sections = []
-        for index, section in enumerate(outline.get("sections") or [], 1):
+        for fallback_index, section in enumerate(source_sections, 1):
+            index = int(section.get("index", fallback_index - 1)) + 1 if isinstance(generated, list) else fallback_index
             content = str(section.get("content", "")).strip()
+            if not content:
+                continue
             sections.append({
                 "id": f"section-{index}", "title": section.get("title") or f"Bagian {index}",
-                "paragraphs": [item.strip() for item in content.split("\n\n") if item.strip()] or [content],
+                "content_markdown": content,
+                "paragraphs": [content],
                 "citations": [citation] if citation else [],
+                "completed_at": section.get("completed_at") or raw.get("updated_at"),
             })
         return {
             "id": raw.get("report_id") or identifier("report"), "version": 1,
@@ -644,8 +904,21 @@ class WorkflowService:
             "generated_by": "rekakebijakan-oasis-report-agent", "sections": sections, "risks": [],
             "citations": [citation] if citation else [], "markdown_content": raw.get("markdown_content", ""),
             "outline": outline, "agent_log": raw.get("agent_log", []), "console_log": raw.get("console_log", []),
-            "artifact_dir": raw.get("artifact_dir"),
+            "artifact_dir": raw.get("artifact_dir"), "status": raw.get("status"),
+            "progress": raw.get("progress", 100 if raw.get("markdown_content") else 0),
+            "active_task": raw.get("message"), "current_section": raw.get("current_section"),
         }
+
+    def _update_oasis_report_progress(self, state: dict, raw: dict, chunks: list[dict]) -> None:
+        partial = self._project_oasis_report(raw, chunks)
+        state.setdefault("report", {}).update(partial)
+        progress = max(0, min(99, int(raw.get("progress", 0) or 0)))
+        state["stages"]["report"].update(
+            status="running", progress=min(69, max(15, progress)),
+            active_task=raw.get("message") or "Menyusun laporan",
+        )
+        self._touch(state)
+        self._sync_stages(state)
 
     def _ingest_pending_documents(self, simulation_id: str) -> None:
         for document in self.repository.documents(simulation_id):
@@ -785,6 +1058,7 @@ class WorkflowService:
                 mapping.get("external_simulation_id") or simulation_id,
                 mapping["zep_graph_id"], state["project"]["objective"], payload["question"],
                 state.get("interactions", {}).get("messages", []),
+                language=state.get("project", {}).get("language", "id"),
             )
             response = {"text": raw.get("response", ""), "citations": [], "evidence_citations": [],
                         "tool_calls": raw.get("tool_calls", []), "sources": raw.get("sources", [])}

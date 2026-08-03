@@ -14,7 +14,7 @@ from zep_cloud import NotFoundError
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
-from ..utils.locale import t
+from ..utils.locale import get_language_instruction, get_locale, t
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
 from ..utils.zep import (
     call_zep_read_with_retry,
@@ -24,6 +24,10 @@ from ..utils.zep import (
 )
 
 logger = get_logger('rekakebijakan.zep_tools')
+
+
+def _localized(indonesian: str, english: str) -> str:
+    return english if get_locale() == 'en' else indonesian
 
 
 @dataclass
@@ -304,11 +308,11 @@ class AgentInterview:
     def to_text(self) -> str:
         text = f"**{self.agent_name}** ({self.agent_role})\n"
         # Display the complete agent biography.
-        text += f"_Biography: {self.agent_bio}_\n\n"
+        text += f"_{_localized('Biografi', 'Biography')}: {self.agent_bio}_\n\n"
         text += f"**Q:** {self.question}\n\n"
         text += f"**A:** {self.response}\n"
         if self.key_quotes:
-            text += "\n**Key Quotes:**\n"
+            text += _localized("\n**Kutipan Utama:**\n", "\n**Key Quotes:**\n")
             for quote in self.key_quotes:
                 # Remove surrounding quotation marks.
                 clean_quote = quote.replace('\u201c', '').replace('\u201d', '').replace('"', '')
@@ -368,25 +372,28 @@ class InterviewResult:
     def to_text(self) -> str:
         """Convert to detailed text for LLM understanding and report citations."""
         text_parts = [
-            "## In-Depth Interview Report",
-            f"**Interview Topic:** {self.interview_topic}",
-            f"**Interviewed Agents:** {self.interviewed_count} / {self.total_agents}",
-            "\n### Selection Reasoning",
-            self.selection_reasoning or "Automatically selected",
+            _localized("## Laporan Wawancara Mendalam", "## In-Depth Interview Report"),
+            _localized(f"**Topik Wawancara:** {self.interview_topic}", f"**Interview Topic:** {self.interview_topic}"),
+            _localized(f"**Agen yang Diwawancarai:** {self.interviewed_count} / {self.total_agents}", f"**Interviewed Agents:** {self.interviewed_count} / {self.total_agents}"),
+            _localized("\n### Alasan Pemilihan", "\n### Selection Reasoning"),
+            self.selection_reasoning or t('generated.automaticSelection'),
             "\n---",
-            "\n### Interview Transcript",
+            _localized("\n### Transkrip Wawancara", "\n### Interview Transcript"),
         ]
 
         if self.interviews:
             for i, interview in enumerate(self.interviews, 1):
-                text_parts.append(f"\n#### Interview #{i}: {interview.agent_name}")
+                text_parts.append(_localized(
+                    f"\n#### Wawancara #{i}: {interview.agent_name}",
+                    f"\n#### Interview #{i}: {interview.agent_name}",
+                ))
                 text_parts.append(interview.to_text())
                 text_parts.append("\n---")
         else:
-            text_parts.append("No interview records.\n\n---")
+            text_parts.append(_localized("Tidak ada rekaman wawancara.\n\n---", "No interview records.\n\n---"))
 
-        text_parts.append("\n### Interview Summary and Key Views")
-        text_parts.append(self.summary or "No summary available.")
+        text_parts.append(_localized("\n### Ringkasan Wawancara dan Pandangan Utama", "\n### Interview Summary and Key Views"))
+        text_parts.append(self.summary or _localized("Ringkasan tidak tersedia.", "No summary available."))
 
         return "\n".join(text_parts)
 
@@ -1074,6 +1081,7 @@ Requirements:
 2. Cover different dimensions, such as who, what, why, how, when, and where.
 3. Keep every subquery relevant to the simulation scenario.
 4. Return JSON: {"sub_queries": ["Subquery 1", "Subquery 2", ...]}"""
+        system_prompt += f"\n\n{get_language_instruction()}"
 
         user_prompt = f"""Simulation requirement:
 {simulation_requirement}
@@ -1103,9 +1111,9 @@ Return the subquery list as JSON."""
             # Fall back to variations of the original question.
             return [
                 query,
-                f"Main participants in {query}",
-                f"Causes and effects of {query}",
-                f"How {query} developed"
+                _localized(f"Pelaku utama dalam {query}", f"Main participants in {query}"),
+                _localized(f"Penyebab dan dampak {query}", f"Causes and effects of {query}"),
+                _localized(f"Perkembangan {query}", f"How {query} developed"),
             ][:max_queries]
     
     def panorama_search(
@@ -1262,7 +1270,7 @@ Return the subquery list as JSON."""
         
         if not profiles:
             logger.warning(t("console.profilesNotFound", simId=simulation_id))
-            result.summary = "No interviewable agent profiles were found."
+            result.summary = t('generated.noInterviewProfiles')
             return result
         
         result.total_agents = len(profiles)
@@ -1294,13 +1302,15 @@ Return the subquery list as JSON."""
         
         # Constrain the agent response format.
         INTERVIEW_PROMPT_PREFIX = (
-            "You are being interviewed. Answer the following questions directly in plain "
-            "English using your persona, memories, and prior actions.\n"
+            "You are being interviewed. Answer the following questions directly using your "
+            "persona, memories, and prior actions.\n"
+            f"{get_language_instruction()}\n"
             "Response requirements:\n"
             "1. Answer naturally without calling tools.\n"
             "2. Do not return JSON or tool-call syntax.\n"
             "3. Do not use Markdown headings.\n"
-            "4. Answer in order and begin each answer with 'Question X:' where X is its number.\n"
+            "4. Answer in order and begin each answer with the protocol marker 'Question X:' "
+            "where X is its number; do not translate that marker.\n"
             "5. Separate answers with blank lines.\n"
             "6. Give substantive answers of at least two or three sentences each.\n\n"
         )
@@ -1332,7 +1342,10 @@ Return the subquery list as JSON."""
             if not api_result.get("success", False):
                 error_msg = api_result.get("error", "Unknown error")
                 logger.warning(t("console.interviewApiReturnedFailure", error=error_msg))
-                result.summary = f"Interview API call failed: {error_msg}. Check the OASIS simulation environment."
+                result.summary = _localized(
+                    f"Panggilan API wawancara gagal: {error_msg}. Periksa lingkungan simulasi OASIS.",
+                    f"Interview API call failed: {error_msg}. Check the OASIS simulation environment.",
+                )
                 return result
             
             # Step 5: Parse both-platform results into AgentInterview objects.
@@ -1356,10 +1369,12 @@ Return the subquery list as JSON."""
                 twitter_response = self._clean_tool_call_response(twitter_response)
                 reddit_response = self._clean_tool_call_response(reddit_response)
 
-                # Always include English platform labels.
-                twitter_text = twitter_response if twitter_response else "No response was available on this platform."
-                reddit_text = reddit_response if reddit_response else "No response was available on this platform."
-                response_text = f"[Twitter Response]\n{twitter_text}\n\n[Reddit Response]\n{reddit_text}"
+                twitter_text = twitter_response if twitter_response else t('generated.noPlatformResponse')
+                reddit_text = reddit_response if reddit_response else t('generated.noPlatformResponse')
+                response_text = _localized(
+                    f"[Respons Twitter]\n{twitter_text}\n\n[Respons Reddit]\n{reddit_text}",
+                    f"[Twitter Response]\n{twitter_text}\n\n[Reddit Response]\n{reddit_text}",
+                )
 
                 # Extract key quotations from both responses.
                 import re
@@ -1403,13 +1418,19 @@ Return the subquery list as JSON."""
         except ValueError as e:
             # The simulation environment is not running.
             logger.warning(t("console.interviewApiCallFailed", error=e))
-            result.summary = f"Interview failed: {str(e)}. Ensure the OASIS environment is running."
+            result.summary = _localized(
+                f"Wawancara gagal: {str(e)}. Pastikan lingkungan OASIS sedang berjalan.",
+                f"Interview failed: {str(e)}. Ensure the OASIS environment is running.",
+            )
             return result
         except Exception as e:
             logger.error(t("console.interviewApiCallException", error=e))
             import traceback
             logger.error(traceback.format_exc())
-            result.summary = f"An error occurred during the interview: {str(e)}"
+            result.summary = _localized(
+                f"Terjadi kesalahan selama wawancara: {str(e)}",
+                f"An error occurred during the interview: {str(e)}",
+            )
             return result
         
         # Step 6: Generate the interview summary.
@@ -1531,6 +1552,7 @@ Return JSON:
     "selected_indices": [0, 1],
     "reasoning": "Explanation of the selection"
 }"""
+        system_prompt += f"\n\n{get_language_instruction()}"
 
         user_prompt = f"""Interview requirement:
 {interview_requirement}
@@ -1553,7 +1575,7 @@ Select up to {max_agents} suitable interviewees and explain the selection."""
             )
             
             selected_indices = response.get("selected_indices", [])[:max_agents]
-            reasoning = response.get("reasoning", "Automatically selected by relevance")
+            reasoning = response.get("reasoning", t('generated.automaticSelection'))
             
             # Get complete selected-agent profiles.
             selected_agents = []
@@ -1570,7 +1592,7 @@ Select up to {max_agents} suitable interviewees and explain the selection."""
             # Fall back to the first N agents.
             selected = profiles[:max_agents]
             indices = list(range(min(max_agents, len(profiles))))
-            return selected, indices, "Used the default selection strategy"
+            return selected, indices, t('generated.defaultSelection')
     
     def _generate_interview_questions(
         self,
@@ -1593,6 +1615,7 @@ Question requirements:
 6. Ask directly without background text or prefixes.
 
 Return JSON: {"questions": ["Question 1", "Question 2", ...]}"""
+        system_prompt += f"\n\n{get_language_instruction()}"
 
         user_prompt = f"""Interview requirement: {interview_requirement}
 
@@ -1611,14 +1634,16 @@ Generate 3-5 interview questions."""
                 temperature=0.5
             )
             
-            return response.get("questions", [f"What is your view on {interview_requirement}?"])
+            return response.get("questions", [t(
+                'generated.interviewViewQuestion', topic=interview_requirement
+            )])
             
         except Exception as e:
             logger.warning(t("console.generateInterviewQuestionsFailed", error=e))
             return [
-                f"What is your view on {interview_requirement}?",
-                "How does this affect you or the group you represent?",
-                "How do you think this issue should be resolved or improved?"
+                t('generated.interviewViewQuestion', topic=interview_requirement),
+                t('generated.interviewImpactQuestion'),
+                t('generated.interviewSolutionQuestion'),
             ]
     
     def _generate_interview_summary(
@@ -1629,7 +1654,7 @@ Generate 3-5 interview questions."""
         """Generate an interview summary."""
         
         if not interviews:
-            return "No interviews were completed."
+            return t('generated.noInterviews')
         
         # Collect all interview content.
         interview_texts = []
@@ -1650,6 +1675,7 @@ Formatting constraints:
 - Do not use Markdown headings or dividers.
 - Use standard quotation marks when quoting interviewees.
 - Bold keywords if useful, but use no other Markdown syntax."""
+        system_prompt += f"\n\n{get_language_instruction()}"
 
         user_prompt = f"""Interview topic: {interview_requirement}
 
@@ -1672,4 +1698,8 @@ Generate the interview summary."""
         except Exception as e:
             logger.warning(t("console.generateInterviewSummaryFailed", error=e))
             # Fall back to a simple list.
-            return f"Interviewed {len(interviews)} people: " + ", ".join([i.agent_name for i in interviews])
+            return t(
+                'generated.interviewCountSummary',
+                count=len(interviews),
+                names=", ".join(i.agent_name for i in interviews),
+            )

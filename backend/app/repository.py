@@ -15,7 +15,7 @@ from .database import (
     audit_events, citations, custom_personas, document_chunks, document_pages, documents,
     graph_feedback_versions, interviews, job_attempts, jobs, pilot_contacts, projects,
     oasis_actions, oasis_runtime_mappings, run_events, scenario_revisions, scenario_runs,
-    scenarios, sessions, simulations, users,
+    scenarios, sessions, simulations, users, workflow_events,
 )
 from .errors import UploadQuotaExceeded
 
@@ -76,6 +76,10 @@ class Repository:
                     owner_user_id=owner_user_id,
                 )
             )
+            db.execute(insert(workflow_events).values(
+                simulation_id=state["id"], type="snapshot", payload={"state": state},
+                created_at=parse_timestamp(state["updated_at"]),
+            ))
         return state
 
     def create_project_bundle(
@@ -137,6 +141,9 @@ class Repository:
                 db.execute(insert(simulations).values(
                     id=state["id"], project_id=project["id"], state=state,
                     updated_at=timestamp, owner_user_id=owner_user_id,
+                ))
+                db.execute(insert(workflow_events).values(
+                    simulation_id=state["id"], type="snapshot", payload={"state": state}, created_at=timestamp,
                 ))
                 for document, chunks, pages in document_values:
                     db.execute(insert(documents).values(**(document | {"created_at": document.get("created_at", timestamp)})))
@@ -879,9 +886,39 @@ class Repository:
                 oasis_actions.c.external_sequence,
                 oasis_actions.c.source_identity,
             ]
-        ).returning(oasis_actions.c.sequence)
+        ).returning(oasis_actions.c.sequence, oasis_actions.c.event)
         with self.engine.begin() as db:
-            return len(db.execute(statement).scalars().all())
+            inserted = db.execute(statement).mappings().all()
+            if inserted:
+                total = db.execute(select(func.count()).select_from(oasis_actions).where(
+                    oasis_actions.c.simulation_id == simulation_id
+                )).scalar_one()
+                db.execute(insert(workflow_events), [{
+                    "simulation_id": simulation_id,
+                    "type": "simulation.event",
+                    "payload": {"event": dict(item["event"]) | {"sequence": item["sequence"]}, "event_count": total},
+                    "created_at": ingested_at,
+                } for item in inserted])
+            return len(inserted)
+
+    def append_workflow_event(self, simulation_id: str, event_type: str, payload: dict) -> int:
+        with self.engine.begin() as db:
+            return int(db.execute(insert(workflow_events).values(
+                simulation_id=simulation_id, type=event_type, payload=payload, created_at=utc_now(),
+            ).returning(workflow_events.c.sequence)).scalar_one())
+
+    def list_workflow_events(self, simulation_id: str, after_sequence: int = 0, limit: int = 100) -> list[dict]:
+        with self.engine.connect() as db:
+            rows = db.execute(
+                select(workflow_events)
+                .where(
+                    workflow_events.c.simulation_id == simulation_id,
+                    workflow_events.c.sequence > after_sequence,
+                )
+                .order_by(workflow_events.c.sequence)
+                .limit(max(1, min(limit, 1000)))
+            ).mappings()
+            return [dict(row) for row in rows]
 
     def list_oasis_actions(self, simulation_id: str, after_sequence: int = 0, limit: int = 1000,
                            run_id: str | None = None) -> list[dict]:
@@ -921,6 +958,16 @@ class Repository:
     def mutate(self, simulation_id: str, callback: Callable[[dict], None]) -> dict | None:
         return self._mutate(simulation_id, callback)
 
+    def mutate_with_events(
+        self,
+        simulation_id: str,
+        callback: Callable[[dict], None],
+        event_factory: Callable[[dict], list[tuple[str, dict]]],
+    ) -> dict | None:
+        return self._mutate(
+            simulation_id, callback, event_factory=event_factory, publish_snapshot=False,
+        )
+
     def mutate_for_user(
         self, simulation_id: str, user_id: str, callback: Callable[[dict], None]
     ) -> dict | None:
@@ -931,6 +978,8 @@ class Repository:
         simulation_id: str,
         callback: Callable[[dict], None],
         user_id: str | None = None,
+        event_factory: Callable[[dict], list[tuple[str, dict]]] | None = None,
+        publish_snapshot: bool = True,
     ) -> dict | None:
         with self.lock, self.engine.begin() as db:
             statement = select(simulations.c.state).select_from(
@@ -950,6 +999,28 @@ class Repository:
                 .where(simulations.c.id == simulation_id)
                 .values(state=state, updated_at=parse_timestamp(state["updated_at"]))
             )
+            timestamp = utc_now()
+            events = event_factory(state) if event_factory else []
+            if publish_snapshot:
+                stream_state = state
+                action_rows = db.execute(
+                    select(oasis_actions.c.sequence, oasis_actions.c.event)
+                    .where(oasis_actions.c.simulation_id == simulation_id)
+                    .order_by(oasis_actions.c.sequence)
+                    .limit(5000)
+                ).mappings().all()
+                if action_rows:
+                    stream_state = dict(state)
+                    stream_state["simulation"] = dict(state.get("simulation", {})) | {
+                        "events": [dict(row["event"]) | {"sequence": row["sequence"]} for row in action_rows],
+                        "event_count": len(action_rows),
+                    }
+                events.append(("snapshot", {"state": stream_state}))
+            if events:
+                db.execute(insert(workflow_events), [{
+                    "simulation_id": simulation_id, "type": event_type,
+                    "payload": payload, "created_at": timestamp,
+                } for event_type, payload in events])
             return state
 
     @staticmethod

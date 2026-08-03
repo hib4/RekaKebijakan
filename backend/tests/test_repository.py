@@ -8,6 +8,10 @@ def test_repository_persists_state_and_recovers_jobs(database_url):
     state = {"id": "sim-1", "project": {"id": "project-1"}, "updated_at": datetime.now(timezone.utc).isoformat(), "value": 1}
     repository.create(state)
     repository.mutate("sim-1", lambda item: item.update(value=2))
+    workflow_events = repository.list_workflow_events("sim-1")
+    assert [event["type"] for event in workflow_events] == ["snapshot", "snapshot"]
+    assert workflow_events[-1]["payload"]["state"]["value"] == 2
+    assert repository.list_workflow_events("sim-1", workflow_events[0]["sequence"]) == [workflow_events[1]]
     assert repository.put_job("job-1", "sim-1", "graph", "running", {"rounds": 3})
 
     reopened = Repository(database_url)
@@ -120,6 +124,9 @@ def test_oasis_actions_are_incremental_idempotent_and_clearable(database_url):
 
     assert repository.append_oasis_actions("sim-actions", actions) == 2
     assert repository.append_oasis_actions("sim-actions", actions) == 0
+    stream_events = repository.list_workflow_events("sim-actions")
+    assert [item["type"] for item in stream_events] == ["snapshot", "simulation.event", "simulation.event"]
+    assert stream_events[-1]["payload"]["event_count"] == 2
     persisted = repository.list_oasis_actions("sim-actions")
     assert [item["event"]["content"] for item in persisted] == ["First", "Second"]
     assert repository.list_oasis_actions("sim-actions", after_sequence=persisted[0]["sequence"]) == [persisted[1]]

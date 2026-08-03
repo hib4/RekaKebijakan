@@ -101,12 +101,21 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     actionArgs: event.action_args,
     success: event.success,
   }));
-  const reportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
+  const completedReportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
     id: section.id ?? `section-${index}`,
     title: section.title,
-    content: section.paragraphs ?? (Array.isArray(section.content) ? section.content : section.content ? [section.content] : []),
+    content: section.content_markdown
+      ? [section.content_markdown]
+      : section.paragraphs ?? (Array.isArray(section.content) ? section.content : section.content ? [section.content] : []),
     citations: citations(section.citations),
   }));
+  const reportSections: ReportSection[] = snapshot.report?.outline?.sections?.length
+    ? snapshot.report.outline.sections.map((outlineSection, index) => {
+      const completed = completedReportSections.find((section) => section.id === `section-${index + 1}`)
+        ?? completedReportSections.find((section) => section.title === outlineSection.title);
+      return completed ?? { id: `section-${index + 1}`, title: outlineSection.title, content: [], citations: [] };
+    })
+    : completedReportSections;
   const risks = (snapshot.report?.risks ?? []).map((risk, index) => ({
     id: risk.id ?? `risk-${index}`,
     title: risk.title,
@@ -176,7 +185,7 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   };
   session.report = {
     progress: snapshot.report?.progress ?? (snapshot.report?.status === "completed" ? 100 : 0),
-    sections: reportSections,
+    sections: reportSections.filter((section) => section.content.some((value) => value.trim())),
     timestamps: reportSections.map(() => snapshot.report?.completed_at ? formatTime(snapshot.report.completed_at) : "--"),
     completedAt: snapshot.report?.completed_at,
   };

@@ -70,6 +70,17 @@ simulations = Table(
 )
 Index("simulations_owner_updated", simulations.c.owner_user_id, simulations.c.updated_at.desc())
 
+workflow_events = Table(
+    "workflow_events",
+    metadata,
+    Column("sequence", BigInteger, Identity(), primary_key=True),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("type", String, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("workflow_events_simulation_sequence", workflow_events.c.simulation_id, workflow_events.c.sequence)
+
 oasis_runtime_mappings = Table(
     "oasis_runtime_mappings",
     metadata,

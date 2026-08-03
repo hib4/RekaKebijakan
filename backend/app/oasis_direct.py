@@ -4,12 +4,15 @@ import hashlib
 import csv
 import json
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .provider_errors import ProviderResponseError, ProviderTransportError
 
@@ -81,14 +84,106 @@ class DirectOasisEngine:
             print(f"OASIS {operation} completed in {elapsed:.1f}s", file=sys.stderr)
         return response.get("data") or {}
 
-    def sync_graph(self, simulation_id: str, state: dict, chunks: list[dict]) -> dict:
-        return self._call("sync-graph", {
+    def _call_stream(
+        self, operation: str, payload: dict, callback: Callable[[dict], None],
+        timeout: float | None = None,
+    ) -> dict:
+        operation_timeout = timeout if timeout is not None else self.timeout
+        process = subprocess.Popen(
+            [str(self.runtime_python), str(self.bridge), operation],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1, env=self._environment(),
+        )
+        messages: queue.Queue[str | None] = queue.Queue()
+        diagnostics: list[str] = []
+
+        def read_stdout() -> None:
+            assert process.stdout is not None
+            for line in process.stdout:
+                messages.put(line)
+            messages.put(None)
+
+        def read_stderr() -> None:
+            assert process.stderr is not None
+            for line in process.stderr:
+                diagnostics.append(line.rstrip())
+                if len(diagnostics) > 100:
+                    diagnostics.pop(0)
+                print(line.rstrip(), file=sys.stderr)
+
+        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(payload, ensure_ascii=False))
+        process.stdin.close()
+        deadline = time.monotonic() + operation_timeout
+        result: dict | None = None
+        stream_closed = False
+        while not stream_closed:
+            if time.monotonic() >= deadline:
+                process.kill()
+                raise ProviderTransportError(operation, f"timed out after {operation_timeout:g}s")
+            try:
+                line = messages.get(timeout=0.25)
+            except queue.Empty:
+                if process.poll() is not None and not stdout_thread.is_alive():
+                    break
+                continue
+            if line is None:
+                stream_closed = True
+                continue
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError as error:
+                process.kill()
+                raise ProviderResponseError(operation, "invalid streaming response") from error
+            kind = message.get("kind")
+            if kind == "result":
+                result = message.get("data") or {}
+            elif kind == "error":
+                process.wait(timeout=5)
+                raise ProviderResponseError(operation, str(message.get("error", "streaming operation failed")))
+            else:
+                callback(message)
+        remaining = max(0.1, deadline - time.monotonic())
+        try:
+            return_code = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as error:
+            process.kill()
+            raise ProviderTransportError(operation, f"timed out after {operation_timeout:g}s") from error
+        stderr_thread.join(timeout=1)
+        if return_code:
+            raise ProviderTransportError(
+                operation, diagnostics[-1] if diagnostics else f"bridge exited {return_code}",
+            )
+        if result is None:
+            raise ProviderResponseError(operation, "stream ended without a result")
+        return result
+
+    def sync_graph(
+        self, simulation_id: str, state: dict, chunks: list[dict], *, graph_id: str | None = None,
+        progress_callback: Callable[[dict], None] | None = None, checkpoint: dict | None = None,
+    ) -> dict:
+        payload = {
             "simulation_id": simulation_id,
             "project_name": state["project"]["name"],
             "simulation_requirement": state["project"]["objective"],
             "ontology": state["ontology"],
             "chunks": chunks,
-        }, timeout=max(self.timeout, 660))
+            "language": state.get("project", {}).get("language", "id"),
+            "graph_id": graph_id,
+            "graph_exists": bool(checkpoint) and (checkpoint or {}).get("status") not in {
+                "creating", "graph-creating", "graph-reserved",
+            },
+            "batch_id": (checkpoint or {}).get("batch_id"),
+            "operation_id": (checkpoint or {}).get("operation_id"),
+        }
+        timeout = max(self.timeout, 660)
+        if progress_callback:
+            return self._call_stream("sync-graph-stream", payload, progress_callback, timeout=timeout)
+        return self._call("sync-graph", payload, timeout=timeout)
 
     def prepare_environment(self, mapping: dict, state: dict, config: dict) -> dict:
         prepare_timeout = float(os.getenv("OASIS_PREPARE_TIMEOUT_SECONDS", "900"))
@@ -99,6 +194,7 @@ class DirectOasisEngine:
             "simulation_requirement": state["project"]["objective"],
             "document_text": "\n\n".join(item.get("text", "") for item in config.pop("_chunks", [])),
             "config": config,
+            "language": state.get("project", {}).get("language", "id"),
         }, timeout=max(self.timeout, prepare_timeout))
 
     def start_simulation(self, mapping: dict, config: dict) -> dict:
@@ -294,12 +390,82 @@ class DirectOasisEngine:
     def artifacts(self, simulation_id: str) -> dict:
         return self._call("artifacts", {"simulation_id": simulation_id})
 
-    def generate_report(self, simulation_id: str, graph_id: str, simulation_requirement: str) -> dict:
+    def generate_report(
+        self, simulation_id: str, graph_id: str, simulation_requirement: str,
+        language: str = "id", progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict:
         report_timeout = float(os.getenv("OASIS_REPORT_TIMEOUT_SECONDS", "900"))
-        return self._call("report", {
+        payload = {
             "simulation_id": simulation_id, "graph_id": graph_id,
             "simulation_requirement": simulation_requirement,
-        }, timeout=max(self.timeout, report_timeout))
+            "language": language, "report_id": f"report_{uuid.uuid4().hex[:12]}",
+        }
+        if not progress_callback:
+            return self._call("report", payload, timeout=max(self.timeout, report_timeout))
+
+        process = subprocess.Popen(
+            [str(self.runtime_python), str(self.bridge), "report"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=self._environment(),
+        )
+        completed: dict[str, str] = {}
+
+        def communicate() -> None:
+            stdout, stderr = process.communicate(json.dumps(payload, ensure_ascii=False))
+            completed.update(stdout=stdout, stderr=stderr)
+
+        thread = threading.Thread(target=communicate, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + max(self.timeout, report_timeout)
+        last_signature = ""
+        while thread.is_alive():
+            partial = self._report_progress(payload["report_id"])
+            signature = json.dumps(partial, sort_keys=True, ensure_ascii=False) if partial else ""
+            if partial and signature != last_signature:
+                progress_callback(partial)
+                last_signature = signature
+            if time.monotonic() >= deadline:
+                process.kill()
+                thread.join(timeout=5)
+                raise ProviderTransportError("report", f"timed out after {max(self.timeout, report_timeout):g}s")
+            thread.join(timeout=0.5)
+        if process.returncode:
+            raise ProviderTransportError(
+                "report", completed.get("stderr", "").strip() or completed.get("stdout", "").strip()
+                or f"bridge exited {process.returncode}",
+            )
+        try:
+            response = json.loads(completed.get("stdout", ""))
+        except json.JSONDecodeError as error:
+            raise ProviderResponseError("report", "invalid direct OASIS response") from error
+        if not isinstance(response, dict) or not response.get("success"):
+            raise ProviderResponseError("report", str(response.get("error", "direct OASIS operation failed")))
+        return response.get("data") or {}
+
+    def _report_progress(self, report_id: str) -> dict:
+        folder = self.data_dir.parent / "reports" / report_id
+        progress = self._read_json(folder / "progress.json")
+        outline = self._read_json(folder / "outline.json")
+        if not progress and not outline:
+            return {}
+        generated_sections = []
+        outline_sections = outline.get("sections") if isinstance(outline.get("sections"), list) else []
+        for path in sorted(folder.glob("section_*.md")):
+            try:
+                index = int(path.stem.split("_")[-1]) - 1
+                markdown = path.read_text(encoding="utf-8").strip()
+            except (OSError, ValueError):
+                continue
+            title = (outline_sections[index].get("title") if index < len(outline_sections) else None) or f"Bagian {index + 1}"
+            heading = f"## {title}"
+            content = markdown[len(heading):].strip() if markdown.startswith(heading) else markdown
+            generated_sections.append({"index": index, "title": title, "content": content})
+        return {
+            "report_id": report_id, "outline": outline, "generated_sections": generated_sections,
+            "status": progress.get("status", "planning"), "progress": progress.get("progress", 0),
+            "message": progress.get("message"), "current_section": progress.get("current_section"),
+            "updated_at": progress.get("updated_at"),
+        }
 
     def ingest_actions(self, simulation_id: str, graph_id: str, run_id: str, actions: list[dict]) -> dict:
         ingestion_timeout = float(os.getenv("OASIS_INGESTION_TIMEOUT_SECONDS", "900"))
@@ -313,11 +479,12 @@ class DirectOasisEngine:
         )
 
     def report_chat(self, simulation_id: str, graph_id: str, simulation_requirement: str,
-                    message: str, history: list[dict] | None = None) -> dict:
+                    message: str, history: list[dict] | None = None, language: str = "id") -> dict:
         return self._call("report-chat", {
             "simulation_id": simulation_id, "graph_id": graph_id,
             "simulation_requirement": simulation_requirement,
             "message": message, "history": history or [],
+            "language": language,
         }, timeout=max(self.timeout, 300))
 
     def _ipc(self, simulation_dir: Path, command_type: str, args: dict, timeout: float) -> dict:

@@ -49,6 +49,23 @@ def start_and_wait(client, simulation_id, stage, payload=None):
     return wait_for(client, simulation_id, stage)
 
 
+def test_policy_graph_is_published_progressively(client):
+    response = project(client, "Graf Progresif", b"Akses transportasi melibatkan warga dan pemerintah daerah.")
+    simulation_id = response.json()["simulation_id"]
+    wait_for(client, simulation_id, "graph")
+
+    events = client.app.state.repository.list_workflow_events(simulation_id, limit=1000)
+    graph_events = [event for event in events if event["type"] in {"graph.snapshot", "graph.delta"}]
+
+    assert graph_events[0]["type"] == "graph.snapshot"
+    assert graph_events[0]["payload"]["graph"]["graph_kind"] == "policy"
+    deltas = [event["payload"]["graph"] for event in graph_events if event["type"] == "graph.delta"]
+    assert any(delta["nodes"] for delta in deltas)
+    assert any(delta["edges"] for delta in deltas)
+    assert len({delta["build_id"] for delta in deltas}) == 1
+    assert all(delta["revision"] == 1 for delta in deltas)
+
+
 def test_full_frontend_workflow(client):
     response = project(client, "Uji Kebijakan Transportasi", b"Tarif harus menjaga akses dan transparansi.")
     assert response.status_code == 201
@@ -129,7 +146,7 @@ def test_environment_patch_and_all_interaction_tools(client):
     assert readiness["status"] == "ok"
     assert readiness["database"] == "postgresql"
     assert readiness["storage"] == "local"
-    assert readiness["schema_revision"] == "0012_oasis_run_scope"
+    assert readiness["schema_revision"] == "0013_workflow_events"
 
 
 def test_validation_errors_and_stage_conflict(client):

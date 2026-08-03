@@ -14,7 +14,7 @@ from enum import Enum
 from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
-from ..utils.locale import t
+from ..utils.locale import get_language_instruction, t
 from .zep_tools import (
     ZepToolsService, 
     SearchResult, 
@@ -470,7 +470,8 @@ first-person responses, key quotations, and a comparative summary. Requires a ru
 PLAN_SYSTEM_PROMPT = """You are an expert future-forecast report writer with complete visibility
 into every simulated agent's behavior, statements, and interactions. Treat the simulated world's
 evolution as a forecast of what could happen under the supplied conditions, not as current-world
-analysis. Focus on event trajectories, group responses, emergent behavior, trends, and risks.
+analysis. Focus on event trajectories, group responses, emergent behavior, trends, risks,
+and actionable recommendations.
 
 Return a concise report outline as JSON with 2-5 sections and no subsections:
 {
@@ -497,7 +498,7 @@ Sample future facts forecast by the simulation:
 {related_facts_json}
 
 Design the best 2-5 section structure for explaining what happens, how groups react,
-and which future trends and risks deserve attention."""
+which future trends and risks deserve attention, and which recommendations follow from the evidence."""
 
 SECTION_SYSTEM_PROMPT_TEMPLATE = """\
 You are writing one section of a future-forecast report.
@@ -508,14 +509,15 @@ Forecast scenario: {simulation_requirement}
 Current section: {section_title}
 
 Treat the simulated world as a rehearsal of the future under the supplied conditions.
-Explain what happens, how groups react, and which trends, risks, and opportunities emerge.
+Explain what happens, how groups react, which trends, risks, and opportunities emerge,
+and what evidence-based recommendations follow.
 Do not analyze the current real world.
 
 Mandatory rules:
 1. Base all content on simulated events, agent statements, and tool results, not outside knowledge.
 2. Use at least {min_tool_calls} and no more than {max_tool_calls} tool calls per section, mixing different tools when possible.
 3. Quote original agent statements as core evidence.
-4. Write the entire report in English. Translate non-English source quotations faithfully into English.
+4. Follow the language instruction below for all report prose and translate source quotations faithfully into that language.
 5. Never invent usernames, quotations, statistics, interactions, or facts. State when evidence is insufficient.
 6. Never generate a <tool_result> block; only the system provides tool results.
 7. Do not use Markdown headings in section content. The system adds the section title.
@@ -592,7 +594,7 @@ Rules:
 1. Answer primarily from the report above.
 2. Respond directly without lengthy reasoning.
 3. Call tools only when the report lacks enough evidence.
-4. Keep answers concise, clear, organized, and in English.
+4. Keep answers concise, clear, organized, and in the requested language.
 
 Available tools (use only when needed, at most 1-2 calls):
 {tools_description}
@@ -604,7 +606,7 @@ Tool-call format:
 
 Give the conclusion first, then explain it. Use > block quotations for key evidence."""
 
-CHAT_OBSERVATION_SUFFIX = "\n\nAnswer the question concisely in English."
+CHAT_OBSERVATION_SUFFIX = "\n\nAnswer the question concisely in the requested language."
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -936,7 +938,7 @@ class ReportAgent:
         if progress_callback:
             progress_callback("planning", 30, t('progress.generatingOutline'))
         
-        system_prompt = f"{PLAN_SYSTEM_PROMPT}\n\nAll generated content must be in English."
+        system_prompt = f"{PLAN_SYSTEM_PROMPT}\n\n{get_language_instruction()}"
         user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
             total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
@@ -967,7 +969,7 @@ class ReportAgent:
                 ))
             
             outline = ReportOutline(
-                title=response.get("title", "Simulation Analysis Report"),
+                title=response.get("title", t('generated.reportTitle')),
                 summary=response.get("summary", ""),
                 sections=sections
             )
@@ -982,12 +984,13 @@ class ReportAgent:
             logger.error(t('report.outlinePlanFailed', error=str(e)))
             # Return a three-section fallback outline.
             return ReportOutline(
-                title="Future Forecast Report",
-                summary="Analysis of future trends and risks forecast by the simulation",
+                title=t('generated.reportTitle'),
+                summary=t('generated.reportSummary'),
                 sections=[
-                    ReportSection(title="Forecast Scenario and Core Findings"),
-                    ReportSection(title="Forecast Group Behavior"),
-                    ReportSection(title="Trend Outlook and Risk Warnings")
+                    ReportSection(title=t('generated.reportSectionFindings')),
+                    ReportSection(title=t('generated.reportSectionBehavior')),
+                    ReportSection(title=t('generated.reportSectionRisks')),
+                    ReportSection(title=t('generated.reportSectionRecommendations')),
                 ]
             )
     
@@ -1028,7 +1031,7 @@ class ReportAgent:
             min_tool_calls=min_tool_calls,
             max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
         )
-        system_prompt = f"{system_prompt}\n\nAll generated content must be in English."
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
 
         # Build the user prompt with up to 4,000 characters per prior section.
         if previous_sections:
@@ -1039,7 +1042,7 @@ class ReportAgent:
                 previous_parts.append(truncated)
             previous_content = "\n\n---\n\n".join(previous_parts)
         else:
-            previous_content = "This is the first section."
+            previous_content = t('generated.firstReportSection')
         
         user_prompt = SECTION_USER_PROMPT_TEMPLATE.format(
             previous_content=previous_content,
@@ -1582,10 +1585,10 @@ class ReportAgent:
         
         system_prompt = CHAT_SYSTEM_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
-            report_content=report_content if report_content else "No report is available.",
+            report_content=report_content if report_content else t('generated.noReport'),
             tools_description=self._get_tools_description(),
         )
-        system_prompt = f"{system_prompt}\n\nAll generated content must be in English."
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
 
         # Build messages.
         messages = [{"role": "system", "content": system_prompt}]

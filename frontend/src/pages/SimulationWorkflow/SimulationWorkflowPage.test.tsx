@@ -96,16 +96,16 @@ describe("SimulationWorkflowPage live mode", () => {
 
     renderWorkflow("/simulation/live-layout?step=report&mode=graph");
 
-    expect(await screen.findByRole("heading", { name: "Generate policy report" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Graph" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("region", { name: "System console" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Susun laporan kebijakan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Graf" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ruang kerja" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("region", { name: "Konsol sistem" })).not.toBeInTheDocument();
 
     const stepper = screen.getByRole("navigation", { name: "Tahap workflow" });
-    await user.click(within(stepper).getByRole("button", { name: /Simulation/ }));
+    await user.click(within(stepper).getByRole("button", { name: /Simulasi/ }));
 
-    expect(screen.getByRole("button", { name: "Graph" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Graph" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Graf" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Graf" })).toBeEnabled();
   });
 
   it("uses normal navigation from Report to Interaction and leaves Step 05 ready", async () => {
@@ -115,13 +115,13 @@ describe("SimulationWorkflowPage live mode", () => {
     const user = userEvent.setup();
     renderWorkflow("/simulation/live-next?step=report&mode=split");
 
-    await user.click(await screen.findByRole("button", { name: "Go to Interaction →" }));
+    await user.click(await screen.findByRole("button", { name: "Buka interaksi →" }));
 
     expect(await screen.findByRole("heading", { name: "Interaksi dengan hasil" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "System console" })).not.toBeInTheDocument();
-    const interactionStep = within(screen.getByRole("navigation", { name: "Tahap workflow" })).getByRole("button", { name: /Interaction/ });
-    expect(interactionStep).toHaveTextContent("ready");
-    expect(interactionStep).not.toHaveTextContent("completed");
+    expect(screen.queryByRole("region", { name: "Konsol sistem" })).not.toBeInTheDocument();
+    const interactionStep = within(screen.getByRole("navigation", { name: "Tahap workflow" })).getByRole("button", { name: /Interaksi/ });
+    expect(interactionStep).toHaveTextContent("Siap");
+    expect(interactionStep).not.toHaveTextContent("Selesai");
   });
 
   it("shows a Report navigation button when the simulation is completed", async () => {
@@ -131,11 +131,11 @@ describe("SimulationWorkflowPage live mode", () => {
     const user = userEvent.setup();
     renderWorkflow("/simulation/live-completed?step=simulation&mode=split");
 
-    const reportButton = await screen.findByRole("button", { name: "Buka Report →" });
+    const reportButton = await screen.findByRole("button", { name: "Buka laporan →" });
     await user.click(reportButton);
 
-    expect(await screen.findByRole("heading", { name: "Generate policy report" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("heading", { name: "Susun laporan kebijakan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ruang kerja" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("renders interaction send failures in the interaction panel", async () => {
@@ -148,7 +148,7 @@ describe("SimulationWorkflowPage live mode", () => {
 
     const input = await screen.findByPlaceholderText("Ajukan pertanyaan berbasis laporan...");
     await user.type(input, "Apa risiko utama?");
-    await user.click(screen.getByRole("button", { name: "Send →" }));
+    await user.click(screen.getByRole("button", { name: "Kirim →" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Layanan interaksi tidak tersedia");
     expect(screen.getByRole("heading", { name: "Interaksi dengan hasil" })).toBeInTheDocument();
@@ -168,7 +168,7 @@ describe("SimulationWorkflowPage live mode", () => {
 
     const input = await screen.findByPlaceholderText("Ajukan pertanyaan berbasis laporan...");
     await user.type(input, "Apa risiko utama?");
-    await user.click(screen.getByRole("button", { name: "Send →" }));
+    await user.click(screen.getByRole("button", { name: "Kirim →" }));
 
     expect(await screen.findByText("Risiko utama telah ditinjau.")).toBeInTheDocument();
     await waitFor(() => expect(reads).toBe(2));
@@ -224,12 +224,12 @@ describe("SimulationWorkflowPage live mode", () => {
     await user.click(policyButton);
 
     expect(policyButton).toHaveClass("active");
-    expect(screen.getByText("POLICY KNOWLEDGE GRAPH")).toBeInTheDocument();
+    expect(screen.getByText("GRAF PENGETAHUAN KEBIJAKAN")).toBeInTheDocument();
     await user.click(runtimeButton);
 
     expect(runtimeButton).toHaveClass("active");
-    expect(screen.getByText("OASIS / ZEP RUNTIME GRAPH")).toBeInTheDocument();
-    const graph = screen.getByRole("group", { name: /Graf stakeholder dan kebijakan/ });
+    expect(screen.getByText("GRAF RUNTIME OASIS / ZEP")).toBeInTheDocument();
+    const graph = screen.getByRole("group", { name: /Graf pemangku kepentingan dan kebijakan/ });
     await waitFor(() => expect(graph.querySelectorAll(".graph-edges line")).toHaveLength(1));
   });
 
@@ -243,7 +243,7 @@ describe("SimulationWorkflowPage live mode", () => {
 
     expect(await screen.findByRole("button", { name: "Graf kebijakan" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "Graf runtime memuat" })).toBeDisabled();
-    expect(screen.getByText("POLICY KNOWLEDGE GRAPH")).toBeInTheDocument();
+    expect(screen.getByText("GRAF PENGETAHUAN KEBIJAKAN")).toBeInTheDocument();
   });
 
   it("starts environment preparation with fast deterministic defaults", async () => {
@@ -273,7 +273,7 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(llmToggle).not.toBeChecked();
     expect(configLlmToggle).not.toBeChecked();
     fireEvent.change(rounds, { target: { value: "10" } });
-    await user.click(screen.getByRole("button", { name: "Prepare OASIS Environment →" }));
+    await user.click(screen.getByRole("button", { name: "Siapkan lingkungan OASIS →" }));
 
     await waitFor(() => expect(submitted).toEqual({
       rounds: 10,

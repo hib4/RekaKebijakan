@@ -132,6 +132,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.stream-status {
+  max-width: 210px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stream-status i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--subtle);
+}
+.stream-status.connected i { background: var(--success); }
+.stream-status.connecting i,
+.stream-status.reconnecting i { background: var(--warning); animation: workflow-pulse 1.4s infinite; }
+.stream-status.error i { background: var(--error); }
 .workflow-logout {
   align-self: stretch;
   border: 0;
@@ -1268,7 +1291,8 @@
   overflow-y: auto;
   padding: 14px;
 }
-.chat-messages p {
+.chat-message,
+.chat-messages > p {
   display: grid;
   gap: 4px;
   max-width: 90%;
@@ -1278,14 +1302,17 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.chat-messages p.user {
+.chat-message.user {
   margin-left: auto;
   background: #edf5ff;
 }
-.chat-messages b {
+.chat-message > b,
+.chat-messages > p > b {
   font-size: 10px;
   color: var(--muted);
 }
+.chat-message .rich-text { max-width: none; }
+.chat-message .rich-text p { margin: 0 0 0.65em; padding: 0; background: transparent; }
 .message-citations {
   display: flex;
   flex-wrap: wrap;
@@ -1624,6 +1651,11 @@
   .workflow-user {
     display: none;
   }
+  .stream-status {
+    max-width: 28px;
+    padding: 0 8px;
+    font-size: 0;
+  }
   .workflow-step-label {
     padding: 8px 10px;
   }
@@ -1759,6 +1791,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workflow-status.processing i,
+  .stream-status.connecting i,
+  .stream-status.reconnecting i,
   .graph-nodes g.active circle,
   .progress-timeline article.processing i,
   .simulation-event,

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
+import time
 import traceback
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def configure_runtime() -> Path:
@@ -17,22 +20,134 @@ def configure_runtime() -> Path:
     return runtime
 
 
-def sync_graph(payload: dict) -> dict:
+def sync_graph(payload: dict, emit=None) -> dict:
     from app.services.graph_builder import GraphBuilderService
 
     texts = [item["text"] for item in payload["chunks"] if item.get("text")]
-    ontology = payload["ontology"]
+    ontology = dict(payload["ontology"])
+    if not ontology.get("edge_types") and ontology.get("relation_types"):
+        ontology["edge_types"] = [{
+            "name": relation["name"],
+            "description": relation.get("description") or f"Relasi {relation['name']}",
+            "source_targets": [
+                {"source": source, "target": target}
+                for source in relation.get("source_types", ["Entity"])
+                for target in relation.get("target_types", ["Entity"])
+            ],
+            "attributes": relation.get("attributes", []),
+        } for relation in ontology["relation_types"]]
     builder = GraphBuilderService()
-    print("OASIS sync-graph: creating Zep graph", file=sys.stderr, flush=True)
-    graph_id = builder.create_graph(payload["project_name"])
+    graph_id = payload.get("graph_id")
+    build_id = payload.get("build_id") or graph_id
+    known_nodes: dict[str, str] = {}
+    known_edges: dict[str, str] = {}
+    last_scan_at = 0.0
+    last_scan_progress = -1.0
+
+    def milestone(name: str, progress: float, message: str, **details) -> None:
+        if emit:
+            emit({
+                "kind": "milestone", "milestone": name, "progress": progress,
+                "message": message, "graph_id": graph_id, "build_id": build_id, **details,
+            })
+
+    def normalized_id(item: dict) -> str | None:
+        value = item.get("id") or item.get("uuid")
+        return str(value) if value else None
+
+    def emit_topology(*, force: bool = False, progress: float = 0.0) -> dict | None:
+        nonlocal last_scan_at, last_scan_progress
+        if not emit or not graph_id:
+            return None
+        now = time.monotonic()
+        if not force and now - last_scan_at < 2 and progress - last_scan_progress < 0.05:
+            return None
+        try:
+            graph = builder.get_graph_data(graph_id)
+        except Exception as error:
+            milestone("topology-pending", progress, "Topologi Zep belum tersedia", detail=str(error))
+            return None
+        last_scan_at = now
+        last_scan_progress = progress
+        for kind, items, known in (
+            ("node", graph.get("nodes", []), known_nodes),
+            ("edge", graph.get("edges", []), known_edges),
+        ):
+            for item in items:
+                item_id = normalized_id(item)
+                if not item_id:
+                    continue
+                digest = hashlib.sha256(
+                    json.dumps(item, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+                ).hexdigest()
+                if known.get(item_id) == digest:
+                    continue
+                known[item_id] = digest
+                emit({
+                    "kind": kind, "graph_id": graph_id, "build_id": build_id,
+                    "progress": progress, kind: item,
+                    "node_count": len(graph.get("nodes", [])), "edge_count": len(graph.get("edges", [])),
+                })
+        return graph
+
+    if payload.get("graph_exists") and graph_id:
+        milestone("graph-resumed", 0.04, "Melanjutkan graf runtime yang tersimpan")
+    else:
+        print("OASIS sync-graph: creating Zep graph", file=sys.stderr, flush=True)
+        milestone("graph-creating", 0.02, "Membuat graf runtime Zep")
+        if emit:
+            graph_id = builder.create_graph(
+                payload["project_name"], graph_id=graph_id,
+                graph_id_callback=lambda value: milestone("graph-reserved", 0.03, "ID graf runtime disiapkan", graph_id=value),
+            )
+        else:
+            graph_id = (
+                builder.create_graph(payload["project_name"], graph_id=graph_id)
+                if graph_id else builder.create_graph(payload["project_name"])
+            )
+        milestone("graph-created", 0.08, "Graf runtime Zep tersedia")
     print("OASIS sync-graph: uploading ontology", file=sys.stderr, flush=True)
     builder.set_ontology(graph_id, ontology)
+    milestone("ontology-installed", 0.15, "Ontology dipasang pada graf runtime")
     print(f"OASIS sync-graph: submitting {len(texts)} evidence chunks", file=sys.stderr, flush=True)
-    submission = builder.add_text_batches(graph_id, texts)
+    if payload.get("batch_id"):
+        submission = SimpleNamespace(
+            batch_id=payload["batch_id"], operation_id=payload.get("operation_id") or "resumed",
+            episode_uuids=[], item_count=len(texts),
+        )
+        milestone("batch-resumed", 0.35, "Melanjutkan pemrosesan batch Zep", batch_id=submission.batch_id)
+    elif emit:
+        submission = builder.add_text_batches(
+            graph_id, texts,
+            progress_callback=lambda message, progress: milestone(
+                "evidence-submitting", 0.15 + progress * 0.2, message,
+            ),
+            batch_created_callback=lambda batch_id, operation_id: milestone(
+                "batch-created" if batch_id else "batch-reserved", 0.18,
+                "Batch Zep disiapkan" if not batch_id else "Batch Zep dikonfirmasi",
+                batch_id=batch_id, operation_id=operation_id,
+            ),
+        )
+    else:
+        submission = builder.add_text_batches(graph_id, texts)
     print(f"OASIS sync-graph: processing Zep batch {submission.batch_id}", file=sys.stderr, flush=True)
-    episodes = builder._wait_for_batch(submission)
+    if emit:
+        def processing(message, progress):
+            milestone("batch-processing", 0.35 + progress * 0.5, message, batch_id=submission.batch_id)
+            emit_topology(progress=progress)
+        episodes = builder._wait_for_batch(submission, processing)
+    else:
+        episodes = builder._wait_for_batch(submission)
     print("OASIS sync-graph: retrieving graph summary", file=sys.stderr, flush=True)
+    milestone("topology-reconciling", 0.9, "Menyelaraskan topologi graf runtime")
+    final_graph = emit_topology(force=True, progress=1.0)
     info = builder._get_graph_info(graph_id)
+    if emit and final_graph is not None:
+        emit({
+            "kind": "snapshot", "graph_id": graph_id, "build_id": build_id,
+            "progress": 1.0, "graph": final_graph,
+        })
+    milestone("completed", 1.0, "Graf runtime selesai dibuat")
     return {"project_id": payload["simulation_id"], "graph_id": graph_id, "graph_info": info.to_dict(),
             "episode_uuids": episodes, "ontology": ontology}
 
@@ -130,7 +245,7 @@ def report(payload: dict) -> dict:
         graph_id=payload["graph_id"], simulation_id=payload["simulation_id"],
         simulation_requirement=payload["simulation_requirement"],
     )
-    generated = agent.generate_report()
+    generated = agent.generate_report(report_id=payload.get("report_id"))
     ReportManager.save_report(generated)
     if generated.status.value != "completed":
         raise RuntimeError(generated.error or "OASIS report generation failed")
@@ -209,7 +324,20 @@ OPERATIONS = {
 def main() -> None:
     configure_runtime()
     payload = json.load(sys.stdin)
+    from app.utils.locale import set_locale
+    set_locale(payload.get("language", "id"))
     try:
+        if sys.argv[1] == "sync-graph-stream":
+            protocol_stdout = sys.stdout
+
+            def emit(message: dict) -> None:
+                protocol_stdout.write(json.dumps(message, ensure_ascii=False, default=str) + "\n")
+                protocol_stdout.flush()
+
+            with redirect_stdout(sys.stderr):
+                data = sync_graph(payload, emit=emit)
+            emit({"kind": "result", "data": data})
+            return
         # Engine services occasionally print progress. Keep stdout as a
         # strict JSON protocol and route incidental output to stderr.
         with redirect_stdout(sys.stderr):
