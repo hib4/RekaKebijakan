@@ -147,7 +147,7 @@ export default function ProjectDetailPage() {
   const graphNodes = snapshot.graph?.nodes ?? [];
   const personas = snapshot.environment?.personas ?? [];
   const personaCount = snapshot.environment?.persona_count ?? personas.length;
-  const rounds = snapshot.environment?.config?.rounds ?? 5;
+  const rounds = snapshot.environment?.config?.rounds ?? snapshot.environment?.config?.max_rounds ?? 10;
   const stakeholders = [...new Set(personas.map((item) => item.group ?? item.stakeholder_group).filter((item): item is string => Boolean(item)))];
   if (stakeholders.length === 0) {
     stakeholders.push(...new Set(graphNodes.map((item) => item.group ?? item.type ?? item.entity_type).filter((item): item is string => Boolean(item))));

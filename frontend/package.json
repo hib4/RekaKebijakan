@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:oasis": "RUN_OASIS_E2E=true playwright test oasis-workflow.spec.ts --project=chromium",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -20,7 +21,9 @@
     "d3-zoom": "^3.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

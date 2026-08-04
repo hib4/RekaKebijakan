@@ -20,6 +20,10 @@ export type InteractionMessage = {
   tool: string;
   text: string;
   citations?: import("./workflowTypes").Citation[];
+  createdAt?: string;
+  personaGroup?: string;
+  toolCalls?: Record<string, unknown>[];
+  sources?: Record<string, unknown>[];
 };
 
 export type WorkflowSession = {
@@ -29,8 +33,11 @@ export type WorkflowSession = {
   viewMode: ViewMode;
   steps: Record<WorkflowStep, WorkflowStepState>;
   graph: { nodeCount: number; edgeCount: number; selectedNodeId: string | null };
-  environment: { personaCount: number; rounds: 3 | 5 | 8; socialization: "Rendah" | "Sedang" | "Tinggi"; responseMode: "Klarifikasi" | "Responsif" | "Revisi" };
-  simulation: { status: "ready" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed"; eventCount: number; speed: 0.5 | 1 | 2; staleReason?: string; error?: string };
+  environment: {
+    personaCount: number; rounds: number; socialization: string; responseMode: string;
+    platforms: string[]; totalSimulationHours?: number; minutesPerRound?: number;
+  };
+  simulation: { status: "ready" | "running" | "paused" | "stale" | "cancelled" | "failed" | "completed"; eventCount: number; speed: 0.5 | 1 | 2; currentRound?: number; platformRounds?: Record<string, number>; staleReason?: string; error?: string };
   report: { progress: number; sections: ReportSection[]; timestamps: string[]; completedAt?: string };
   interaction: { messages: InteractionMessage[]; revisionNotes: string[] };
   logs: ConsoleLog[];
@@ -59,7 +66,7 @@ export function createWorkflowSession(simulationId: string, projectName: string)
       5: readyStep("locked"),
     },
     graph: { nodeCount: 0, edgeCount: 0, selectedNodeId: null },
-    environment: { personaCount: 0, rounds: 5, socialization: "Sedang", responseMode: "Responsif" },
+    environment: { personaCount: 0, rounds: 10, socialization: "OASIS activity model", responseMode: "LLMAction", platforms: ["twitter", "reddit"] },
     simulation: { status: "ready", eventCount: 0, speed: 1 },
     report: { progress: 0, sections: [], timestamps: [] },
     interaction: {

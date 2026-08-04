@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AuthInput(BaseModel):
@@ -38,12 +38,75 @@ class ProjectInput(BaseModel):
     project_name: str = Field(min_length=2, max_length=160)
     institution: str = Field(min_length=2, max_length=160)
     objective: str = Field(min_length=2, max_length=1000)
+    language: Literal["id", "en"] = "id"
 
 
 class EnvironmentInput(BaseModel):
-    rounds: Literal[3, 5, 8] = 5
+    rounds: int = Field(default=10, ge=1, le=1000)
     socialization: str = Field(default="Sedang", max_length=40)
     response_mode: str = Field(default="Responsif", max_length=40)
+    entity_types: list[str] | None = Field(default=None, max_length=100)
+    use_llm_for_profiles: bool = True
+    use_llm_for_config: bool = False
+    parallel_profile_count: int = Field(default=5, ge=1, le=20)
+    max_profile_count: int | None = Field(default=None, ge=1, le=500)
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    engine: Literal["deterministic", "oasis"] | None = None
+
+    @model_validator(mode="after")
+    def resolve_rounds(self):
+        fields_set = self.model_fields_set
+        if "rounds" in fields_set and "max_rounds" in fields_set and self.rounds != self.max_rounds:
+            raise ValueError("rounds and max_rounds must match")
+        if "max_rounds" in fields_set and "rounds" not in fields_set:
+            self.rounds = self.max_rounds
+        self.max_rounds = self.rounds
+        return self
+
+
+class EnvironmentUpdateInput(BaseModel):
+    rounds: int | None = Field(default=None, ge=1, le=1000)
+    socialization: str | None = Field(default=None, max_length=40)
+    response_mode: str | None = Field(default=None, max_length=40)
+    entity_types: list[str] | None = Field(default=None, max_length=100)
+    use_llm_for_profiles: bool | None = None
+    use_llm_for_config: bool | None = None
+    parallel_profile_count: int | None = Field(default=None, ge=1, le=20)
+    max_profile_count: int | None = Field(default=None, ge=1, le=500)
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    engine: Literal["deterministic", "oasis"] | None = None
+
+    @model_validator(mode="after")
+    def resolve_rounds(self):
+        if self.rounds is not None and self.max_rounds is not None and self.rounds != self.max_rounds:
+            raise ValueError("rounds and max_rounds must match")
+        resolved = self.rounds if self.rounds is not None else self.max_rounds
+        if resolved is not None:
+            self.rounds = resolved
+            self.max_rounds = resolved
+        return self
+
+
+class SimulationInput(BaseModel):
+    rounds: int | None = Field(default=None, ge=1, le=1000)
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    engine: Literal["deterministic", "oasis"] | None = None
+    enable_graph_memory_update: bool = True
+    force: bool = False
+    step_timeout_seconds: float | None = Field(default=None, gt=0, le=3600)
+    stale_timeout_seconds: float | None = Field(default=None, gt=0, le=3600)
+    max_run_seconds: float | None = Field(default=None, gt=0, le=86400)
+    oasis_concurrency: int | None = Field(default=None, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def resolve_rounds(self):
+        if self.rounds is not None and self.max_rounds is not None and self.rounds != self.max_rounds:
+            raise ValueError("rounds and max_rounds must match")
+        resolved = self.rounds if self.rounds is not None else self.max_rounds
+        if resolved is not None:
+            self.rounds = resolved
+            self.max_rounds = resolved
+        return self
 
 
 class InteractionInput(BaseModel):
@@ -75,9 +138,22 @@ class ProjectUpdateInput(BaseModel):
 class ScenarioConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    rounds: Literal[3, 5, 8] | None = None
+    rounds: int | None = Field(default=None, ge=1, le=1000)
     socialization: str | None = Field(default=None, max_length=40)
     response_mode: str | None = Field(default=None, max_length=40)
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    enable_graph_memory_update: bool | None = None
+    engine: Literal["deterministic", "oasis"] | None = None
+
+    @model_validator(mode="after")
+    def resolve_rounds(self):
+        if self.rounds is not None and self.max_rounds is not None and self.rounds != self.max_rounds:
+            raise ValueError("rounds and max_rounds must match")
+        resolved = self.rounds if self.rounds is not None else self.max_rounds
+        if resolved is not None:
+            self.rounds = resolved
+            self.max_rounds = resolved
+        return self
 
 
 class ScenarioInput(BaseModel):
@@ -157,6 +233,7 @@ class PersonaBulkPatchInput(BaseModel):
 
 class ScenarioRunInput(BaseModel):
     expected_scenario_version: int | None = Field(default=None, ge=1)
+    engine: Literal["deterministic", "oasis"] | None = None
 
 
 class ScenarioCompareInput(BaseModel):
@@ -172,6 +249,7 @@ class RunInterviewInput(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     persona_ids: list[str] = Field(default_factory=list, max_length=10)
     group: str | None = Field(default=None, max_length=160)
+    platform: Literal["twitter", "reddit"] | None = None
 
 
 class ProjectDuplicateInput(BaseModel):

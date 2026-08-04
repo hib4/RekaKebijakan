@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Boolean,
     Column,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     MetaData,
@@ -68,6 +70,67 @@ simulations = Table(
 )
 Index("simulations_owner_updated", simulations.c.owner_user_id, simulations.c.updated_at.desc())
 
+workflow_events = Table(
+    "workflow_events",
+    metadata,
+    Column("sequence", BigInteger, Identity(), primary_key=True),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("type", String, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("workflow_events_simulation_sequence", workflow_events.c.simulation_id, workflow_events.c.sequence)
+
+oasis_runtime_mappings = Table(
+    "oasis_runtime_mappings",
+    metadata,
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), primary_key=True),
+    Column("project_id", String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    Column("external_project_id", String, nullable=True),
+    Column("external_simulation_id", String, nullable=True),
+    Column("zep_graph_id", String, nullable=True),
+    Column("graph_revision", Integer, nullable=False, server_default="0"),
+    Column("status", String, nullable=False),
+    Column("config", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("runtime_status", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("artifacts", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+Index("oasis_runtime_external_project", oasis_runtime_mappings.c.external_project_id)
+Index("oasis_runtime_external_simulation", oasis_runtime_mappings.c.external_simulation_id)
+
+oasis_actions = Table(
+    "oasis_actions",
+    metadata,
+    Column("sequence", BigInteger, Identity(), primary_key=True),
+    Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
+    Column("run_id", String, ForeignKey("scenario_runs.id", ondelete="CASCADE"), nullable=True),
+    Column("platform", String, nullable=False),
+    Column("external_sequence", BigInteger, nullable=False),
+    Column("source_identity", String, nullable=False),
+    Column("round", Integer, nullable=True),
+    Column("event", JSONB, nullable=False),
+    Column("raw_action", JSONB, nullable=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("external_sequence >= 0", name="oasis_actions_external_sequence_valid"),
+    CheckConstraint('"round" IS NULL OR "round" >= 0', name="oasis_actions_round_valid"),
+)
+Index(
+    "oasis_actions_external_identity",
+    oasis_actions.c.simulation_id,
+    oasis_actions.c.run_id,
+    oasis_actions.c.platform,
+    oasis_actions.c.external_sequence,
+    oasis_actions.c.source_identity,
+    unique=True,
+    postgresql_nulls_not_distinct=True,
+)
+Index("oasis_actions_simulation_sequence", oasis_actions.c.simulation_id, oasis_actions.c.sequence)
+Index("oasis_actions_run_sequence", oasis_actions.c.run_id, oasis_actions.c.sequence)
+
 scenarios = Table(
     "scenarios",
     metadata,
@@ -106,6 +169,7 @@ scenario_runs = Table(
     Column("scenario_revision_id", String, ForeignKey("scenario_revisions.id", ondelete="RESTRICT"), nullable=False),
     Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
     Column("status", String, nullable=False),
+    Column("engine", String, nullable=False, server_default="deterministic"),
     Column("input_snapshot", JSONB, nullable=False),
     Column("output_snapshot", JSONB, nullable=True),
     Column("provenance", JSONB, nullable=False),
@@ -113,6 +177,7 @@ scenario_runs = Table(
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
     CheckConstraint("status IN ('queued','running','paused','completed','failed','cancelled')", name="scenario_runs_status_valid"),
+    CheckConstraint("engine IN ('deterministic','oasis')", name="scenario_runs_engine_valid"),
 )
 Index("scenario_runs_scenario_created", scenario_runs.c.scenario_id, scenario_runs.c.created_at.desc())
 
@@ -143,10 +208,12 @@ interviews = Table(
     Column("id", String, primary_key=True),
     Column("simulation_id", String, ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False),
     Column("owner_user_id", String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("run_id", String, ForeignKey("scenario_runs.id", ondelete="SET NULL"), nullable=True),
     Column("content", JSONB, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 Index("interviews_simulation_created", interviews.c.simulation_id, interviews.c.created_at.desc())
+Index("interviews_run_created", interviews.c.run_id, interviews.c.created_at)
 
 graph_feedback_versions = Table(
     "graph_feedback_versions", metadata,

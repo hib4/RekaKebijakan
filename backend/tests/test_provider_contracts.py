@@ -38,11 +38,14 @@ class CapturingCompletions:
         self.calls.append(kwargs)
         if self.error:
             raise self.error
-        payload = __import__("json").loads(kwargs["messages"][1]["content"])
-        fallback = payload["context"]["fallback"]
-        fallback["analysis_summary"] = "Ontology khusus berdasarkan bukti terpilih."
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content=__import__("json").dumps(fallback),
+            content=__import__("json").dumps({
+                "analysis_summary": "Ontology khusus berdasarkan bukti terpilih.",
+                "entity_types": [
+                    {"name": "Kebijakan", "description": "Kebijakan yang diuji berdasarkan bukti."},
+                ],
+                "relation_types": [{"name": "MERESPONS"}],
+            }),
         ))])
 
 
@@ -118,8 +121,53 @@ def test_openai_ontology_bounds_context_and_output_tokens():
     assert call["max_tokens"] == 1234
     assert "response_format" not in call
     assert len(payload["context"]["chunks"]) == 6
+    assert "fallback" not in payload["context"]
     assert result["generated_by"] == "openai-compatible"
     assert result["analysis_summary"] == "Ontology khusus berdasarkan bukti terpilih."
+
+
+def test_openai_ontology_preserves_contract_sensitive_fallback_structure():
+    class MalformedOntologyCompletions:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content=json.dumps({
+                    "analysis_summary": "Ringkasan model tetap boleh dipakai.",
+                    "entity_types": [
+                        {"name": "Kebijakan Publik", "description": "Deskripsi model."},
+                        {"name": "", "description": 123},
+                    ],
+                    "relation_types": [
+                        {"name": "TERKAIT", "source_types": "Stakeholder", "target_types": []},
+                        {"name": 88},
+                        {"name": "EXTRA"},
+                    ],
+                    "citations": [{"source_id": 99}],
+                }),
+            ))])
+
+    completions = MalformedOntologyCompletions()
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model", client=client(completions), fallback_policy="raise",
+    )
+    fallback = DeterministicPolicyProvider().ontology(project(), [chunk()])
+
+    result = provider.ontology(project(), [chunk()])
+
+    assert result["analysis_summary"] == "Ringkasan model tetap boleh dipakai."
+    assert result["citations"] == fallback["citations"]
+    assert len(result["entity_types"]) == len(fallback["entity_types"])
+    assert result["entity_types"][0]["name"] == "Kebijakan Publik"
+    assert result["entity_types"][1] == fallback["entity_types"][1]
+    assert len(result["relation_types"]) == len(fallback["relation_types"])
+    assert result["relation_types"][0]["name"] == "TERKAIT"
+    assert result["relation_types"][0]["source_types"] == fallback["relation_types"][0]["source_types"]
+    assert result["relation_types"][0]["target_types"] == fallback["relation_types"][0]["target_types"]
+    assert result["relation_types"][1] == fallback["relation_types"][1]
+    assert result["generated_by"] == "openai-compatible"
 
 
 def test_openai_timeout_is_classified_for_worker_retry():
@@ -133,6 +181,18 @@ def test_openai_timeout_is_classified_for_worker_retry():
 
     assert captured.value.category == "transport"
     assert captured.value.retryable is True
+
+
+def test_openai_ontology_timeout_uses_deterministic_fallback():
+    chunks = [chunk()]
+    fallback = DeterministicPolicyProvider().ontology(project(), chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="deterministic",
+    )
+
+    assert provider.ontology(project(), chunks) == fallback
 
 
 def test_openai_accepts_fenced_json_from_compatible_gateway():
@@ -181,6 +241,34 @@ def test_openai_graph_uses_compact_refinements_and_preserves_topology():
     assert result["edges"] == fallback["edges"]
     assert [node["id"] for node in result["nodes"]] == [node["id"] for node in fallback["nodes"]]
     assert all(node["summary"].startswith("Spesifik: ") for node in result["nodes"])
+
+
+def test_openai_graph_timeout_uses_deterministic_fallback():
+    chunks = [chunk()]
+    ontology = DeterministicPolicyProvider().ontology(project(), chunks)
+    fallback = DeterministicPolicyProvider().graph(project(), ontology, chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="deterministic",
+    )
+
+    assert provider.graph(project(), ontology, chunks) == fallback
+
+
+def test_openai_graph_timeout_is_raised_in_strict_mode():
+    chunks = [chunk()]
+    ontology = DeterministicPolicyProvider().ontology(project(), chunks)
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model",
+        client=client(CapturingCompletions(TimeoutError("upstream timeout"))),
+        fallback_policy="raise",
+    )
+
+    with pytest.raises(ProviderTransportError) as captured:
+        provider.graph(project(), ontology, chunks)
+
+    assert captured.value.retryable is True
 
 
 def test_openai_environment_uses_compact_batches_and_preserves_local_structure():

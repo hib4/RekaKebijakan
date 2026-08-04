@@ -217,7 +217,7 @@ class PersonaOutput(Contract):
 
 
 class EnvironmentConfig(Contract):
-    rounds: int = Field(gt=0)
+    rounds: int = Field(ge=1, le=1000)
     socialization: str
     response_mode: str
     channels: list[str] = Field(min_length=1)
@@ -229,6 +229,11 @@ class EnvironmentConfig(Contract):
     generated_by: str
     version: int = Field(ge=1)
     overrides: dict[str, Any]
+    platforms: list[str] | None = None
+    total_simulation_hours: int | None = None
+    minutes_per_round: int | None = None
+    max_rounds: int | None = Field(default=None, ge=1, le=1000)
+    raw_config: dict[str, Any] | None = None
 
 
 class EnvironmentOutput(Contract):
@@ -249,7 +254,7 @@ class EnvironmentOutput(Contract):
 class EventOutput(Contract):
     id: str
     sequence: int = Field(gt=0)
-    round: int = Field(gt=0)
+    round: int = Field(ge=0)
     time: str
     channel: str
     persona_id: str
@@ -268,6 +273,9 @@ class EventOutput(Contract):
     citations: list[Citation]
     graph_revision: int
     config_version: int
+    platform: str | None = None
+    action_args: dict[str, Any] | None = None
+    success: bool | None = None
 
 
 class SimulationOutput(Contract):

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { controlRun, createProject, duplicateProject, getCurrentUser, loginUser, submitContact } from "./client";
+import { connectSimulationStream, controlRun, createProject, duplicateProject, getCurrentUser, loginUser, submitContact } from "./client";
 
 describe("authentication API client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -26,6 +26,26 @@ describe("authentication API client", () => {
       code: "unauthorized",
       message: "Email atau kata sandi salah",
     });
+  });
+});
+
+describe("simulation SSE client", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("skips malformed JSON frames and continues parsing later events", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("event: graph.delta\ndata: {broken\n\nevent: graph.delta\nid: 8\ndata: {\"graph_kind\":\"policy\",\"graph\":{\"nodes\":[]}}\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } })));
+    const onEvent = vi.fn();
+
+    await connectSimulationStream("simulation-1", { onEvent });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ id: "8", type: "graph.delta", data: expect.objectContaining({ graph_kind: "policy" }) }));
   });
 });
 

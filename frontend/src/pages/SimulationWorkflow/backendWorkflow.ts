@@ -40,28 +40,42 @@ export function mapInteractionMessage(message: ApiInteractionMessageDto, index =
     tool: message.tool ?? "report",
     text: message.text ?? message.content ?? "",
     citations: citations(message.evidence_citations ?? (message.citations ?? []).map((label, citationIndex) => ({ source_type: "report_section", source_id: `citation-${citationIndex + 1}`, label }))),
+    createdAt: message.created_at,
+    personaGroup: message.persona_group,
+    toolCalls: message.tool_calls,
+    sources: message.sources,
   };
 }
 
 export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId: string, previous?: WorkflowSession) {
   const projectName = snapshot.project?.name ?? snapshot.project?.project_name ?? `Simulasi ${simulationId}`;
-  const graphNodes = (snapshot.graph?.nodes ?? []).map((node, index) => ({
-    id: node.id,
-    label: node.label ?? node.name ?? node.id,
-    type: node.type ?? node.entity_type ?? "Stakeholder",
-    summary: node.summary ?? node.description ?? "Entity dari graph kebijakan.",
-    group: node.group,
-    x: node.x ?? 100 + (index % 4) * 180,
-    y: node.y ?? 90 + Math.floor(index / 4) * 130,
-    citations: citations(node.citations),
-  }));
-  const graphEdges = (snapshot.graph?.edges ?? []).map((edge, index) => ({
-    id: edge.id ?? `edge-${index}`,
-    source: edge.source,
-    target: edge.target,
-    type: edge.type ?? edge.relation_type ?? "RELATED_TO",
-    citations: citations(edge.citations),
-  }));
+  const graphNodes = (snapshot.graph?.nodes ?? []).flatMap((node, index) => {
+    const id = node.id ?? node.uuid;
+    if (!id) return [];
+    return [{
+      id,
+      label: node.label ?? node.name ?? id,
+      type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Stakeholder",
+      summary: node.summary ?? node.description ?? "Entity dari graph kebijakan.",
+      group: node.group,
+      x: node.x ?? 100 + (index % 4) * 180,
+      y: node.y ?? 90 + Math.floor(index / 4) * 130,
+      citations: citations(node.citations),
+    }];
+  });
+  const nodeIds = new Set(graphNodes.map((node) => node.id));
+  const graphEdges = (snapshot.graph?.edges ?? []).flatMap((edge, index) => {
+    const source = edge.source ?? edge.source_node_uuid;
+    const target = edge.target ?? edge.target_node_uuid;
+    if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return [];
+    return [{
+      id: edge.id ?? edge.uuid ?? `edge-${index}`,
+      source,
+      target,
+      type: edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
+      citations: citations(edge.citations),
+    }];
+  });
   const personas = (snapshot.environment?.personas ?? []).map((persona) => ({
     id: persona.id,
     name: persona.name ?? persona.id,
@@ -87,13 +101,25 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     riskNarrative: event.risk_narrative ?? "Belum diklasifikasikan",
     influenceSource: event.influence_source ?? "Graph kebijakan",
     citations: citations(event.citations),
+    platform: event.platform ?? event.channel,
+    actionArgs: event.action_args,
+    success: event.success,
   }));
-  const reportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
+  const completedReportSections: ReportSection[] = (snapshot.report?.sections ?? []).map((section, index) => ({
     id: section.id ?? `section-${index}`,
     title: section.title,
-    content: section.paragraphs ?? (Array.isArray(section.content) ? section.content : section.content ? [section.content] : []),
+    content: section.content_markdown
+      ? [section.content_markdown]
+      : section.paragraphs ?? (Array.isArray(section.content) ? section.content : section.content ? [section.content] : []),
     citations: citations(section.citations),
   }));
+  const reportSections: ReportSection[] = snapshot.report?.outline?.sections?.length
+    ? snapshot.report.outline.sections.map((outlineSection, index) => {
+      const completed = completedReportSections.find((section) => section.id === `section-${index + 1}`)
+        ?? completedReportSections.find((section) => section.title === outlineSection.title);
+      return completed ?? { id: `section-${index + 1}`, title: outlineSection.title, content: [], citations: [] };
+    })
+    : completedReportSections;
   const risks = (snapshot.report?.risks ?? []).map((risk, index) => ({
     id: risk.id ?? `risk-${index}`,
     title: risk.title,
@@ -138,24 +164,32 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
   if (session.steps[4].status === "completed" && session.steps[5].status === "locked") session.steps[5].status = "ready";
   session.viewMode = previous?.viewMode ?? (session.currentStep >= 4 ? "workbench" : "split");
   session.graph = { nodeCount: graphNodes.length, edgeCount: graphEdges.length, selectedNodeId: previous?.graph.selectedNodeId ?? null };
-  const rounds = snapshot.environment?.config?.rounds;
+  const rounds = snapshot.environment?.config?.rounds ?? snapshot.environment?.config?.max_rounds;
   session.environment = {
     personaCount: snapshot.environment?.persona_count ?? personas.reduce((sum, persona) => sum + persona.count, 0),
-    rounds: rounds === 3 || rounds === 8 ? rounds : 5,
-    socialization: (snapshot.environment?.config?.socialization as WorkflowSession["environment"]["socialization"]) ?? "Sedang",
-    responseMode: (snapshot.environment?.config?.response_mode as WorkflowSession["environment"]["responseMode"]) ?? "Responsif",
+    rounds: Math.max(1, rounds ?? 10),
+    socialization: snapshot.environment?.config?.socialization ?? "OASIS activity model",
+    responseMode: snapshot.environment?.config?.response_mode ?? "LLMAction",
+    platforms: snapshot.environment?.config?.platforms ?? snapshot.environment?.config?.channels ?? ["twitter", "reddit"],
+    totalSimulationHours: snapshot.environment?.config?.total_simulation_hours,
+    minutesPerRound: snapshot.environment?.config?.minutes_per_round,
   };
   const simulationStatus = snapshot.simulation?.status;
   session.simulation = {
     status: simulationStatus === "running" || simulationStatus === "processing" || simulationStatus === "queued" ? "running" : simulationStatus === "paused" ? "paused" : simulationStatus === "stale" || snapshot.simulation?.stale ? "stale" : simulationStatus === "cancelled" ? "cancelled" : simulationStatus === "failed" ? "failed" : simulationStatus === "completed" ? "completed" : "ready",
     eventCount: snapshot.simulation?.event_count ?? events.length,
     speed: previous?.simulation.speed ?? 1,
+    currentRound: snapshot.simulation?.runtime?.current_round,
+    platformRounds: {
+      twitter: snapshot.simulation?.runtime?.twitter_current_round ?? 0,
+      reddit: snapshot.simulation?.runtime?.reddit_current_round ?? 0,
+    },
     staleReason: snapshot.simulation?.stale_reason ?? snapshot.stale_reason,
     error: snapshot.simulation?.error,
   };
   session.report = {
     progress: snapshot.report?.progress ?? (snapshot.report?.status === "completed" ? 100 : 0),
-    sections: reportSections,
+    sections: reportSections.filter((section) => section.content.some((value) => value.trim())),
     timestamps: reportSections.map(() => snapshot.report?.completed_at ? formatTime(snapshot.report.completed_at) : "--"),
     completedAt: snapshot.report?.completed_at,
   };

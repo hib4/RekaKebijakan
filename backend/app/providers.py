@@ -182,7 +182,8 @@ class DeterministicPolicyProvider:
                 "source_node_ids": [stakeholder["id"], issue["id"]], "citations": issue.get("citations", []),
             })
         resolved = {
-            "rounds": config.get("rounds", 5), "socialization": config.get("socialization", "Sedang"),
+            "rounds": config.get("rounds", 10), "max_rounds": config.get("rounds", 10),
+            "socialization": config.get("socialization", "Sedang"),
             "response_mode": config.get("response_mode", "Responsif"),
             "channels": ["Forum warga", "Media sosial", "Rapat publik"], "influence_mode": "network_weighted",
             "events_per_round": 6, "seed": simulation_id, "assumptions": [],
@@ -427,16 +428,74 @@ class OpenAICompatiblePolicyProvider:
             return fallback
         raise failure
 
+    def _merge_ontology_refinements(self, generated: dict, fallback: dict) -> dict:
+        result = dict(fallback)
+        summary = generated.get("analysis_summary")
+        if isinstance(summary, str) and summary.strip():
+            result["analysis_summary"] = summary.strip()
+
+        for key, fields in (
+            ("entity_types", ("name", "description")),
+            ("relation_types", ("name",)),
+        ):
+            updates = generated.get(key)
+            if not isinstance(updates, list):
+                continue
+            merged = []
+            for index, local in enumerate(fallback[key]):
+                item = dict(local)
+                update = updates[index] if index < len(updates) else None
+                if isinstance(update, dict):
+                    for field in fields:
+                        value = update.get(field)
+                        if isinstance(value, str) and value.strip():
+                            item[field] = value.strip()
+                merged.append(item)
+            result[key] = merged
+
+        result["generated_by"] = self.name
+        return PROVIDER_OUTPUTS["ontology"].model_validate(result, strict=True).model_dump(
+            mode="python", exclude_none=True
+        )
+
     @validated("ontology")
     def ontology(self, project: dict, chunks: list[dict]) -> dict:
         fallback = self.fallback_provider.ontology(project, chunks)
         evidence = retrieve_chunks(project["objective"], chunks, 6)
-        return self._generate(
-            "ontology",
-            "Perjelas ontology fallback berdasarkan bukti. Pertahankan struktur dan jumlah entity_types serta relation_types.",
-            {"project": project, "chunks": self._evidence(evidence), "fallback": fallback},
-            fallback,
-        )
+        try:
+            generated = self._json(
+                "ontology",
+                (
+                    "Perjelas ringkasan dan label ontology berdasarkan bukti. Kembalikan objek JSON dengan key "
+                    "analysis_summary, entity_types, dan relation_types. entity_types harus berisi tepat satu item "
+                    "untuk setiap input dengan hanya key name dan description. relation_types harus berisi tepat "
+                    "satu item untuk setiap input dengan hanya key name. Jangan mengembalikan citations, source_types, "
+                    "target_types, version, atau generated_by."
+                ),
+                {
+                    "project": project,
+                    "chunks": self._evidence(evidence),
+                    "entity_types": [
+                        {key: item[key] for key in ("name", "description")}
+                        for item in fallback["entity_types"]
+                    ],
+                    "relation_types": [{"name": item["name"]} for item in fallback["relation_types"]],
+                },
+            )
+            return self._merge_ontology_refinements(generated, fallback)
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "ontology", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=%s category=%s message=%s",
+                "ontology", failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("graph")
     def graph(self, project: dict, ontology: dict, chunks: list[dict]) -> dict:
@@ -445,43 +504,57 @@ class OpenAICompatiblePolicyProvider:
             {key: node.get(key) for key in ("id", "label", "type", "summary")}
             for node in fallback["nodes"]
         ]
-        generated = self._json(
-            "graph",
-            (
-                "Perjelas label dan ringkasan node graph berdasarkan ontology dan bukti. Kembalikan objek "
-                "dengan key nodes yang berisi tepat satu item untuk setiap ID input; setiap item hanya memiliki "
-                "id, label, dan summary. Jangan membuat atau menghapus ID."
-            ),
-            {
-                "project": project,
-                "ontology_summary": ontology.get("analysis_summary", ""),
-                "nodes": compact_nodes,
-                "chunks": self._evidence(retrieve_chunks(project["objective"], chunks, 4), 4, 600),
-            },
-        )
-        updates = generated.get("nodes")
-        if not isinstance(updates, list):
-            raise ProviderResponseError("graph", "response JSON must contain a nodes array")
-        by_id = {
-            item.get("id"): item
-            for item in updates
-            if isinstance(item, dict) and item.get("id")
-        }
-        expected_ids = {node["id"] for node in fallback["nodes"]}
-        if set(by_id) != expected_ids:
-            raise ProviderResponseError("graph", "response nodes must preserve every input node ID")
-        result = dict(fallback)
-        result["generated_by"] = self.name
-        result["nodes"] = [
-            node | {
-                "label": str(by_id[node["id"]].get("label") or node["label"]),
-                "summary": str(by_id[node["id"]].get("summary") or node["summary"]),
+        try:
+            generated = self._json(
+                "graph",
+                (
+                    "Perjelas label dan ringkasan node graph berdasarkan ontology dan bukti. Kembalikan objek "
+                    "dengan key nodes yang berisi tepat satu item untuk setiap ID input; setiap item hanya memiliki "
+                    "id, label, dan summary. Jangan membuat atau menghapus ID."
+                ),
+                {
+                    "project": project,
+                    "ontology_summary": ontology.get("analysis_summary", ""),
+                    "nodes": compact_nodes,
+                    "chunks": self._evidence(retrieve_chunks(project["objective"], chunks, 4), 4, 600),
+                },
+            )
+            updates = generated.get("nodes")
+            if not isinstance(updates, list):
+                raise ProviderResponseError("graph", "response JSON must contain a nodes array")
+            by_id = {
+                item.get("id"): item
+                for item in updates
+                if isinstance(item, dict) and item.get("id")
             }
-            for node in fallback["nodes"]
-        ]
-        return PROVIDER_OUTPUTS["graph"].model_validate(result, strict=True).model_dump(
-            mode="python", exclude_none=True
-        )
+            expected_ids = {node["id"] for node in fallback["nodes"]}
+            if set(by_id) != expected_ids:
+                raise ProviderResponseError("graph", "response nodes must preserve every input node ID")
+            result = dict(fallback)
+            result["generated_by"] = self.name
+            result["nodes"] = [
+                node | {
+                    "label": str(by_id[node["id"]].get("label") or node["label"]),
+                    "summary": str(by_id[node["id"]].get("summary") or node["summary"]),
+                }
+                for node in fallback["nodes"]
+            ]
+            return PROVIDER_OUTPUTS["graph"].model_validate(result, strict=True).model_dump(
+                mode="python", exclude_none=True
+            )
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "graph", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=%s category=%s message=%s",
+                "graph", failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("environment")
     def environment(self, simulation_id: str, graph: dict, config: dict) -> dict:

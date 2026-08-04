@@ -6,6 +6,8 @@ CURL_CONNECT_TIMEOUT=${CURL_CONNECT_TIMEOUT:-5}
 CURL_MAX_TIME=${CURL_MAX_TIME:-20}
 POLL_TIMEOUT=${POLL_TIMEOUT:-120}
 POLL_INTERVAL=${POLL_INTERVAL:-2}
+SIMULATION_ENGINE=${SIMULATION_ENGINE:-deterministic}
+MAX_PROFILE_COUNT=${MAX_PROFILE_COUNT:-5}
 COOKIE_JAR=$(mktemp)
 SOURCE_FILE=$(mktemp)
 EMAIL="smoke-$(date +%s)-$$@example.test"
@@ -48,6 +50,23 @@ poll_stage() {
   return 1
 }
 
+start_stage() {
+  stage=$1
+  payload=$2
+  snapshot=$(request "$BASE_URL/backend/api/simulations/$SIMULATION_ID")
+  status=$(printf '%s' "$snapshot" | json_value "['stages']['$stage']['status']")
+  case "$status" in
+    completed) return 0 ;;
+    queued|processing|running) ;;
+    ready)
+      request -H 'Content-Type: application/json' -d "$payload" \
+        "$BASE_URL/backend/api/simulations/$SIMULATION_ID/stages/$stage/start" >/dev/null
+      ;;
+    *) printf '%s\n' "smoke: $stage cannot start from $status" >&2; return 1 ;;
+  esac
+  poll_stage "$stage"
+}
+
 request "$BASE_URL/" | python3 -c 'import sys; assert "<html" in sys.stdin.read().lower()'
 request "$BASE_URL/backend/health" | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
 
@@ -64,13 +83,10 @@ created=$(request -F 'project_name=Production Smoke' -F 'institution=CI' -F 'obj
 PROJECT_ID=$(printf '%s' "$created" | json_value "['id']")
 SIMULATION_ID=$(printf '%s' "$created" | json_value "['simulation_id']")
 
-for stage in graph environment simulation report; do
-  payload='{}'
-  [ "$stage" = environment ] && payload='{"rounds":3}'
-  request -H 'Content-Type: application/json' -d "$payload" \
-    "$BASE_URL/backend/api/simulations/$SIMULATION_ID/stages/$stage/start" >/dev/null
-  poll_stage "$stage"
-done
+start_stage graph '{}'
+start_stage environment "{\"rounds\":3,\"engine\":\"$SIMULATION_ENGINE\",\"max_rounds\":3,\"max_profile_count\":$MAX_PROFILE_COUNT,\"parallel_profile_count\":3,\"use_llm_for_profiles\":false}"
+start_stage simulation "{\"engine\":\"$SIMULATION_ENGINE\",\"max_rounds\":3,\"enable_graph_memory_update\":true}"
+start_stage report '{}'
 
 report=$(request "$BASE_URL/backend/api/reports/$SIMULATION_ID")
 citations=$(request "$BASE_URL/backend/api/simulations/$SIMULATION_ID/citations")
@@ -90,4 +106,51 @@ assert refs, "report has no citations"
 assert all((citation.get("source_id") or citation.get("chunk_id")) in known for citation in refs), "invalid report citation"
 '
 
-printf '%s\n' "smoke: full-stack workflow passed ($SIMULATION_ID)"
+answer=$(request -H 'Content-Type: application/json' \
+  -d '{"tool":"report","question":"Apa risiko utama kebijakan ini dan tindakan mitigasi yang didukung oleh bukti?"}' \
+  "$BASE_URL/backend/api/simulations/$SIMULATION_ID/interactions")
+messages=$(request "$BASE_URL/backend/api/interactions/$SIMULATION_ID/messages")
+printf '%s\n%s\n' "$answer" "$messages" | python3 -c '
+import json, sys
+answer, history = [json.loads(line) for line in sys.stdin]
+assert answer["role"] == "assistant"
+assert answer["tool"] == "report"
+assert answer["text"].strip(), "interaction returned an empty answer"
+messages = history["messages"]
+assert len(messages) >= 2
+assert messages[-2]["role"] == "user"
+assert messages[-1]["id"] == answer["id"]
+'
+
+if [ "$SIMULATION_ENGINE" = oasis ]; then
+  environment=$(request "$BASE_URL/backend/api/simulations/$SIMULATION_ID/environment")
+  oasis_status=$(request "$BASE_URL/backend/api/simulations/$SIMULATION_ID/oasis/status")
+  runtime_graph=$(request "$BASE_URL/backend/api/simulations/$SIMULATION_ID/runtime-graph")
+  events=$(request "$BASE_URL/backend/api/runs/$SIMULATION_ID/events")
+  printf '%s\n%s\n%s\n%s\n%s\n' "$environment" "$oasis_status" "$runtime_graph" "$events" "$report" | python3 -c '
+import json, sys
+environment, status, graph, events, report = [json.loads(line) for line in sys.stdin]
+config = environment["config"]
+assert config["engine"] == "oasis"
+assert config["generated_by"] == "oasis-direct"
+assert 0 < environment["persona_count"] <= int(sys.argv[1])
+assert all(persona["id"].startswith("oasis-") for persona in environment["personas"])
+assert status["enabled"] is True
+assert status["mapping_status"] == "completed"
+assert status["zep_graph_id"] and status["external_simulation_id"]
+runtime = status["runtime"]
+assert runtime["runner_status"] == "completed"
+assert runtime["twitter_completed"] is True
+assert runtime["reddit_completed"] is True
+assert status["total_actions"] > 0
+assert {"twitter", "reddit"}.issubset(status["platform_counts"])
+assert graph["available"] is True
+assert graph["graph_id"] == status["zep_graph_id"]
+assert events["event_count"] > 0
+assert all(event["id"].startswith("oasis-event-") for event in events["events"])
+assert all(event["persona_id"].startswith("oasis-") for event in events["events"])
+assert report["generated_by"] == "rekakebijakan-oasis-report-agent"
+' "$MAX_PROFILE_COUNT"
+fi
+
+printf '%s\n' "smoke: full-stack workflow including interaction passed ($SIMULATION_ID, $SIMULATION_ENGINE)"

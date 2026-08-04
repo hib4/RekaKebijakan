@@ -7,13 +7,12 @@ import "./ScenarioBuilder.css";
 
 type Outreach = "Rendah" | "Sedang" | "Tinggi";
 type Response = "Diam" | "Klarifikasi" | "Revisi kebijakan";
-type Rounds = "3" | "5" | "8";
 type ScenarioConfig = {
   name: string;
   description: string;
   outreach: Outreach;
   response: Response;
-  rounds: Rounds;
+  rounds: number;
   channels: string[];
   focus: string[];
   assumptions: string;
@@ -28,7 +27,7 @@ const baselineDefault: ScenarioConfig = {
   description: "Kewajiban registrasi digital diberlakukan sesuai rancangan awal tanpa penyesuaian tambahan.",
   outreach: "Rendah",
   response: "Diam",
-  rounds: "5",
+  rounds: 10,
   channels: ["Media sosial", "Forum publik"],
   focus: ["Kekhawatiran", "Risiko narasi", "Dampak tidak langsung"],
   assumptions: "Registrasi diwajibkan tanpa masa transisi yang panjang.",
@@ -39,7 +38,7 @@ const revisedDefault: ScenarioConfig = {
   description: "Rancangan diperbaiki dengan klarifikasi perlindungan data, bantuan pendampingan, dan sosialisasi bertahap.",
   outreach: "Tinggi",
   response: "Klarifikasi",
-  rounds: "5",
+  rounds: 10,
   channels: ["Forum publik", "Konsultasi daerah", "Komunitas UMKM"],
   focus: ["Dukungan", "Kekhawatiran", "Kebutuhan informasi"],
   assumptions: "Pemerintah menyediakan pendampingan, penjelasan perlindungan data, dan kanal bantuan.",
@@ -101,7 +100,7 @@ function ScenarioCard({
       <div className="scenario-form-grid">
         <label>Tingkat sosialisasi<select value={scenario.outreach} onChange={(event) => onChange({ ...scenario, outreach: event.target.value as Outreach })}>{["Rendah", "Sedang", "Tinggi"].map((item) => <option key={item}>{item}</option>)}</select></label>
         <label>Respons pemerintah<select value={scenario.response} onChange={(event) => onChange({ ...scenario, response: event.target.value as Response })}>{["Diam", "Klarifikasi", "Revisi kebijakan"].map((item) => <option key={item}>{item}</option>)}</select></label>
-        <label>Jumlah ronde simulasi<select value={scenario.rounds} onChange={(event) => onChange({ ...scenario, rounds: event.target.value as Rounds })}>{["3", "5", "8"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label>Jumlah ronde simulasi<input type="number" min={1} max={1000} value={scenario.rounds} onChange={(event) => onChange({ ...scenario, rounds: Number(event.target.value) })} /></label>
       </div>
       <ChipGroup label="Saluran reaksi" options={channelOptions} value={scenario.channels} onChange={(channels) => onChange({ ...scenario, channels })} />
       <ChipGroup label="Fokus analisis" options={focusOptions} value={scenario.focus} onChange={(focus) => onChange({ ...scenario, focus })} />
@@ -154,7 +153,7 @@ export default function ScenarioBuilderPage() {
     ...fallback, name: scenario.name, description: scenario.description,
     outreach: (scenario.config.socialization as Outreach) ?? fallback.outreach,
     response: (scenario.config.response_mode as Response) ?? fallback.response,
-    rounds: String(scenario.config.rounds ?? fallback.rounds) as Rounds,
+    rounds: Number(scenario.config.rounds ?? fallback.rounds),
     channels: (scenario.config.channels as string[]) ?? fallback.channels,
     focus: (scenario.config.focus as string[]) ?? fallback.focus,
     assumptions: (scenario.config.assumptions as string) ?? fallback.assumptions,
@@ -177,7 +176,7 @@ export default function ScenarioBuilderPage() {
     ["Kedua skenario memiliki nama", Boolean(baseline.name.trim() && revised.name.trim())],
     ["Minimal satu saluran reaksi dipilih", baseline.channels.length > 0 && revised.channels.length > 0],
     ["Minimal satu fokus analisis dipilih", baseline.focus.length > 0 && revised.focus.length > 0],
-    ["Jumlah ronde dipilih", Boolean(baseline.rounds && revised.rounds)],
+    ["Jumlah ronde valid", [baseline.rounds, revised.rounds].every((rounds) => Number.isInteger(rounds) && rounds >= 1 && rounds <= 1000)],
     ["Asumsi tambahan ditinjau", Boolean(baseline.assumptions.trim() && revised.assumptions.trim())],
   ] as const;
   const ready = readiness.every(([, value]) => value);

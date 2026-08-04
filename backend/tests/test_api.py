@@ -49,6 +49,23 @@ def start_and_wait(client, simulation_id, stage, payload=None):
     return wait_for(client, simulation_id, stage)
 
 
+def test_policy_graph_is_published_progressively(client):
+    response = project(client, "Graf Progresif", b"Akses transportasi melibatkan warga dan pemerintah daerah.")
+    simulation_id = response.json()["simulation_id"]
+    wait_for(client, simulation_id, "graph")
+
+    events = client.app.state.repository.list_workflow_events(simulation_id, limit=1000)
+    graph_events = [event for event in events if event["type"] in {"graph.snapshot", "graph.delta"}]
+
+    assert graph_events[0]["type"] == "graph.snapshot"
+    assert graph_events[0]["payload"]["graph"]["graph_kind"] == "policy"
+    deltas = [event["payload"]["graph"] for event in graph_events if event["type"] == "graph.delta"]
+    assert any(delta["nodes"] for delta in deltas)
+    assert any(delta["edges"] for delta in deltas)
+    assert len({delta["build_id"] for delta in deltas}) == 1
+    assert all(delta["revision"] == 1 for delta in deltas)
+
+
 def test_full_frontend_workflow(client):
     response = project(client, "Uji Kebijakan Transportasi", b"Tarif harus menjaga akses dan transparansi.")
     assert response.status_code == 201
@@ -84,18 +101,29 @@ def test_round_validation_and_pause_resume(tmp_path, database_url):
         ).status_code == 201
         created = project(client, "Kebijakan A", b"Isi kebijakan")
         simulation_id = created.json()["simulation_id"]
-        invalid = client.post(f"/api/simulations/{simulation_id}/stages/environment/start", json={"rounds": 4})
+        invalid = client.post(f"/api/simulations/{simulation_id}/stages/environment/start", json={"rounds": 0})
         assert invalid.status_code == 422
         assert invalid.json()["error"]["code"] == "validation_error"
         start_and_wait(client, simulation_id, "graph")
-        start_and_wait(client, simulation_id, "environment", {"rounds": 3})
+        start_and_wait(client, simulation_id, "environment", {"rounds": 7})
         assert client.post(f"/api/simulations/{simulation_id}/stages/simulation/start", json={}).status_code == 202
         paused = client.post(f"/api/simulations/{simulation_id}/pause")
         assert paused.json()["simulation"]["status"] == "paused"
         resumed = client.post(f"/api/simulations/{simulation_id}/resume")
         assert resumed.json()["simulation"]["status"] == "running"
         final = wait_for(client, simulation_id, "simulation")
-        assert final["simulation"]["event_count"] == 18
+        assert final["simulation"]["event_count"] == 42
+
+
+def test_rounds_default_to_ten_and_simulation_payload_is_validated(client):
+    simulation_id = project(client, "Kebijakan Ronde", b"Kebijakan membutuhkan simulasi sepuluh ronde.").json()["simulation_id"]
+    start_and_wait(client, simulation_id, "graph")
+    environment = start_and_wait(client, simulation_id, "environment")
+    assert environment["environment"]["config"]["rounds"] == 10
+    assert environment["environment"]["config"]["max_rounds"] == 10
+    assert environment["environment"]["config"]["overrides"]["use_llm_for_config"] is False
+    invalid = client.post(f"/api/simulations/{simulation_id}/stages/simulation/start", json={"rounds": 1001})
+    assert invalid.status_code == 422
 
 
 def test_environment_patch_and_all_interaction_tools(client):
@@ -112,13 +140,25 @@ def test_environment_patch_and_all_interaction_tools(client):
         response = client.post(f"/api/simulations/{simulation_id}/interactions", json={"tool": tool, "question": "Apa tindak lanjut?"})
         assert response.status_code == 201
         assert response.json()["citations"]
+        assert response.json()["created_at"]
     assert len(client.get(f"/api/interactions/{simulation_id}").json()["messages"]) == 12
+
+    personas = client.get(f"/api/simulations/{simulation_id}").json()["environment"]["personas"][:2]
+    interview = client.post(
+        f"/api/simulations/{simulation_id}/interviews",
+        json={"question": "Apa kekhawatiran utama?", "persona_ids": [item["id"] for item in personas]},
+    )
+    assert interview.status_code == 201
+    assert len(interview.json()["answers"]) == 2
+    persisted = client.get(f"/api/simulations/{simulation_id}/interviews")
+    assert persisted.status_code == 200
+    assert persisted.json()["items"][0]["question"] == "Apa kekhawatiran utama?"
     assert client.get("/health").status_code == 200
     readiness = client.get("/ready").json()
     assert readiness["status"] == "ok"
     assert readiness["database"] == "postgresql"
     assert readiness["storage"] == "local"
-    assert readiness["schema_revision"] == "0008_scenario_runs"
+    assert readiness["schema_revision"] == "0013_workflow_events"
 
 
 def test_validation_errors_and_stage_conflict(client):
@@ -132,6 +172,26 @@ def test_validation_errors_and_stage_conflict(client):
     missing = client.get("/api/simulations/missing")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
+
+
+def test_runtime_graph_distinguishes_pending_available_and_missing(client, monkeypatch):
+    simulation_id = project(client).json()["simulation_id"]
+
+    response = client.get(f"/api/simulations/{simulation_id}/runtime-graph")
+
+    assert response.status_code == 200
+    assert response.json() == {"available": False}
+
+    monkeypatch.setattr(client.app.state.workflow, "runtime_graph", lambda _simulation_id: {
+        "graph_id": "zep-1", "source_revision": 1, "mapping_status": "running",
+        "node_count": 1, "edge_count": 0, "nodes": [{"id": "node-1"}], "edges": [],
+    })
+    available = client.get(f"/api/simulations/{simulation_id}/runtime-graph")
+    assert available.status_code == 200
+    assert available.json()["available"] is True
+    assert available.json()["graph_id"] == "zep-1"
+
+    assert client.get("/api/simulations/missing/runtime-graph").status_code == 404
 
 
 def test_cors_aliases_multiple_files_and_event_cursor(client):

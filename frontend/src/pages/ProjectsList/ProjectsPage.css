@@ -123,6 +123,9 @@ select {
   border: 1px solid var(--ink);
   background: #fff;
 }
+.project-menu.above {
+  transform: translate(-100%, -100%);
+}
 .project-menu button {
   width: 100%;
   min-height: 44px;

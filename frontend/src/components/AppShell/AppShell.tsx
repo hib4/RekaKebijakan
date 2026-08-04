@@ -7,10 +7,41 @@ import { authStorageKey } from "../../auth/storageNamespace";
 import "./AppShell.css";
 
 const productNav = [
-  ["/dashboard", "Dashboard", "D"],
-  ["/projects", "Proyek Kebijakan", "P"],
-  ["/reports", "Laporan", "L"],
+  ["/dashboard", "Dashboard", "dashboard"],
+  ["/projects", "Proyek Kebijakan", "projects"],
+  ["/reports", "Laporan", "reports"],
 ] as const;
+
+type ProductNavIconType = (typeof productNav)[number][2];
+
+function ProductNavIcon({ type }: { type: ProductNavIconType }) {
+  if (type === "dashboard") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 4h16v16H4z" />
+        <path d="m7 15 4-6 6 4" />
+        <circle className="nav-icon-node" cx="7" cy="15" r="1.4" />
+        <circle className="nav-icon-node" cx="11" cy="9" r="1.4" />
+        <circle className="nav-icon-node" cx="17" cy="13" r="1.4" />
+      </svg>
+    );
+  }
+  if (type === "projects") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 4h7l2 3h9v13H3z" />
+        <path d="M7 12h10M7 16h7" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 3h11l5 5v13H4z" />
+      <path d="M15 3v5h5" />
+      <path d="M8 12h8M8 16h8" />
+    </svg>
+  );
+}
 
 type AppShellProps = {
   title: string;
@@ -50,7 +81,7 @@ export function AppShell({ title, subtitle, eyebrow = "Menu", actions, children 
               setDrawerOpen(false);
             }}
           >
-            <span aria-hidden="true">{icon}</span>
+            <span aria-hidden="true"><ProductNavIcon type={icon} /></span>
             <b>{label}</b>
           </NavLink>
         );

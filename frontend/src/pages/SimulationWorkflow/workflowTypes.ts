@@ -69,6 +69,9 @@ export type SimulationEvent = {
   riskNarrative: string;
   influenceSource: string;
   citations?: Citation[];
+  platform?: string;
+  actionArgs?: Record<string, unknown>;
+  success?: boolean;
 };
 
 export type RiskNarrative = {

@@ -13,7 +13,7 @@ import { useArchiveProject, useBulkProjectAction, useDeleteProject, useDuplicate
 import "./ProjectsPage.css";
 
 type Toast = { id: number; message: string };
-type MenuState = { id: string; x: number; y: number } | null;
+type MenuState = { id: string; x: number; y: number; placement: "down" | "up" } | null;
 
 const riskRank: Record<ProjectRisk, number> = {
   Tinggi: 4,
@@ -80,6 +80,29 @@ function ArchiveProjectModal({ project, onCancel, onConfirm }: { project: Policy
   );
 }
 
+function DeleteProjectModal({ project, pending, onCancel, onConfirm }: { project: PolicyProject; pending: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const titleId = useId();
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => event.key === "Escape" && onCancel();
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onCancel]);
+  return (
+    <div className="dialog-backdrop" onMouseDown={onCancel}>
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onMouseDown={(event) => event.stopPropagation()}>
+        <button className="dialog-close" onClick={onCancel} aria-label="Tutup dialog">X</button>
+        <p className="eyebrow">HAPUS PROYEK</p>
+        <h2 id={titleId}>Hapus {project.name}?</h2>
+        <p className="dialog-copy">Proyek akan dihapus secara permanen dari ruang kerja. Tindakan ini tidak dapat dibatalkan.</p>
+        <div className="actions">
+          <button className="button danger" disabled={pending} onClick={onConfirm}>{pending ? "Menghapus..." : "Hapus proyek"}</button>
+          <button className="button secondary" disabled={pending} onClick={onCancel}>Batal</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ProjectActionMenu({ project, menu, setMenu, onOpen, onDuplicate, onArchive, onDelete }: {
   project: PolicyProject;
   menu: MenuState;
@@ -92,14 +115,18 @@ function ProjectActionMenu({ project, menu, setMenu, onOpen, onDuplicate, onArch
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const open = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
-    setMenu({ id: project.id, x: rect?.right ?? 0, y: rect?.bottom ?? 0 });
+    const menuHeight = 178;
+    const bottom = rect?.bottom ?? 0;
+    const top = rect?.top ?? 0;
+    const placement = window.innerHeight - bottom < menuHeight ? "up" : "down";
+    setMenu({ id: project.id, x: rect?.right ?? 0, y: placement === "up" ? top : bottom, placement });
   };
   const isOpen = menu?.id === project.id;
   return (
     <div className="project-menu-wrap">
       <button ref={buttonRef} className="kebab-button" aria-label={`Buka menu aksi untuk ${project.name}`} aria-expanded={isOpen} onClick={() => isOpen ? setMenu(null) : open()}>⋮</button>
       {isOpen && (
-        <div className="project-menu" role="menu" style={{ top: menu.y, left: menu.x }}>
+        <div className={`project-menu ${menu.placement === "up" ? "above" : ""}`} role="menu" style={{ top: menu.y, left: menu.x }}>
           <button role="menuitem" onClick={onOpen}>Buka proyek</button>
           <button role="menuitem" onClick={onDuplicate}>Duplikat proyek</button>
           <button role="menuitem" onClick={onArchive}>Arsipkan proyek</button>
@@ -253,6 +280,7 @@ export default function ProjectsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [menu, setMenu] = useState<MenuState>(null);
   const [archiveProject, setArchiveProject] = useState<PolicyProject | null>(null);
+  const [deleteProject, setDeleteProject] = useState<PolicyProject | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
   useEffect(() => {
@@ -305,10 +333,18 @@ export default function ProjectsPage() {
       navigate(`/projects/${duplicated.id}`);
     } catch { showToast("Proyek tidak dapat diduplikasi."); }
   };
-  const remove = async (project: PolicyProject) => {
+  const remove = (project: PolicyProject) => {
     setMenu(null);
-    if (!window.confirm(`Hapus ${project.name} secara permanen? Tindakan ini tidak dapat dibatalkan.`)) return;
-    try { await deleteMutation.mutateAsync(project.id); showToast(`${project.name} telah dihapus.`); }
+    setDeleteProject(project);
+  };
+  const confirmDelete = async () => {
+    if (!deleteProject) return;
+    try {
+      await deleteMutation.mutateAsync(deleteProject.id);
+      showToast(`${deleteProject.name} telah dihapus.`);
+      setDeleteProject(null);
+      setSelected((current) => current.filter((id) => id !== deleteProject.id));
+    }
     catch { showToast("Proyek tidak dapat dihapus."); }
   };
   const applyBulk = async (action: "archive" | "delete") => {
@@ -350,6 +386,7 @@ export default function ProjectsPage() {
           )}
         </section>
       {archiveProject && <ArchiveProjectModal project={archiveProject} onCancel={() => setArchiveProject(null)} onConfirm={confirmArchive} />}
+      {deleteProject && <DeleteProjectModal project={deleteProject} pending={deleteMutation.isPending} onCancel={() => setDeleteProject(null)} onConfirm={confirmDelete} />}
       <ToastRegion toast={toast} />
     </AppShell>
   );
