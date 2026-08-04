@@ -1064,8 +1064,9 @@ class WorkflowService:
                         "tool_calls": raw.get("tool_calls", []), "sources": raw.get("sources", [])}
         else:
             response = self.provider.answer(payload, state, self.repository.chunks(simulation_id))
-        user = {"id": identifier("msg"), "role": "user", "author": "Anda", "tool": payload["tool"], "text": payload["question"], "citations": []}
-        assistant = {"id": identifier("msg"), "role": "assistant", "author": "Report Agent", "tool": payload["tool"], **response}
+        context = {"persona_group": payload.get("persona_group")} if payload.get("persona_group") else {}
+        user = {"id": identifier("msg"), "role": "user", "author": "Anda", "tool": payload["tool"], "text": payload["question"], "citations": [], "created_at": now(), **context}
+        assistant = {"id": identifier("msg"), "role": "assistant", "author": "Report Agent", "tool": payload["tool"], "created_at": now(), **context, **response}
 
         def apply(current):
             current["interactions"]["messages"].extend([user, assistant])

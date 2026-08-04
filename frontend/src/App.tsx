@@ -849,9 +849,9 @@ function LandingPage() {
           <div>
             <small>GEMASTIK 2026</small>
             <p>
-              Divisi VIII
+              Divisi VI
               <br />
-              Pengembangan Perangkat Lunak
+              Kota Cerdas
             </p>
           </div>
         </div>

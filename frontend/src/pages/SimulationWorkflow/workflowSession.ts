@@ -20,6 +20,10 @@ export type InteractionMessage = {
   tool: string;
   text: string;
   citations?: import("./workflowTypes").Citation[];
+  createdAt?: string;
+  personaGroup?: string;
+  toolCalls?: Record<string, unknown>[];
+  sources?: Record<string, unknown>[];
 };
 
 export type WorkflowSession = {

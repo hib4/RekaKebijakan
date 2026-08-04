@@ -9,15 +9,17 @@ import type { Dispatch, SetStateAction } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
+  createSimulationInterview,
   getRuntimeGraph,
   getSimulation,
+  listSimulationInterviews,
   pauseSimulation,
   resumeSimulation,
   sendInteraction,
   startStage,
   updateEnvironment,
 } from "../../api/client";
-import type { ApiRuntimeGraph, ApiSimulationSnapshot, SimulationStreamEvent } from "../../api/client";
+import type { ApiInterviewDto, ApiRuntimeGraph, ApiSimulationSnapshot, SimulationStreamEvent } from "../../api/client";
 import {
   getWorkspaceProjectBySimulation,
   getWorkspaceReportBySimulation,
@@ -28,7 +30,6 @@ import {
   demoCases,
   entityTypes as fallbackEntityTypes,
   relationTypes as fallbackRelationTypes,
-  suggestedQuestions,
 } from "./workflowData";
 import { intakeToDemoCase, loadProjectIntake } from "./projectIntake";
 import type {
@@ -48,6 +49,7 @@ import {
 import {
   appendSessionLog,
   createWorkflowSession,
+  formatTime,
   highestUnlockedStep,
   loadWorkflowSession,
   saveWorkflowSession,
@@ -250,6 +252,7 @@ function GraphBuildStep({
           number={index + 1}
           task={task}
           state={taskState(step.progress, index, step.status === "processing")}
+          className={task.title === "Pembangunan graf selesai" ? "graph-complete-task" : undefined}
           progress={Math.min(
             100,
             Math.max(0, (step.progress - index * 33) * 3),
@@ -504,6 +507,55 @@ function EnvironmentStep({
   );
 }
 
+const actionLabels: Record<string, string> = {
+  CREATE_POST: "Publikasi",
+  QUOTE_POST: "Kutipan",
+  REPOST: "Bagikan ulang",
+  LIKE_POST: "Reaksi",
+  LIKE_COMMENT: "Reaksi",
+  CREATE_COMMENT: "Komentar",
+  SEARCH_POSTS: "Pencarian",
+  FOLLOW: "Mengikuti",
+  UPVOTE_POST: "Dukung",
+  DOWNVOTE_POST: "Tolak",
+  DO_NOTHING: "Tanpa aksi",
+};
+
+function actionValue(event: SimulationEvent, key: string) {
+  const value = event.actionArgs?.[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function ActionContent({ event }: { event: SimulationEvent }) {
+  const type = event.type.toUpperCase();
+  const content = actionValue(event, "content") || event.statement;
+  const originalContent = actionValue(event, "original_content");
+  const postContent = actionValue(event, "post_content");
+  const originalAuthor = actionValue(event, "original_author_name");
+  if (type === "QUOTE_POST") {
+    return <><p>{actionValue(event, "quote_content") || content}</p>{originalContent && <blockquote><b>{originalAuthor || "Persona lain"}</b>{originalContent}</blockquote>}</>;
+  }
+  if (type === "REPOST") {
+    return <div className="event-action-context"><b>Membagikan ulang {originalAuthor ? `dari ${originalAuthor}` : "publikasi lain"}</b>{originalContent && <p>{originalContent}</p>}</div>;
+  }
+  if (type === "LIKE_POST" || type === "LIKE_COMMENT") {
+    return <div className="event-action-context"><b>Memberi reaksi pada publikasi</b>{postContent && <p>{postContent}</p>}</div>;
+  }
+  if (type === "SEARCH_POSTS") {
+    return <div className="event-action-context"><b>Menelusuri percakapan</b><p>“{actionValue(event, "query") || "Kueri tidak tersedia"}”</p></div>;
+  }
+  if (type === "FOLLOW") {
+    return <div className="event-action-context"><b>Mengikuti {actionValue(event, "target_user") || actionValue(event, "user_id") || "persona lain"}</b></div>;
+  }
+  if (type === "UPVOTE_POST" || type === "DOWNVOTE_POST") {
+    return <div className="event-action-context"><b>{type === "UPVOTE_POST" ? "Mendukung" : "Menolak"} sebuah publikasi</b>{postContent && <p>{postContent}</p>}</div>;
+  }
+  if (type === "DO_NOTHING") {
+    return <div className="event-action-context muted"><b>Persona tidak mengambil aksi pada ronde ini.</b></div>;
+  }
+  return <p>{content}</p>;
+}
+
 function EventCard({
   event,
   selected,
@@ -518,38 +570,44 @@ function EventCard({
     <article
       className={`simulation-event ${selected ? "selected" : ""}`}
       onClick={onSelect}
+      aria-label={`${event.persona}, ${actionLabels[event.type.toUpperCase()] ?? event.type}, ronde ${event.round}`}
     >
       <header>
-        <div>
-          <b>{event.persona}</b>
+        <div className="event-persona">
+          <span className="event-avatar" aria-hidden="true">{event.persona.charAt(0).toUpperCase()}</span>
           <span>
-            {event.group} · {event.channel}
+            <b>{event.persona}</b>
+            <small>{event.group}</small>
           </span>
         </div>
-        <time>
-          Ronde {event.round} · {event.time}
-        </time>
+        <span className="event-action-label">{actionLabels[event.type.toUpperCase()] ?? event.type}</span>
       </header>
-      <p>{event.statement}</p>
+      <div className="event-content"><ActionContent event={event} /></div>
       <div className="event-tags">
-        <span>{event.type}</span>
         <span>Sikap: {event.stance}</span>
         {event.concerns.map((tag) => (
           <span key={tag}>{tag}</span>
         ))}
       </div>
-      <button
-        onClick={(click) => {
-          click.stopPropagation();
-          setOpen(!open);
-        }}
-      >
-        {open ? "Tutup detail" : "Lihat detail"}
-      </button>{" "}
-      <CitationDrawer
-        citations={event.citations}
-        label="Lihat kutipan dan jejak"
-      />
+      <footer className="event-footer">
+        <div className="event-footer-meta">
+          <span>{event.channel}</span>
+          <time>Ronde {event.round}</time>
+          <time>{formatCompactTimestamp(event.time)}</time>
+        </div>
+        <div className="event-footer-actions" onClick={(click) => click.stopPropagation()}>
+          <button
+            aria-expanded={open}
+            onClick={(click) => {
+              click.stopPropagation();
+              setOpen(!open);
+            }}
+          >
+            {open ? "Tutup detail" : "Detail risiko"}
+          </button>
+          <CitationDrawer citations={event.citations} label="Bukti" />
+        </div>
+      </footer>
       {open && (
         <dl>
           <dt>Narasi risiko</dt>
@@ -562,18 +620,46 @@ function EventCard({
   );
 }
 
+function formatSimulatedTime(round: number, minutesPerRound?: number) {
+  const minutes = round * (minutesPerRound ?? 30);
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatCompactTimestamp(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return value;
+  const [, year, month, day, hour, minute] = match;
+  return `${day}/${month}/${year.slice(2)} ${hour}:${minute}`;
+}
+
+function runStatusLabel(status: WorkflowSession["simulation"]["status"]) {
+  return {
+    ready: "Siap dimulai",
+    running: "Berjalan",
+    paused: "Dijeda",
+    completed: "Selesai",
+    stale: "Perlu diperbarui",
+    cancelled: "Dibatalkan",
+    failed: "Gagal",
+  }[status];
+}
+
 function SimulationStep({
   demo,
   session,
   update,
   start,
   report,
+  localMode,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
   update: (session: WorkflowSession) => void;
   start: () => void;
   report: () => void;
+  localMode: boolean;
 }) {
   const run = session.simulation;
   const step = session.steps[3];
@@ -583,17 +669,45 @@ function SimulationStep({
       ? session.environment.rounds
       : Math.max(1, run.currentRound ?? events.at(-1)?.round ?? 1);
   const activeNode = session.graph.selectedNodeId;
+  const terminalIssue = run.status === "failed" || run.status === "cancelled" || run.status === "stale";
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
   );
   return (
     <div className="step-scroll simulation-step" ref={scrollRef}>
-      <div className="step-intro">
-          <span>TAHAP 3/5</span>
-        <h1 tabIndex={-1}>Jalankan simulasi OASIS</h1>
-        <p aria-live="polite">{step.status === "processing" && step.activeTask ? step.activeTask : demo.question}</p>
-      </div>
-      <div className="channel-grid">
+      <header className="simulation-run-header">
+        <div className="step-intro">
+          <span>TAHAP 3/5 · SIMULASI PERSONA SINTETIS</span>
+          <h1 tabIndex={-1}>Pantau dinamika skenario</h1>
+          <p>{demo.question}</p>
+        </div>
+        <div className={`run-state ${run.status}`} aria-live="polite">
+          <i aria-hidden="true" />
+          <span>Status run</span>
+          <b>{runStatusLabel(run.status)}</b>
+        </div>
+      </header>
+
+      {run.status === "ready" && (
+        <section className="simulation-start-review" aria-labelledby="start-review-title">
+          <div>
+            <h2 id="start-review-title">Periksa konfigurasi sebelum menjalankan</h2>
+            <p>{session.environment.personaCount} persona sintetis akan berinteraksi selama {session.environment.rounds} ronde di {session.environment.platforms.length} kanal. Aktivitas ini adalah eksplorasi skenario, bukan prediksi opini publik.</p>
+          </div>
+          <button className="button primary" onClick={start}>Mulai simulasi →</button>
+        </section>
+      )}
+
+      {terminalIssue && (
+        <section className={`simulation-run-notice ${run.status}`} role="alert">
+          <div>
+            <h2>{runStatusLabel(run.status)}</h2>
+            <p>{run.error || run.staleReason || step.error || step.staleReason || "Run berhenti sebelum seluruh ronde selesai. Periksa konsol sistem sebelum menjalankan ulang."}</p>
+          </div>
+        </section>
+      )}
+
+      <section className="channel-grid" aria-label="Status kanal simulasi">
         {session.environment.platforms.map((channel) => {
           const count = events.filter(
             (event) => event.channel === channel,
@@ -601,18 +715,10 @@ function SimulationStep({
           const lastRound = run.platformRounds?.[channel] ??
             events.filter((event) => event.channel === channel).at(-1)?.round ?? 0;
           return (
-            <article key={channel}>
+            <article key={channel} className={run.status === "running" ? "active" : ""}>
               <header>
-                <h3>{channel}</h3>
-                <span className={run.status}>
-                  {run.status === "completed"
-                    ? "Selesai"
-                    : run.status === "running"
-                      ? "Berjalan"
-                      : run.status === "paused"
-                        ? "Dijeda"
-                        : "Siap"}
-                </span>
+                <div><span>Kanal simulasi</span><h3>{channel}</h3></div>
+                <span className={run.status}><i aria-hidden="true" />{runStatusLabel(run.status)}</span>
               </header>
               <dl>
                 <div>
@@ -622,8 +728,8 @@ function SimulationStep({
                   </dd>
                 </div>
                 <div>
-                  <dt>Waktu</dt>
-                  <dd>{events.at(-1)?.time ?? "00:00"}</dd>
+                  <dt>Waktu simulasi</dt>
+                  <dd>{formatSimulatedTime(lastRound, session.environment.minutesPerRound)}</dd>
                 </div>
                 <div>
                   <dt>Aksi/event</dt>
@@ -633,8 +739,8 @@ function SimulationStep({
             </article>
           );
         })}
-      </div>
-      <div className="workflow-simulation-summary">
+      </section>
+      <section className="workflow-simulation-summary" aria-label="Kontrol dan progres run">
         <span>
           <b>{events.length}</b>Total event
         </span>
@@ -644,29 +750,21 @@ function SimulationStep({
           </b>
            Progres ronde
         </span>
-        <label>
-          Kecepatan
-          <select
-            value={run.speed}
-            onChange={(event) =>
-              update({
-                ...session,
-                simulation: {
-                  ...run,
-                  speed: Number(event.target.value) as 0.5 | 1 | 2,
-                },
-              })
-            }
-          >
-            <option value="0.5">0.5x</option>
-            <option value="1">1x</option>
-            <option value="2">2x</option>
-          </select>
-        </label>
-        {run.status === "ready" && (
-          <button className="button primary" onClick={start}>
-            Mulai simulasi →
-          </button>
+        <span>
+          <b>{formatSimulatedTime(round, session.environment.minutesPerRound)}</b>Waktu simulasi
+        </span>
+        {localMode && (
+          <label>
+            Kecepatan demo
+            <select
+              value={run.speed}
+              onChange={(event) => update({ ...session, simulation: { ...run, speed: Number(event.target.value) as 0.5 | 1 | 2 } })}
+            >
+              <option value="0.5">0.5x</option>
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+            </select>
+          </label>
         )}
         {run.status === "running" && (
           <button
@@ -712,7 +810,7 @@ function SimulationStep({
             >
               Lanjutkan
             </button>
-            <button
+            {localMode && <button
               className="button secondary"
               onClick={() =>
                 update({
@@ -728,14 +826,23 @@ function SimulationStep({
               }
             >
               Event berikutnya
-            </button>
+            </button>}
           </>
         )}
+      </section>
+      <div className="simulation-timeline-heading">
+        <div>
+          <h2>Linimasa aktivitas sintetis</h2>
+          <p>Event diurutkan secara kronologis dan dipisahkan berdasarkan kanal.</p>
+        </div>
+        <span>{events.length} event diterima</span>
       </div>
-      <div className="event-feed">
+      <div className="event-feed" aria-live="polite" aria-label="Linimasa event simulasi">
         {events.length ? (
-          events.map((event) => (
-            <div className="event-feed-item" key={event.id}>
+          events.map((event, index) => {
+            const channelIndex = Math.max(0, session.environment.platforms.indexOf(event.channel));
+            return <div className={`event-feed-item lane-${channelIndex % 2 === 0 ? "left" : "right"}`} key={event.id}>
+              <span className="timeline-marker" aria-hidden="true">{index + 1}</span>
               <EventCard
                 event={event}
                 selected={
@@ -754,14 +861,14 @@ function SimulationStep({
                   })
                 }
               />
-            </div>
-          ))
+            </div>;
+          })
         ) : (
           <div className="workflow-empty">
-            <h3>Simulasi siap dijalankan</h3>
+            <i aria-hidden="true" />
+            <h3>{run.status === "ready" ? "Simulasi menunggu konfirmasi" : "Menunggu aktivitas persona"}</h3>
             <p>
-              Event persona, pengaruh, dan perubahan risiko akan muncul secara
-              bertahap.
+              {run.status === "ready" ? "Tinjau konfigurasi di atas, lalu mulai simulasi saat siap." : "Event, pengaruh, dan perubahan risiko akan muncul di linimasa ini."}
             </p>
           </div>
         )}
@@ -922,22 +1029,42 @@ function ReportStep({
 }
 
 const tools = [
-  ["report", "Agen Laporan", "Ajukan pertanyaan dengan kutipan laporan."],
-  [
-    "persona",
-    "Wawancara Kelompok Persona",
-    "Wawancarai kelompok stakeholder sintetis.",
-  ],
-  ["evidence", "Jejak Bukti", "Telusuri insight ke event dan graf."],
-  ["compare", "Perbandingan Skenario", "Bandingkan baseline dan asumsi revisi."],
-  ["revision", "Catatan Revisi", "Susun catatan revisi kebijakan."],
+  ["report", "Tanya laporan"],
+  ["persona", "Wawancara persona"],
+  ["multi", "Beberapa persona"],
+  ["evidence", "Telusuri bukti"],
+  ["risk", "Analisis risiko"],
+  ["compare", "Bandingkan"],
+  ["revision", "Susun revisi"],
 ] as const;
+
+type InteractionTool = (typeof tools)[number][0];
+
+function interactionSuggestions(tool: InteractionTool, demo: DemoCase, personaName?: string) {
+  if (tool === "persona") return [
+    `Apa kekhawatiran utama ${personaName ?? "persona ini"}?`,
+    "Asumsi apa yang paling memengaruhi respons Anda?",
+    "Klarifikasi apa yang dapat mengubah sikap Anda?",
+  ];
+  if (tool === "multi") return ["Bagian kebijakan mana yang paling membutuhkan klarifikasi?", "Apa dampak tidak langsung yang mungkin terlewat?", "Perubahan apa yang paling membantu kelompok Anda?"];
+  if (tool === "risk") return demo.risks.slice(0, 3).map((risk) => `Bagaimana memitigasi risiko “${risk.title}”?`);
+  if (tool === "evidence") return ["Bukti apa yang mendukung temuan utama?", "Temuan mana yang hanya berasal dari simulasi?", "Di mana terdapat kesenjangan bukti?"];
+  if (tool === "compare") return ["Apa perbedaan utama baseline dan revisi?", "Asumsi mana yang paling mengubah hasil?", "Apa trade-off dari skenario revisi?"];
+  if (tool === "revision") return ["Susun tiga prioritas revisi.", "Bahasa kebijakan mana yang perlu diperjelas?", "Indikator evaluasi apa yang perlu ditambahkan?"];
+  return [
+    `Apa temuan utama dari ${demo.reportTitle}?`,
+    demo.risks[0] ? `Mengapa risiko “${demo.risks[0].title}” muncul?` : "Apa risiko utama dalam laporan?",
+    "Apa yang perlu divalidasi melalui konsultasi publik?",
+  ];
+}
 
 function InteractionStep({
   demo,
   session,
   update,
   sendBackend,
+  simulationId,
+  localMode,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
@@ -947,15 +1074,24 @@ function InteractionStep({
     question: string,
     group: string,
   ) => Promise<InteractionMessage>;
+  simulationId: string;
+  localMode: boolean;
 }) {
-  const [tool, setTool] = useState("report");
-  const [group, setGroup] = useState(demo.personas[0]?.group ?? "Stakeholder");
+  const [tool, setTool] = useState<InteractionTool>("report");
+  const [personaId, setPersonaId] = useState(demo.personas[0]?.id ?? "");
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(demo.personas[0] ? [demo.personas[0].id] : []);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [interviews, setInterviews] = useState<ApiInterviewDto[]>([]);
+  const [interviewsLoading, setInterviewsLoading] = useState(false);
   const timer = useRef<number | null>(null);
+  const selectedPersona = demo.personas.find((persona) => persona.id === personaId) ?? demo.personas[0];
+  const suggestions = interactionSuggestions(tool, demo, selectedPersona?.name);
+  const threadMessages = session.interaction.messages.filter((message) => (message.tool === tool || (tool === "persona" && message.tool === "persona")) && (tool !== "persona" || !message.personaGroup || message.personaGroup === selectedPersona?.group));
+  const visibleInterviews = interviews.filter((interview) => tool === "multi" || interview.answers.some((answer) => answer.persona_id === personaId));
   const scrollRef = useAutoFollow<HTMLElement>(
-    `${tool}-${typing}-${session.interaction.messages.length}`,
+    `${tool}-${personaId}-${typing}-${session.interaction.messages.length}-${interviews.length}`,
   );
   useEffect(
     () => () => {
@@ -963,28 +1099,60 @@ function InteractionStep({
     },
     [],
   );
+  useEffect(() => {
+    if (localMode || (tool !== "persona" && tool !== "multi")) return;
+    let active = true;
+    listSimulationInterviews(simulationId)
+      .then((response) => { if (active) setInterviews(response.items); })
+      .catch(() => { if (active) setSendError("Riwayat wawancara belum dapat dimuat."); })
+      .finally(() => { if (active) setInterviewsLoading(false); });
+    return () => { active = false; };
+  }, [localMode, simulationId, tool]);
   const answer = (question: string) => {
-    if (tool === "persona") {
-      const persona =
-        demo.personas.find((item) => item.group === group) ?? demo.personas[0];
-      return `${group} menekankan ${persona?.concern.toLowerCase()}. Sikap awalnya ${persona?.stance.toLowerCase()} dan berubah ketika asumsi skenario menyediakan klarifikasi yang dapat ditelusuri.`;
-    }
-    if (tool === "evidence")
-      return `Jejak bukti menghubungkan temuan ke event "${demo.events[0]?.statement}", node ${demo.graphNodes[0]?.label}, dan bagian Ringkasan Eksekutif.`;
-    if (tool === "compare")
-      return `Baseline menunjukkan risiko komunikasi lebih tinggi. Pada asumsi revisi, intensitas sosialisasi ${session.environment.socialization.toLowerCase()} dan respons ${session.environment.responseMode.toLowerCase()} menurunkan ketidakpastian stakeholder.`;
-    if (tool === "revision")
-      return `Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.`;
+    if (tool === "persona") return `${selectedPersona?.name} menekankan ${selectedPersona?.concern.toLowerCase()}. Sikap awalnya ${selectedPersona?.stance.toLowerCase()} dan dapat berubah ketika skenario menyediakan klarifikasi yang dapat ditelusuri.`;
+    if (tool === "evidence") return `Jejak bukti menghubungkan temuan ke event "${demo.events[0]?.statement}", node ${demo.graphNodes[0]?.label}, dan bagian Ringkasan Eksekif.`;
+    if (tool === "compare") return `Baseline menunjukkan risiko komunikasi lebih tinggi. Pada asumsi revisi, intensitas sosialisasi ${session.environment.socialization.toLowerCase()} dan respons ${session.environment.responseMode.toLowerCase()} menurunkan ketidakpastian stakeholder.`;
+    if (tool === "revision") return "Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.";
+    if (tool === "risk") return `Mitigasi perlu memprioritaskan ${demo.risks[0]?.title.toLowerCase() ?? "risiko utama"}, memperjelas asumsi implementasi, dan menguji temuan melalui konsultasi dengan kelompok terdampak.`;
     return `Laporan menunjukkan bahwa ${demo.risks[0]?.title.toLowerCase()} merupakan indikasi risiko utama. Temuan ini didukung Bagian 3 dan event pada ronde ${demo.events[0]?.round ?? 1}. Pertanyaan: ${question}`;
   };
   const send = async (question = input) => {
     if (!question.trim() || typing) return;
+    if ((tool === "persona" && !selectedPersona) || (tool === "multi" && selectedPersonaIds.length === 0)) return;
+    if (tool === "persona" || tool === "multi") {
+      setInput("");
+      setTyping(true);
+      setSendError("");
+      const ids = tool === "multi" ? selectedPersonaIds : [selectedPersona!.id];
+      try {
+        const result = localMode
+          ? {
+              id: `interview-${Date.now()}`,
+              question,
+              created_at: new Date().toISOString(),
+              status: "completed" as const,
+              summary: `${ids.length} jawaban persona sintetis`,
+              answers: ids.map((id) => {
+                const persona = demo.personas.find((item) => item.id === id)!;
+                return { id: `answer-${id}-${Date.now()}`, persona_id: id, persona_name: persona.name, question, answer: `${persona.name} menekankan ${persona.concern.toLowerCase()}. Sikapnya ${persona.stance.toLowerCase()} berdasarkan asumsi persona dan event simulasi yang tersedia.`, citations: [] };
+              }),
+            }
+          : await createSimulationInterview(simulationId, { question, personaIds: ids });
+        setInterviews((current) => [...current, result]);
+      } catch (cause) {
+        setSendError(cause instanceof Error ? cause.message : "Wawancara persona gagal dikirim.");
+      } finally {
+        setTyping(false);
+      }
+      return;
+    }
     const user: InteractionMessage = {
       id: `u-${tool}-${session.interaction.messages.length}`,
       role: "user",
       author: "Anda",
       tool,
       text: question,
+      createdAt: new Date().toISOString(),
     };
     update((current) => ({
       ...current,
@@ -998,7 +1166,7 @@ function InteractionStep({
     setSendError("");
     if (sendBackend) {
       try {
-        const agent = await sendBackend(tool, question, group);
+        const agent = await sendBackend(tool, question, selectedPersona?.group ?? "");
         update((current) => {
           const messages = current.interaction.messages.some(
             (message) => message.id === agent.id,
@@ -1026,24 +1194,11 @@ function InteractionStep({
       const agent: InteractionMessage = {
         id: `a-${tool}-${session.interaction.messages.length + 1}`,
         role: "agent",
-        author:
-          tool === "persona"
-            ? group
-            : (tools.find((item) => item[0] === tool)?.[1] ?? "Report Agent"),
+        author: tools.find((item) => item[0] === tool)?.[1] ?? "Agen Laporan",
         tool,
         text: answer(question),
-        citations:
-          tool === "persona"
-            ? [
-                {
-                  sourceType: "interview_answer",
-                  sourceId: group,
-                  label: `Kelompok ${group}`,
-                  quote: demo.personas.find((item) => item.group === group)
-                    ?.concern,
-                },
-              ]
-            : [
+        createdAt: new Date().toISOString(),
+        citations: [
                 {
                   sourceType: "report_section",
                   sourceId: demo.reportSections[2]?.id ?? "section-3",
@@ -1072,19 +1227,6 @@ function InteractionStep({
       setTyping(false);
     }, 1200);
   };
-  const exportNotes = () => {
-    const content = session.interaction.messages
-      .map((message) => `## ${message.author}\n${message.text}`)
-      .join("\n\n");
-    const url = URL.createObjectURL(
-      new Blob([content], { type: "text/markdown" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${demo.id}-interaction.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
   return (
     <div className="interaction-workbench">
       <ReportPreview
@@ -1096,134 +1238,49 @@ function InteractionStep({
         }
       />
       <aside className="interaction-tools" ref={scrollRef}>
-        <div className="step-intro">
-          <span>TAHAP 5/5</span>
-          <h1 tabIndex={-1}>Interaksi dengan hasil</h1>
-          <p>Setiap alat memiliki konteks dan keluaran yang berbeda.</p>
-        </div>
-        <div className="tool-list">
-          {tools.map(([id, title, description]) => (
-            <button
-              key={id}
-              aria-pressed={tool === id}
-              className={tool === id ? "active" : ""}
-              onClick={() => setTool(id)}
-            >
-              <b>{title}</b>
-              <span>{description}</span>
-            </button>
-          ))}
-        </div>
-        {tool === "persona" && (
-          <label className="persona-select">
-            Kelompok persona
-            <select
-              value={group}
-              onChange={(event) => setGroup(event.target.value)}
-            >
-              {demo.personas.map((persona) => (
-                <option key={persona.group}>{persona.group}</option>
-              ))}
-            </select>
-            <small>
-              Persona bersifat sintetis dan bukan profil warga nyata.
-            </small>
-          </label>
-        )}
-        {tool === "evidence" && (
-          <div className="tool-artifact">
-            <b>Rantai bukti</b>
-            <span>
-              Report §3 → Event {demo.events[0]?.id} →{" "}
-              {demo.graphNodes[0]?.label}
-            </span>
-          </div>
-        )}
-        {tool === "compare" && (
-          <div className="scenario-comparison">
-            <span>
-              <b>Baseline</b>Sosialisasi rendah · risiko meningkat
-            </span>
-            <span>
-              <b>Revisi</b>
-              {session.environment.socialization} · respons{" "}
-              {session.environment.responseMode}
-            </span>
-          </div>
-        )}
-        {tool === "revision" && (
-          <div className="tool-artifact">
-            <b>Ruang kerja revisi</b>
-            <span>
-              Catatan dapat diedit melalui percakapan dan diekspor sebagai
-              Markdown.
-            </span>
-          </div>
-        )}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            send();
-          }}
-        >
+        <header className="interaction-header"><div><span>TAHAP 5/5 · RUANG ANALISIS</span><h1 tabIndex={-1}>Interaksi dengan hasil</h1><p>Selidiki laporan, bukti, dan respons persona sintetis tanpa kehilangan konteks sumber.</p></div></header>
+        <nav className="tool-list" aria-label="Mode interaksi">{tools.filter(([id]) => id !== "persona" && id !== "multi").map(([id, title]) => <button key={id} aria-current={tool === id ? "page" : undefined} className={tool === id ? "active" : ""} onClick={() => setTool(id)}>{title}</button>)}</nav>
+        {tool === "evidence" && <div className="tool-artifact"><b>Rantai bukti</b><span>Report → Event {demo.events[0]?.id} → {demo.graphNodes[0]?.label}</span></div>}
+        {tool === "compare" && <div className="scenario-comparison"><span><b>Baseline</b>Sosialisasi rendah · risiko meningkat</span><span><b>Revisi</b>{session.environment.socialization} · respons {session.environment.responseMode}</span></div>}
+        {tool === "revision" && <div className="tool-artifact"><b>Ruang kerja revisi</b><span>Catatan dapat diedit melalui percakapan dan diekspor sebagai Markdown.</span></div>}
+        {tool === "risk" && <div className="tool-artifact"><b>Risiko yang dianalisis</b><span>{demo.risks.map((risk) => `${risk.title} (${risk.level})`).join(" · ") || "Belum ada risiko terstruktur."}</span></div>}
+        <form onSubmit={(event) => { event.preventDefault(); send(); }}>
           <div className="chat-panel">
-            <div className="chat-messages" aria-live="polite">
-              {session.interaction.messages
-                .filter(
-                  (message) => message.tool === tool || message.id === "welcome",
-                )
-                .map((message) => (
+            <header className="thread-header"><div><span>{tool === "persona" ? "WAWANCARA PERSONA" : tool === "multi" ? "EKSPLORASI MULTI-PERSONA" : "AGEN ANALISIS"}</span><h2>{tool === "persona" ? selectedPersona?.name : tools.find(([id]) => id === tool)?.[1]}</h2></div><span>{tool === "persona" || tool === "multi" ? `${visibleInterviews.length} sesi` : `${threadMessages.length} pesan`}</span></header>
+            {tool === "persona" && <section className="persona-context" aria-label="Persona terpilih"><label>Persona sintetis<select value={personaId} onChange={(event) => setPersonaId(event.target.value)}>{demo.personas.map((persona) => <option key={persona.id} value={persona.id}>{persona.name} · {persona.group}</option>)}</select></label>{selectedPersona && <div className="persona-profile"><span className="persona-profile-avatar" aria-hidden="true">{selectedPersona.name.charAt(0)}</span><div><h2>{selectedPersona.name}</h2><p>{selectedPersona.group} · {selectedPersona.role}</p></div><dl><div><dt>Sikap</dt><dd>{selectedPersona.stance}</dd></div><div><dt>Perhatian utama</dt><dd>{selectedPersona.concern}</dd></div></dl><div className="event-tags">{selectedPersona.topics.map((topic) => <span key={topic}>{topic}</span>)}</div><CitationDrawer citations={selectedPersona.citations} label="Lihat dasar persona" /></div>}<p className="responsible-note">Persona ini sintetis dan merupakan alat eksplorasi skenario, bukan profil atau pendapat warga nyata.</p></section>}
+            {tool === "multi" && <section className="multi-persona-panel"><header><div><h2>Eksplorasi beberapa persona</h2><p>Pilih maksimal 10 persona sintetis untuk menjawab pertanyaan yang sama.</p></div><span>{selectedPersonaIds.length}/10 dipilih</span></header><div className="multi-persona-actions"><button type="button" onClick={() => setSelectedPersonaIds(demo.personas.slice(0, 10).map((persona) => persona.id))}>Pilih semua</button><button type="button" onClick={() => setSelectedPersonaIds([])}>Hapus pilihan</button></div><div className="multi-persona-list">{demo.personas.map((persona) => <label key={persona.id}><input type="checkbox" checked={selectedPersonaIds.includes(persona.id)} disabled={!selectedPersonaIds.includes(persona.id) && selectedPersonaIds.length >= 10} onChange={(event) => setSelectedPersonaIds((current) => event.target.checked ? [...current, persona.id] : current.filter((id) => id !== persona.id))} /><span><b>{persona.name}</b><small>{persona.group} · {persona.stance}</small></span></label>)}</div><p className="responsible-note">Hasil menggambarkan respons persona terpilih dan tidak mewakili survei publik.</p></section>}
+            <div className="chat-messages" role="log" aria-live="polite" aria-label="Riwayat interaksi">
+              {tool !== "persona" && tool !== "multi" && threadMessages.map((message) => (
                   <div key={message.id} className={`chat-message ${message.role}`}>
-                    <b>{message.author}</b>
-                    <Markdown>{message.text}</Markdown>
+                    <span className="message-avatar" aria-hidden="true">{message.role === "user" ? "A" : message.author.charAt(0)}</span>
+                    <div><header><b>{message.author}</b><time>{message.createdAt ? formatTime(message.createdAt).slice(11, 16) : ""}</time></header><Markdown>{message.text}</Markdown>
                     <CitationDrawer citations={message.citations} label="Lihat sumber jawaban" />
+                    {(message.toolCalls?.length || message.sources?.length) && <details className="answer-provenance"><summary>Cara jawaban disusun</summary><p>{message.toolCalls?.length ?? 0} alat digunakan · {message.sources?.length ?? 0} sumber runtime ditemukan</p></details>}</div>
                   </div>
                 ))}
+              {(tool === "persona" || tool === "multi") && visibleInterviews.flatMap((interview) => interview.answers.filter((item) => tool === "multi" || item.persona_id === personaId).map((item) => <article className="interview-result" key={item.id}><header><span className="message-avatar" aria-hidden="true">{item.persona_name.charAt(0)}</span><div><b>{item.persona_name}</b><time>{formatTime(interview.created_at).slice(0, 16)}</time></div></header><p className="interview-question">{interview.question}</p><Markdown>{item.answer}</Markdown>{item.citations?.length ? <CitationDrawer citations={item.citations.map((citation) => ({ sourceType: citation.source_type, sourceId: citation.source_id, label: citation.label, quote: citation.quote, locator: citation.locator }))} label="Lihat dasar jawaban" /> : null}</article>))}
+              {!typing && !interviewsLoading && ((tool === "persona" || tool === "multi") ? visibleInterviews.length === 0 : threadMessages.length === 0) && <div className="chat-empty"><b>Mulai penyelidikan</b><p>Pilih pertanyaan yang disarankan atau tulis pertanyaan berbasis konteks yang tersedia.</p></div>}
               {typing && (
-                <p className="agent typing">
-                  <b>{tools.find((item) => item[0] === tool)?.[1]}</b>
+                <div className="agent typing" role="status">
+                  <b>{tool === "persona" ? selectedPersona?.name : tools.find((item) => item[0] === tool)?.[1]}</b>
                   <span>
                     <i />
                     <i />
                     <i />
                   </span>
-                </p>
+                </div>
               )}
             </div>
-            <div className="suggested-questions">
-              {suggestedQuestions.map((question) => (
-                <button key={question} type="button" onClick={() => send(question)}>
-                  {question}
-                </button>
-              ))}
+            <div className="chat-composer">
+              {suggestions.length > 0 && <div className="suggested-questions" aria-label="Pertanyaan yang disarankan">{suggestions.map((question) => <button key={question} type="button" onClick={() => setInput(question)}><span>{question}</span></button>)}</div>}
+              <div className="chat-input-field"><label className="chat-input-label" htmlFor="interaction-question">Pertanyaan</label><textarea id="interaction-question" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ajukan pertanyaan berbasis laporan..." rows={3} maxLength={2000} /></div>
+              {sendError && (
+                <p className="interaction-send-error" role="alert">
+                  {sendError}
+                </p>
+              )}
+              <div className="chat-composer-footer"><span>Enter untuk mengirim · Shift+Enter untuk baris baru</span><span>{input.length}/2000</span><button className="button primary" type="submit" disabled={!input.trim() || typing || (tool === "multi" && selectedPersonaIds.length === 0)}>{typing ? "Menunggu jawaban..." : "Kirim →"}</button></div>
             </div>
-            <textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="Ajukan pertanyaan berbasis laporan..."
-              rows={3}
-            />
-            {sendError && (
-              <p className="interaction-send-error" role="alert">
-                {sendError}
-              </p>
-            )}
-          </div>
-          <div className="chat-actions">
-            <button
-              className="button primary"
-              type="submit"
-              disabled={!input.trim() || typing}
-            >
-              Kirim →
-            </button>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={exportNotes}
-            >
-              Ekspor .md
-            </button>
           </div>
         </form>
       </aside>
@@ -1915,6 +1972,7 @@ export default function SimulationWorkflowPage() {
                 update={updateWorkflow}
                 start={() => startStep(3)}
                 report={() => goStep(4)}
+                localMode={localMode}
               />
             )}
             {session.currentStep === 4 && (
@@ -1930,6 +1988,8 @@ export default function SimulationWorkflowPage() {
                 demo={resolvedDemo}
                 session={session}
                 update={setSession}
+                simulationId={simulationId}
+                localMode={localMode}
                 sendBackend={
                   localMode
                     ? undefined
@@ -1937,8 +1997,7 @@ export default function SimulationWorkflowPage() {
                         const response = await sendInteraction(simulationId, {
                           tool,
                           question,
-                          personaGroup:
-                            tool === "persona" ? group : undefined,
+                          personaGroup: group || undefined,
                         });
                         await loadBackend();
                         return mapInteractionMessage(response);

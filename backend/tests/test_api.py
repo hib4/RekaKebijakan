@@ -140,7 +140,19 @@ def test_environment_patch_and_all_interaction_tools(client):
         response = client.post(f"/api/simulations/{simulation_id}/interactions", json={"tool": tool, "question": "Apa tindak lanjut?"})
         assert response.status_code == 201
         assert response.json()["citations"]
+        assert response.json()["created_at"]
     assert len(client.get(f"/api/interactions/{simulation_id}").json()["messages"]) == 12
+
+    personas = client.get(f"/api/simulations/{simulation_id}").json()["environment"]["personas"][:2]
+    interview = client.post(
+        f"/api/simulations/{simulation_id}/interviews",
+        json={"question": "Apa kekhawatiran utama?", "persona_ids": [item["id"] for item in personas]},
+    )
+    assert interview.status_code == 201
+    assert len(interview.json()["answers"]) == 2
+    persisted = client.get(f"/api/simulations/{simulation_id}/interviews")
+    assert persisted.status_code == 200
+    assert persisted.json()["items"][0]["question"] == "Apa kekhawatiran utama?"
     assert client.get("/health").status_code == 200
     readiness = client.get("/ready").json()
     assert readiness["status"] == "ok"

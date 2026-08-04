@@ -157,6 +157,29 @@ export type ApiInteractionMessageDto = {
   content?: string;
   citations?: string[];
   evidence_citations?: ApiCitationDto[];
+  created_at?: string;
+  persona_group?: string;
+  tool_calls?: Record<string, unknown>[];
+  sources?: Record<string, unknown>[];
+};
+
+export type ApiInterviewAnswerDto = {
+  id: string;
+  persona_id: string;
+  persona_name: string;
+  question: string;
+  answer: string;
+  citations?: ApiCitationDto[];
+  event_ids?: string[];
+};
+
+export type ApiInterviewDto = {
+  id: string;
+  question: string;
+  created_at: string;
+  status: "completed" | "partial" | "failed";
+  summary?: string;
+  answers: ApiInterviewAnswerDto[];
 };
 
 export type ApiSimulationSnapshot = {
@@ -518,6 +541,16 @@ export const sendInteraction = (simulationId: string, input: { tool: string; que
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tool: input.tool, question: input.question, persona_group: input.personaGroup }),
   });
+
+export const createSimulationInterview = (simulationId: string, input: { question: string; personaIds: string[] }) =>
+  request<ApiInterviewDto>(`/api/simulations/${encodeURIComponent(simulationId)}/interviews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: input.question, persona_ids: input.personaIds }),
+  });
+
+export const listSimulationInterviews = (simulationId: string) =>
+  request<{ items: ApiInterviewDto[] }>(`/api/simulations/${encodeURIComponent(simulationId)}/interviews`);
 
 export type ProjectLifecycleStatus = "draft" | "active" | "archived" | "pending_delete" | "deleted";
 

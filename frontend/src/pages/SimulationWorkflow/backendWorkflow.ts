@@ -40,6 +40,10 @@ export function mapInteractionMessage(message: ApiInteractionMessageDto, index =
     tool: message.tool ?? "report",
     text: message.text ?? message.content ?? "",
     citations: citations(message.evidence_citations ?? (message.citations ?? []).map((label, citationIndex) => ({ source_type: "report_section", source_id: `citation-${citationIndex + 1}`, label }))),
+    createdAt: message.created_at,
+    personaGroup: message.persona_group,
+    toolCalls: message.tool_calls,
+    sources: message.sources,
   };
 }
 
