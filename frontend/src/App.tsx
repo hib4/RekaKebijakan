@@ -1,7 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { Route, Routes, useLocation, useParams } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
 import { scenarios } from "./data/scenarios";
@@ -16,7 +14,6 @@ import PersonaStudioPage from "./pages/PersonaStudio/PersonaStudioPage";
 import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
 import SimulationMonitorPage from "./pages/SimulationMonitor/SimulationMonitorPage";
 import ProvenancePage from "./pages/Provenance/ProvenancePage";
-import { submitContact } from "./api/client";
 import Header, { Brand } from "./components/Header/Header";
 import AuthPage from "./pages/Auth/AuthPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
@@ -207,90 +204,6 @@ function ProductPreview() {
   );
 }
 
-function ContactDialog({ onClose }: { onClose: () => void }) {
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
-  const [sending, setSending] = useState(false);
-  const titleId = useId();
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setSending(true);
-    setError("");
-    try {
-      await submitContact({ name: String(form.get("name")), organization: String(form.get("organization")), email: String(form.get("email")), use_case: String(form.get("use")) });
-      setSent(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Permintaan tidak dapat dikirim.");
-    } finally {
-      setSending(false);
-    }
-  };
-  return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <button
-          className="dialog-close"
-          onClick={onClose}
-          aria-label="Tutup dialog"
-        >
-          X
-        </button>
-        {sent ? (
-          <div className="form-success">
-            <p className="eyebrow">PERMINTAAN TERCATAT</p>
-            <h2 id={titleId}>Terima kasih.</h2>
-            <p>
-              Permintaan Anda telah diterima. Tim kami akan menghubungi Anda.
-            </p>
-            <button className="button primary" onClick={onClose}>
-              Tutup
-            </button>
-          </div>
-        ) : (
-          <>
-            <p className="eyebrow">DISKUSI PILOT</p>
-            <h2 id={titleId}>Ceritakan kebutuhan institusi Anda.</h2>
-            <form onSubmit={submit}>
-              <label>
-                Nama
-                <input required name="name" autoFocus />
-              </label>
-              <label>
-                Institusi
-                <input required name="organization" />
-              </label>
-              <label>
-                Email
-                <input required name="email" type="email" />
-              </label>
-              <label>
-                Tujuan penggunaan
-                <textarea required name="use" rows={3} />
-              </label>
-              {error && <p className="form-error" role="alert">{error}</p>}
-              <button className="button primary" type="submit" disabled={sending}>
-                {sending ? "Mengirim..." : "Kirim permintaan"}
-              </button>
-            </form>
-          </>
-        )}
-      </section>
-    </div>
-  );
-}
-
 function LandingPage() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -302,7 +215,6 @@ function LandingPage() {
   const [hasRun, setHasRun] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
   const simulationTimer = useRef<number | null>(null);
   const scenario = scenarios[scenarioIndex];
   const metrics = useMemo(
@@ -819,9 +731,6 @@ function LandingPage() {
               >
                 Buka daftar proyek
               </button>
-              <button className="button outline-white" onClick={() => setDialogOpen(true)}>
-                Diskusikan pilot
-              </button>
             </div>
           </div>
         </section>
@@ -859,7 +768,6 @@ function LandingPage() {
           © 2026 RekaKebijakan.
         </div>
       </footer>
-      {dialogOpen && <ContactDialog onClose={() => setDialogOpen(false)} />}
     </div>
   );
 }
