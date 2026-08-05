@@ -8,10 +8,13 @@ import logging
 import re
 import time
 from typing import Optional, Dict, Any, List
-from openai import OpenAI
 
 from ..config import Config
-from .openai_chat_compat import create_chat_completion, extract_chat_completion_text
+from .openai_chat_compat import (
+    build_openai_client,
+    create_chat_completion,
+    extract_chat_completion_text,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -105,7 +108,7 @@ class LLMClient:
         if not self.api_key:
             raise ValueError("LLM_API_KEY is not configured")
         
-        self.client = OpenAI(
+        self.client = build_openai_client(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=Config.LLM_REQUEST_TIMEOUT_SECONDS,

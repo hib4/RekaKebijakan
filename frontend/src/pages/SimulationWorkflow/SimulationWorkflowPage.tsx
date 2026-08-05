@@ -19,7 +19,12 @@ import {
   startStage,
   updateEnvironment,
 } from "../../api/client";
-import type { ApiInterviewDto, ApiRuntimeGraph, ApiSimulationSnapshot, SimulationStreamEvent } from "../../api/client";
+import type {
+  ApiInterviewDto,
+  ApiRuntimeGraph,
+  ApiSimulationSnapshot,
+  SimulationStreamEvent,
+} from "../../api/client";
 import {
   getWorkspaceProjectBySimulation,
   getWorkspaceReportBySimulation,
@@ -59,7 +64,10 @@ import { useAutoFollow } from "./useAutoFollow";
 import { mapBackendSnapshot, mapInteractionMessage } from "./backendWorkflow";
 import { CitationDrawer } from "../../components/CitationDrawer/CitationDrawer";
 import { Markdown } from "../../components/Markdown/Markdown";
-import { mergeRuntimeGraphEvent, mergeSimulationStreamEvent } from "./simulationStream";
+import {
+  mergeRuntimeGraphEvent,
+  mergeSimulationStreamEvent,
+} from "./simulationStream";
 import { useSimulationStream } from "./useSimulationStream";
 import "./SimulationWorkflow.css";
 
@@ -193,7 +201,11 @@ function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
       edgeCount: demo.graphEdges.length,
       selectedNodeId: null,
     };
-  if (stage >= 2) session.environment.personaCount = demo.personas.reduce((sum, persona) => sum + persona.count, 0);
+  if (stage >= 2)
+    session.environment.personaCount = demo.personas.reduce(
+      (sum, persona) => sum + persona.count,
+      0,
+    );
   if (stage >= 3)
     session.simulation = {
       ...session.simulation,
@@ -240,11 +252,13 @@ function GraphBuildStep({
   return (
     <div className="step-scroll" ref={scrollRef}>
       <div className="step-intro">
-          <span>TAHAP 1/5</span>
+        <span>TAHAP 1/5</span>
         <h1 tabIndex={-1}>Bangun graf kebijakan</h1>
-        <p aria-live="polite">{step.status === "processing" && step.activeTask
-          ? step.activeTask
-          : "Entity dan relasi muncul bertahap sesuai proses ekstraksi dan validasi."}</p>
+        <p aria-live="polite">
+          {step.status === "processing" && step.activeTask
+            ? step.activeTask
+            : "Entity dan relasi muncul bertahap sesuai proses ekstraksi dan validasi."}
+        </p>
       </div>
       {graphTasks.map((task, index) => (
         <StepCard
@@ -252,7 +266,11 @@ function GraphBuildStep({
           number={index + 1}
           task={task}
           state={taskState(step.progress, index, step.status === "processing")}
-          className={task.title === "Pembangunan graf selesai" ? "graph-complete-task" : undefined}
+          className={
+            task.title === "Pembangunan graf selesai"
+              ? "graph-complete-task"
+              : undefined
+          }
           progress={Math.min(
             100,
             Math.max(0, (step.progress - index * 33) * 3),
@@ -350,9 +368,15 @@ function EnvironmentStep({
   next: () => void;
 }) {
   const step = session.steps[2];
-  const personaTotal = demo.personas.reduce((sum, persona) => sum + persona.count, 0);
+  const personaTotal = demo.personas.reduce(
+    (sum, persona) => sum + persona.count,
+    0,
+  );
   const visibleGroups = personaTotal
-    ? Math.ceil((session.environment.personaCount / personaTotal) * demo.personas.length)
+    ? Math.ceil(
+        (session.environment.personaCount / personaTotal) *
+          demo.personas.length,
+      )
     : 0;
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${step.status}-${step.progress}-${session.environment.personaCount}`,
@@ -360,11 +384,13 @@ function EnvironmentStep({
   return (
     <div className="step-scroll" ref={scrollRef}>
       <div className="step-intro">
-          <span>TAHAP 2/5</span>
+        <span>TAHAP 2/5</span>
         <h1 tabIndex={-1}>Siapkan lingkungan simulasi</h1>
-        <p aria-live="polite">{step.status === "processing" && step.activeTask
-          ? step.activeTask
-          : "Graf kebijakan tetap menjadi sumber tinjauan. OASIS membentuk graf runtime Zep terpisah untuk persona, relasi hasil ekstraksi, dan memori simulasi."}</p>
+        <p aria-live="polite">
+          {step.status === "processing" && step.activeTask
+            ? step.activeTask
+            : "Graf kebijakan tetap menjadi sumber tinjauan. OASIS membentuk graf runtime Zep terpisah untuk persona, relasi hasil ekstraksi, dan memori simulasi."}
+        </p>
       </div>
       {environmentTasks.map((task, index) => (
         <StepCard
@@ -397,7 +423,11 @@ function EnvironmentStep({
                   Topik terkait
                 </span>
                 <span>
-                  <b>{Math.min(demo.personas.length, visibleGroups)}/{demo.personas.length}</b>Cakupan stakeholder
+                  <b>
+                    {Math.min(demo.personas.length, visibleGroups)}/
+                    {demo.personas.length}
+                  </b>
+                  Cakupan stakeholder
                 </span>
               </div>
               <div className="persona-list">
@@ -416,7 +446,10 @@ function EnvironmentStep({
                         <i key={topic}>{topic}</i>
                       ))}
                     </div>
-                    <CitationDrawer citations={persona.citations} label="Lihat sumber persona" />
+                    <CitationDrawer
+                      citations={persona.citations}
+                      label="Lihat sumber persona"
+                    />
                   </article>
                 ))}
               </div>
@@ -425,9 +458,20 @@ function EnvironmentStep({
           {index === 1 && step.progress >= 50 && (
             <>
               <div className="config-controls">
-                <span><small>Generated rounds</small><b>{session.environment.rounds}</b></span>
-                <span><small>Simulated time</small><b>{session.environment.totalSimulationHours ?? "–"} jam</b></span>
-                <span><small>Time step</small><b>{session.environment.minutesPerRound ?? "–"} menit/round</b></span>
+                <span>
+                  <small>Generated rounds</small>
+                  <b>{session.environment.rounds}</b>
+                </span>
+                <span>
+                  <small>Simulated time</small>
+                  <b>{session.environment.totalSimulationHours ?? "–"} jam</b>
+                </span>
+                <span>
+                  <small>Time step</small>
+                  <b>
+                    {session.environment.minutesPerRound ?? "–"} menit/round
+                  </b>
+                </span>
               </div>
               <div className="config-grid">
                 <span>
@@ -464,7 +508,11 @@ function EnvironmentStep({
               min="1"
               max="1000"
               value={rounds}
-              onChange={(event) => onRoundsChange(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))}
+              onChange={(event) =>
+                onRoundsChange(
+                  Math.max(1, Math.min(1000, Number(event.target.value) || 1)),
+                )
+              }
             />
           </label>
           <label>
@@ -474,14 +522,20 @@ function EnvironmentStep({
               min="1"
               max="500"
               value={maxProfileCount}
-              onChange={(event) => onMaxProfileCountChange(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
+              onChange={(event) =>
+                onMaxProfileCountChange(
+                  Math.max(1, Math.min(500, Number(event.target.value) || 1)),
+                )
+              }
             />
           </label>
           <label className="profile-llm-toggle">
             <input
               type="checkbox"
               checked={useLlmForProfiles}
-              onChange={(event) => onUseLlmForProfilesChange(event.target.checked)}
+              onChange={(event) =>
+                onUseLlmForProfilesChange(event.target.checked)
+              }
             />
             <span>Perkaya setiap profil dengan LLM (lebih lambat)</span>
           </label>
@@ -489,7 +543,9 @@ function EnvironmentStep({
             <input
               type="checkbox"
               checked={useLlmForConfig}
-              onChange={(event) => onUseLlmForConfigChange(event.target.checked)}
+              onChange={(event) =>
+                onUseLlmForConfigChange(event.target.checked)
+              }
             />
             <span>Perkaya konfigurasi simulasi dengan LLM (lebih lambat)</span>
           </label>
@@ -523,7 +579,9 @@ const actionLabels: Record<string, string> = {
 
 function actionValue(event: SimulationEvent, key: string) {
   const value = event.actionArgs?.[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+  return typeof value === "string" || typeof value === "number"
+    ? String(value)
+    : "";
 }
 
 function ActionContent({ event }: { event: SimulationEvent }) {
@@ -533,25 +591,73 @@ function ActionContent({ event }: { event: SimulationEvent }) {
   const postContent = actionValue(event, "post_content");
   const originalAuthor = actionValue(event, "original_author_name");
   if (type === "QUOTE_POST") {
-    return <><p>{actionValue(event, "quote_content") || content}</p>{originalContent && <blockquote><b>{originalAuthor || "Persona lain"}</b>{originalContent}</blockquote>}</>;
+    return (
+      <>
+        <p>{actionValue(event, "quote_content") || content}</p>
+        {originalContent && (
+          <blockquote>
+            <b>{originalAuthor || "Persona lain"}</b>
+            {originalContent}
+          </blockquote>
+        )}
+      </>
+    );
   }
   if (type === "REPOST") {
-    return <div className="event-action-context"><b>Membagikan ulang {originalAuthor ? `dari ${originalAuthor}` : "publikasi lain"}</b>{originalContent && <p>{originalContent}</p>}</div>;
+    return (
+      <div className="event-action-context">
+        <b>
+          Membagikan ulang{" "}
+          {originalAuthor ? `dari ${originalAuthor}` : "publikasi lain"}
+        </b>
+        {originalContent && <p>{originalContent}</p>}
+      </div>
+    );
   }
   if (type === "LIKE_POST" || type === "LIKE_COMMENT") {
-    return <div className="event-action-context"><b>Memberi reaksi pada publikasi</b>{postContent && <p>{postContent}</p>}</div>;
+    return (
+      <div className="event-action-context">
+        <b>Memberi reaksi pada publikasi</b>
+        {postContent && <p>{postContent}</p>}
+      </div>
+    );
   }
   if (type === "SEARCH_POSTS") {
-    return <div className="event-action-context"><b>Menelusuri percakapan</b><p>“{actionValue(event, "query") || "Kueri tidak tersedia"}”</p></div>;
+    return (
+      <div className="event-action-context">
+        <b>Menelusuri percakapan</b>
+        <p>“{actionValue(event, "query") || "Kueri tidak tersedia"}”</p>
+      </div>
+    );
   }
   if (type === "FOLLOW") {
-    return <div className="event-action-context"><b>Mengikuti {actionValue(event, "target_user") || actionValue(event, "user_id") || "persona lain"}</b></div>;
+    return (
+      <div className="event-action-context">
+        <b>
+          Mengikuti{" "}
+          {actionValue(event, "target_user") ||
+            actionValue(event, "user_id") ||
+            "persona lain"}
+        </b>
+      </div>
+    );
   }
   if (type === "UPVOTE_POST" || type === "DOWNVOTE_POST") {
-    return <div className="event-action-context"><b>{type === "UPVOTE_POST" ? "Mendukung" : "Menolak"} sebuah publikasi</b>{postContent && <p>{postContent}</p>}</div>;
+    return (
+      <div className="event-action-context">
+        <b>
+          {type === "UPVOTE_POST" ? "Mendukung" : "Menolak"} sebuah publikasi
+        </b>
+        {postContent && <p>{postContent}</p>}
+      </div>
+    );
   }
   if (type === "DO_NOTHING") {
-    return <div className="event-action-context muted"><b>Persona tidak mengambil aksi pada ronde ini.</b></div>;
+    return (
+      <div className="event-action-context muted">
+        <b>Persona tidak mengambil aksi pada ronde ini.</b>
+      </div>
+    );
   }
   return <p>{content}</p>;
 }
@@ -574,15 +680,21 @@ function EventCard({
     >
       <header>
         <div className="event-persona">
-          <span className="event-avatar" aria-hidden="true">{event.persona.charAt(0).toUpperCase()}</span>
+          <span className="event-avatar" aria-hidden="true">
+            {event.persona.charAt(0).toUpperCase()}
+          </span>
           <span>
             <b>{event.persona}</b>
             <small>{event.group}</small>
           </span>
         </div>
-        <span className="event-action-label">{actionLabels[event.type.toUpperCase()] ?? event.type}</span>
+        <span className="event-action-label">
+          {actionLabels[event.type.toUpperCase()] ?? event.type}
+        </span>
       </header>
-      <div className="event-content"><ActionContent event={event} /></div>
+      <div className="event-content">
+        <ActionContent event={event} />
+      </div>
       <div className="event-tags">
         <span>Sikap: {event.stance}</span>
         {event.concerns.map((tag) => (
@@ -595,7 +707,10 @@ function EventCard({
           <time>Ronde {event.round}</time>
           <time>{formatCompactTimestamp(event.time)}</time>
         </div>
-        <div className="event-footer-actions" onClick={(click) => click.stopPropagation()}>
+        <div
+          className="event-footer-actions"
+          onClick={(click) => click.stopPropagation()}
+        >
           <button
             aria-expanded={open}
             onClick={(click) => {
@@ -669,7 +784,10 @@ function SimulationStep({
       ? session.environment.rounds
       : Math.max(1, run.currentRound ?? events.at(-1)?.round ?? 1);
   const activeNode = session.graph.selectedNodeId;
-  const terminalIssue = run.status === "failed" || run.status === "cancelled" || run.status === "stale";
+  const terminalIssue =
+    run.status === "failed" ||
+    run.status === "cancelled" ||
+    run.status === "stale";
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
   );
@@ -689,12 +807,24 @@ function SimulationStep({
       </header>
 
       {run.status === "ready" && (
-        <section className="simulation-start-review" aria-labelledby="start-review-title">
+        <section
+          className="simulation-start-review"
+          aria-labelledby="start-review-title"
+        >
           <div>
-            <h2 id="start-review-title">Periksa konfigurasi sebelum menjalankan</h2>
-            <p>{session.environment.personaCount} persona sintetis akan berinteraksi selama {session.environment.rounds} ronde di {session.environment.platforms.length} kanal. Aktivitas ini adalah eksplorasi skenario, bukan prediksi opini publik.</p>
+            <h2 id="start-review-title">
+              Periksa konfigurasi sebelum menjalankan
+            </h2>
+            <p>
+              {session.environment.personaCount} persona sintetis akan
+              berinteraksi selama {session.environment.rounds} ronde di{" "}
+              {session.environment.platforms.length} kanal. Aktivitas ini adalah
+              eksplorasi skenario, bukan prediksi opini publik.
+            </p>
           </div>
-          <button className="button primary" onClick={start}>Mulai simulasi →</button>
+          <button className="button primary" onClick={start}>
+            Mulai simulasi →
+          </button>
         </section>
       )}
 
@@ -702,7 +832,13 @@ function SimulationStep({
         <section className={`simulation-run-notice ${run.status}`} role="alert">
           <div>
             <h2>{runStatusLabel(run.status)}</h2>
-            <p>{run.error || run.staleReason || step.error || step.staleReason || "Run berhenti sebelum seluruh ronde selesai. Periksa konsol sistem sebelum menjalankan ulang."}</p>
+            <p>
+              {run.error ||
+                run.staleReason ||
+                step.error ||
+                step.staleReason ||
+                "Run berhenti sebelum seluruh ronde selesai. Periksa konsol sistem sebelum menjalankan ulang."}
+            </p>
           </div>
         </section>
       )}
@@ -712,13 +848,24 @@ function SimulationStep({
           const count = events.filter(
             (event) => event.channel === channel,
           ).length;
-          const lastRound = run.platformRounds?.[channel] ??
-            events.filter((event) => event.channel === channel).at(-1)?.round ?? 0;
+          const lastRound =
+            run.platformRounds?.[channel] ??
+            events.filter((event) => event.channel === channel).at(-1)?.round ??
+            0;
           return (
-            <article key={channel} className={run.status === "running" ? "active" : ""}>
+            <article
+              key={channel}
+              className={run.status === "running" ? "active" : ""}
+            >
               <header>
-                <div><span>Kanal simulasi</span><h3>{channel}</h3></div>
-                <span className={run.status}><i aria-hidden="true" />{runStatusLabel(run.status)}</span>
+                <div>
+                  <span>Kanal simulasi</span>
+                  <h3>{channel}</h3>
+                </div>
+                <span className={run.status}>
+                  <i aria-hidden="true" />
+                  {runStatusLabel(run.status)}
+                </span>
               </header>
               <dl>
                 <div>
@@ -729,7 +876,12 @@ function SimulationStep({
                 </div>
                 <div>
                   <dt>Waktu simulasi</dt>
-                  <dd>{formatSimulatedTime(lastRound, session.environment.minutesPerRound)}</dd>
+                  <dd>
+                    {formatSimulatedTime(
+                      lastRound,
+                      session.environment.minutesPerRound,
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt>Aksi/event</dt>
@@ -740,7 +892,10 @@ function SimulationStep({
           );
         })}
       </section>
-      <section className="workflow-simulation-summary" aria-label="Kontrol dan progres run">
+      <section
+        className="workflow-simulation-summary"
+        aria-label="Kontrol dan progres run"
+      >
         <span>
           <b>{events.length}</b>Total event
         </span>
@@ -748,17 +903,28 @@ function SimulationStep({
           <b>
             {round}/{session.environment.rounds}
           </b>
-           Progres ronde
+          Progres ronde
         </span>
         <span>
-          <b>{formatSimulatedTime(round, session.environment.minutesPerRound)}</b>Waktu simulasi
+          <b>
+            {formatSimulatedTime(round, session.environment.minutesPerRound)}
+          </b>
+          Waktu simulasi
         </span>
         {localMode && (
           <label>
             Kecepatan demo
             <select
               value={run.speed}
-              onChange={(event) => update({ ...session, simulation: { ...run, speed: Number(event.target.value) as 0.5 | 1 | 2 } })}
+              onChange={(event) =>
+                update({
+                  ...session,
+                  simulation: {
+                    ...run,
+                    speed: Number(event.target.value) as 0.5 | 1 | 2,
+                  },
+                })
+              }
             >
               <option value="0.5">0.5x</option>
               <option value="1">1x</option>
@@ -810,65 +976,90 @@ function SimulationStep({
             >
               Lanjutkan
             </button>
-            {localMode && <button
-              className="button secondary"
-              onClick={() =>
-                update({
-                  ...session,
-                  simulation: {
-                    ...run,
-                    eventCount: Math.min(
-                      demo.events.length,
-                      run.eventCount + 1,
-                    ),
-                  },
-                })
-              }
-            >
-              Event berikutnya
-            </button>}
+            {localMode && (
+              <button
+                className="button secondary"
+                onClick={() =>
+                  update({
+                    ...session,
+                    simulation: {
+                      ...run,
+                      eventCount: Math.min(
+                        demo.events.length,
+                        run.eventCount + 1,
+                      ),
+                    },
+                  })
+                }
+              >
+                Event berikutnya
+              </button>
+            )}
           </>
         )}
       </section>
       <div className="simulation-timeline-heading">
         <div>
           <h2>Linimasa aktivitas sintetis</h2>
-          <p>Event diurutkan secara kronologis dan dipisahkan berdasarkan kanal.</p>
+          <p>
+            Event diurutkan secara kronologis dan dipisahkan berdasarkan kanal.
+          </p>
         </div>
         <span>{events.length} event diterima</span>
       </div>
-      <div className="event-feed" aria-live="polite" aria-label="Linimasa event simulasi">
+      <div
+        className="event-feed"
+        aria-live="polite"
+        aria-label="Linimasa event simulasi"
+      >
         {events.length ? (
           events.map((event, index) => {
-            const channelIndex = Math.max(0, session.environment.platforms.indexOf(event.channel));
-            return <div className={`event-feed-item lane-${channelIndex % 2 === 0 ? "left" : "right"}`} key={event.id}>
-              <span className="timeline-marker" aria-hidden="true">{index + 1}</span>
-              <EventCard
-                event={event}
-                selected={
-                  activeNode === event.group.toLowerCase().replaceAll(" ", "-")
-                }
-                onSelect={() =>
-                  update({
-                    ...session,
-                    graph: {
-                      ...session.graph,
-                      selectedNodeId:
-                        demo.graphNodes.find(
-                          (node) => node.group === event.group,
-                        )?.id ?? null,
-                    },
-                  })
-                }
-              />
-            </div>;
+            const channelIndex = Math.max(
+              0,
+              session.environment.platforms.indexOf(event.channel),
+            );
+            return (
+              <div
+                className={`event-feed-item lane-${channelIndex % 2 === 0 ? "left" : "right"}`}
+                key={event.id}
+              >
+                <span className="timeline-marker" aria-hidden="true">
+                  {index + 1}
+                </span>
+                <EventCard
+                  event={event}
+                  selected={
+                    activeNode ===
+                    event.group.toLowerCase().replaceAll(" ", "-")
+                  }
+                  onSelect={() =>
+                    update({
+                      ...session,
+                      graph: {
+                        ...session.graph,
+                        selectedNodeId:
+                          demo.graphNodes.find(
+                            (node) => node.group === event.group,
+                          )?.id ?? null,
+                      },
+                    })
+                  }
+                />
+              </div>
+            );
           })
         ) : (
           <div className="workflow-empty">
             <i aria-hidden="true" />
-            <h3>{run.status === "ready" ? "Simulasi menunggu konfirmasi" : "Menunggu aktivitas persona"}</h3>
+            <h3>
+              {run.status === "ready"
+                ? "Simulasi menunggu konfirmasi"
+                : "Menunggu aktivitas persona"}
+            </h3>
             <p>
-              {run.status === "ready" ? "Tinjau konfigurasi di atas, lalu mulai simulasi saat siap." : "Event, pengaruh, dan perubahan risiko akan muncul di linimasa ini."}
+              {run.status === "ready"
+                ? "Tinjau konfigurasi di atas, lalu mulai simulasi saat siap."
+                : "Event, pengaruh, dan perubahan risiko akan muncul di linimasa ini."}
             </p>
           </div>
         )}
@@ -899,7 +1090,9 @@ function ReportPreview({
         <span>LAPORAN SIMULASI KEBIJAKAN</span>
         <h1>{demo.reportTitle}</h1>
         <p>
-          Disusun dari simulasi skenario · {demo.events.length} event · {demo.personas.reduce((sum, persona) => sum + persona.count, 0)} persona sintetis
+          Disusun dari simulasi skenario · {demo.events.length} event ·{" "}
+          {demo.personas.reduce((sum, persona) => sum + persona.count, 0)}{" "}
+          persona sintetis
         </p>
       </header>
       {demo.reportSections.map((section, index) => {
@@ -1040,20 +1233,50 @@ const tools = [
 
 type InteractionTool = (typeof tools)[number][0];
 
-function interactionSuggestions(tool: InteractionTool, demo: DemoCase, personaName?: string) {
-  if (tool === "persona") return [
-    `Apa kekhawatiran utama ${personaName ?? "persona ini"}?`,
-    "Asumsi apa yang paling memengaruhi respons Anda?",
-    "Klarifikasi apa yang dapat mengubah sikap Anda?",
-  ];
-  if (tool === "multi") return ["Bagian kebijakan mana yang paling membutuhkan klarifikasi?", "Apa dampak tidak langsung yang mungkin terlewat?", "Perubahan apa yang paling membantu kelompok Anda?"];
-  if (tool === "risk") return demo.risks.slice(0, 3).map((risk) => `Bagaimana memitigasi risiko “${risk.title}”?`);
-  if (tool === "evidence") return ["Bukti apa yang mendukung temuan utama?", "Temuan mana yang hanya berasal dari simulasi?", "Di mana terdapat kesenjangan bukti?"];
-  if (tool === "compare") return ["Apa perbedaan utama baseline dan revisi?", "Asumsi mana yang paling mengubah hasil?", "Apa trade-off dari skenario revisi?"];
-  if (tool === "revision") return ["Susun tiga prioritas revisi.", "Bahasa kebijakan mana yang perlu diperjelas?", "Indikator evaluasi apa yang perlu ditambahkan?"];
+function interactionSuggestions(
+  tool: InteractionTool,
+  demo: DemoCase,
+  personaName?: string,
+) {
+  if (tool === "persona")
+    return [
+      `Apa kekhawatiran utama ${personaName ?? "persona ini"}?`,
+      "Asumsi apa yang paling memengaruhi respons Anda?",
+      "Klarifikasi apa yang dapat mengubah sikap Anda?",
+    ];
+  if (tool === "multi")
+    return [
+      "Bagian kebijakan mana yang paling membutuhkan klarifikasi?",
+      "Apa dampak tidak langsung yang mungkin terlewat?",
+      "Perubahan apa yang paling membantu kelompok Anda?",
+    ];
+  if (tool === "risk")
+    return demo.risks
+      .slice(0, 3)
+      .map((risk) => `Bagaimana memitigasi risiko “${risk.title}”?`);
+  if (tool === "evidence")
+    return [
+      "Bukti apa yang mendukung temuan utama?",
+      "Temuan mana yang hanya berasal dari simulasi?",
+      "Di mana terdapat kesenjangan bukti?",
+    ];
+  if (tool === "compare")
+    return [
+      "Apa perbedaan utama baseline dan revisi?",
+      "Asumsi mana yang paling mengubah hasil?",
+      "Apa trade-off dari skenario revisi?",
+    ];
+  if (tool === "revision")
+    return [
+      "Susun tiga prioritas revisi.",
+      "Bahasa kebijakan mana yang perlu diperjelas?",
+      "Indikator evaluasi apa yang perlu ditambahkan?",
+    ];
   return [
     `Apa temuan utama dari ${demo.reportTitle}?`,
-    demo.risks[0] ? `Mengapa risiko “${demo.risks[0].title}” muncul?` : "Apa risiko utama dalam laporan?",
+    demo.risks[0]
+      ? `Mengapa risiko “${demo.risks[0].title}” muncul?`
+      : "Apa risiko utama dalam laporan?",
     "Apa yang perlu divalidasi melalui konsultasi publik?",
   ];
 }
@@ -1079,17 +1302,32 @@ function InteractionStep({
 }) {
   const [tool, setTool] = useState<InteractionTool>("report");
   const [personaId, setPersonaId] = useState(demo.personas[0]?.id ?? "");
-  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(demo.personas[0] ? [demo.personas[0].id] : []);
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(
+    demo.personas[0] ? [demo.personas[0].id] : [],
+  );
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const [sendError, setSendError] = useState("");
   const [interviews, setInterviews] = useState<ApiInterviewDto[]>([]);
   const [interviewsLoading, setInterviewsLoading] = useState(false);
   const timer = useRef<number | null>(null);
-  const selectedPersona = demo.personas.find((persona) => persona.id === personaId) ?? demo.personas[0];
+  const selectedPersona =
+    demo.personas.find((persona) => persona.id === personaId) ??
+    demo.personas[0];
   const suggestions = interactionSuggestions(tool, demo, selectedPersona?.name);
-  const threadMessages = session.interaction.messages.filter((message) => (message.tool === tool || (tool === "persona" && message.tool === "persona")) && (tool !== "persona" || !message.personaGroup || message.personaGroup === selectedPersona?.group));
-  const visibleInterviews = interviews.filter((interview) => tool === "multi" || interview.answers.some((answer) => answer.persona_id === personaId));
+  const threadMessages = session.interaction.messages.filter(
+    (message) =>
+      (message.tool === tool ||
+        (tool === "persona" && message.tool === "persona")) &&
+      (tool !== "persona" ||
+        !message.personaGroup ||
+        message.personaGroup === selectedPersona?.group),
+  );
+  const visibleInterviews = interviews.filter(
+    (interview) =>
+      tool === "multi" ||
+      interview.answers.some((answer) => answer.persona_id === personaId),
+  );
   const scrollRef = useAutoFollow<HTMLElement>(
     `${tool}-${personaId}-${typing}-${session.interaction.messages.length}-${interviews.length}`,
   );
@@ -1103,22 +1341,39 @@ function InteractionStep({
     if (localMode || (tool !== "persona" && tool !== "multi")) return;
     let active = true;
     listSimulationInterviews(simulationId)
-      .then((response) => { if (active) setInterviews(response.items); })
-      .catch(() => { if (active) setSendError("Riwayat wawancara belum dapat dimuat."); })
-      .finally(() => { if (active) setInterviewsLoading(false); });
-    return () => { active = false; };
+      .then((response) => {
+        if (active) setInterviews(response.items);
+      })
+      .catch(() => {
+        if (active) setSendError("Riwayat wawancara belum dapat dimuat.");
+      })
+      .finally(() => {
+        if (active) setInterviewsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [localMode, simulationId, tool]);
   const answer = (question: string) => {
-    if (tool === "persona") return `${selectedPersona?.name} menekankan ${selectedPersona?.concern.toLowerCase()}. Sikap awalnya ${selectedPersona?.stance.toLowerCase()} dan dapat berubah ketika skenario menyediakan klarifikasi yang dapat ditelusuri.`;
-    if (tool === "evidence") return `Jejak bukti menghubungkan temuan ke event "${demo.events[0]?.statement}", node ${demo.graphNodes[0]?.label}, dan bagian Ringkasan Eksekif.`;
-    if (tool === "compare") return `Baseline menunjukkan risiko komunikasi lebih tinggi. Pada asumsi revisi, intensitas sosialisasi ${session.environment.socialization.toLowerCase()} dan respons ${session.environment.responseMode.toLowerCase()} menurunkan ketidakpastian stakeholder.`;
-    if (tool === "revision") return "Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.";
-    if (tool === "risk") return `Mitigasi perlu memprioritaskan ${demo.risks[0]?.title.toLowerCase() ?? "risiko utama"}, memperjelas asumsi implementasi, dan menguji temuan melalui konsultasi dengan kelompok terdampak.`;
+    if (tool === "persona")
+      return `${selectedPersona?.name} menekankan ${selectedPersona?.concern.toLowerCase()}. Sikap awalnya ${selectedPersona?.stance.toLowerCase()} dan dapat berubah ketika skenario menyediakan klarifikasi yang dapat ditelusuri.`;
+    if (tool === "evidence")
+      return `Jejak bukti menghubungkan temuan ke event "${demo.events[0]?.statement}", node ${demo.graphNodes[0]?.label}, dan bagian Ringkasan Eksekif.`;
+    if (tool === "compare")
+      return `Baseline menunjukkan risiko komunikasi lebih tinggi. Pada asumsi revisi, intensitas sosialisasi ${session.environment.socialization.toLowerCase()} dan respons ${session.environment.responseMode.toLowerCase()} menurunkan ketidakpastian stakeholder.`;
+    if (tool === "revision")
+      return "Prioritas revisi: perjelas ketentuan utama, tetapkan kanal klarifikasi, dan lampirkan indikator evaluasi. Catatan ini didukung event simulasi serta Risiko Narasi Utama.";
+    if (tool === "risk")
+      return `Mitigasi perlu memprioritaskan ${demo.risks[0]?.title.toLowerCase() ?? "risiko utama"}, memperjelas asumsi implementasi, dan menguji temuan melalui konsultasi dengan kelompok terdampak.`;
     return `Laporan menunjukkan bahwa ${demo.risks[0]?.title.toLowerCase()} merupakan indikasi risiko utama. Temuan ini didukung Bagian 3 dan event pada ronde ${demo.events[0]?.round ?? 1}. Pertanyaan: ${question}`;
   };
   const send = async (question = input) => {
     if (!question.trim() || typing) return;
-    if ((tool === "persona" && !selectedPersona) || (tool === "multi" && selectedPersonaIds.length === 0)) return;
+    if (
+      (tool === "persona" && !selectedPersona) ||
+      (tool === "multi" && selectedPersonaIds.length === 0)
+    )
+      return;
     if (tool === "persona" || tool === "multi") {
       setInput("");
       setTyping(true);
@@ -1134,13 +1389,27 @@ function InteractionStep({
               summary: `${ids.length} jawaban persona sintetis`,
               answers: ids.map((id) => {
                 const persona = demo.personas.find((item) => item.id === id)!;
-                return { id: `answer-${id}-${Date.now()}`, persona_id: id, persona_name: persona.name, question, answer: `${persona.name} menekankan ${persona.concern.toLowerCase()}. Sikapnya ${persona.stance.toLowerCase()} berdasarkan asumsi persona dan event simulasi yang tersedia.`, citations: [] };
+                return {
+                  id: `answer-${id}-${Date.now()}`,
+                  persona_id: id,
+                  persona_name: persona.name,
+                  question,
+                  answer: `${persona.name} menekankan ${persona.concern.toLowerCase()}. Sikapnya ${persona.stance.toLowerCase()} berdasarkan asumsi persona dan event simulasi yang tersedia.`,
+                  citations: [],
+                };
               }),
             }
-          : await createSimulationInterview(simulationId, { question, personaIds: ids });
+          : await createSimulationInterview(simulationId, {
+              question,
+              personaIds: ids,
+            });
         setInterviews((current) => [...current, result]);
       } catch (cause) {
-        setSendError(cause instanceof Error ? cause.message : "Wawancara persona gagal dikirim.");
+        setSendError(
+          cause instanceof Error
+            ? cause.message
+            : "Wawancara persona gagal dikirim.",
+        );
       } finally {
         setTyping(false);
       }
@@ -1166,7 +1435,11 @@ function InteractionStep({
     setSendError("");
     if (sendBackend) {
       try {
-        const agent = await sendBackend(tool, question, selectedPersona?.group ?? "");
+        const agent = await sendBackend(
+          tool,
+          question,
+          selectedPersona?.group ?? "",
+        );
         update((current) => {
           const messages = current.interaction.messages.some(
             (message) => message.id === agent.id,
@@ -1199,18 +1472,18 @@ function InteractionStep({
         text: answer(question),
         createdAt: new Date().toISOString(),
         citations: [
-                {
-                  sourceType: "report_section",
-                  sourceId: demo.reportSections[2]?.id ?? "section-3",
-                  label: "Bagian 3",
-                },
-                {
-                  sourceType: "event",
-                  sourceId: demo.events[0]?.id ?? "01",
-                  label: `Event ${demo.events[0]?.id ?? "01"}`,
-                  quote: demo.events[0]?.statement,
-                },
-              ],
+          {
+            sourceType: "report_section",
+            sourceId: demo.reportSections[2]?.id ?? "section-3",
+            label: "Bagian 3",
+          },
+          {
+            sourceType: "event",
+            sourceId: demo.events[0]?.id ?? "01",
+            label: `Event ${demo.events[0]?.id ?? "01"}`,
+            quote: demo.events[0]?.statement,
+          },
+        ],
       };
       update((current) =>
         appendSessionLog(
@@ -1238,31 +1511,321 @@ function InteractionStep({
         }
       />
       <aside className="interaction-tools" ref={scrollRef}>
-        <header className="interaction-header"><div><span>TAHAP 5/5 · RUANG ANALISIS</span><h1 tabIndex={-1}>Interaksi dengan hasil</h1><p>Selidiki laporan, bukti, dan respons persona sintetis tanpa kehilangan konteks sumber.</p></div></header>
-        <nav className="tool-list" aria-label="Mode interaksi">{tools.filter(([id]) => id !== "persona" && id !== "multi").map(([id, title]) => <button key={id} aria-current={tool === id ? "page" : undefined} className={tool === id ? "active" : ""} onClick={() => setTool(id)}>{title}</button>)}</nav>
-        {tool === "evidence" && <div className="tool-artifact"><b>Rantai bukti</b><span>Report → Event {demo.events[0]?.id} → {demo.graphNodes[0]?.label}</span></div>}
-        {tool === "compare" && <div className="scenario-comparison"><span><b>Baseline</b>Sosialisasi rendah · risiko meningkat</span><span><b>Revisi</b>{session.environment.socialization} · respons {session.environment.responseMode}</span></div>}
-        {tool === "revision" && <div className="tool-artifact"><b>Ruang kerja revisi</b><span>Catatan dapat diedit melalui percakapan dan diekspor sebagai Markdown.</span></div>}
-        {tool === "risk" && <div className="tool-artifact"><b>Risiko yang dianalisis</b><span>{demo.risks.map((risk) => `${risk.title} (${risk.level})`).join(" · ") || "Belum ada risiko terstruktur."}</span></div>}
-        <form onSubmit={(event) => { event.preventDefault(); send(); }}>
+        <header className="interaction-header">
+          <div>
+            <span>TAHAP 5/5 · RUANG ANALISIS</span>
+            <h1 tabIndex={-1}>Interaksi dengan hasil</h1>
+            <p>
+              Selidiki laporan, bukti, dan respons persona sintetis tanpa
+              kehilangan konteks sumber.
+            </p>
+          </div>
+        </header>
+        <nav className="tool-list" aria-label="Mode interaksi">
+          {tools
+            .filter(([id]) => id !== "persona" && id !== "multi")
+            .map(([id, title]) => (
+              <button
+                key={id}
+                aria-current={tool === id ? "page" : undefined}
+                className={tool === id ? "active" : ""}
+                onClick={() => setTool(id)}
+              >
+                {title}
+              </button>
+            ))}
+        </nav>
+        {tool === "evidence" && (
+          <div className="tool-artifact">
+            <b>Rantai bukti</b>
+            <span>
+              Report → Event {demo.events[0]?.id} → {demo.graphNodes[0]?.label}
+            </span>
+          </div>
+        )}
+        {tool === "compare" && (
+          <div className="scenario-comparison">
+            <span>
+              <b>Baseline</b>Sosialisasi rendah · risiko meningkat
+            </span>
+            <span>
+              <b>Revisi</b>
+              {session.environment.socialization} · respons{" "}
+              {session.environment.responseMode}
+            </span>
+          </div>
+        )}
+        {tool === "revision" && (
+          <div className="tool-artifact">
+            <b>Ruang kerja revisi</b>
+            <span>
+              Catatan dapat diedit melalui percakapan dan diekspor sebagai
+              Markdown.
+            </span>
+          </div>
+        )}
+        {tool === "risk" && (
+          <div className="tool-artifact">
+            <b>Risiko yang dianalisis</b>
+            <span>
+              {demo.risks
+                .map((risk) => `${risk.title} (${risk.level})`)
+                .join(" · ") || "Belum ada risiko terstruktur."}
+            </span>
+          </div>
+        )}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            send();
+          }}
+        >
           <div className="chat-panel">
-            <header className="thread-header"><div><span>{tool === "persona" ? "WAWANCARA PERSONA" : tool === "multi" ? "EKSPLORASI MULTI-PERSONA" : "AGEN ANALISIS"}</span><h2>{tool === "persona" ? selectedPersona?.name : tools.find(([id]) => id === tool)?.[1]}</h2></div><span>{tool === "persona" || tool === "multi" ? `${visibleInterviews.length} sesi` : `${threadMessages.length} pesan`}</span></header>
-            {tool === "persona" && <section className="persona-context" aria-label="Persona terpilih"><label>Persona sintetis<select value={personaId} onChange={(event) => setPersonaId(event.target.value)}>{demo.personas.map((persona) => <option key={persona.id} value={persona.id}>{persona.name} · {persona.group}</option>)}</select></label>{selectedPersona && <div className="persona-profile"><span className="persona-profile-avatar" aria-hidden="true">{selectedPersona.name.charAt(0)}</span><div><h2>{selectedPersona.name}</h2><p>{selectedPersona.group} · {selectedPersona.role}</p></div><dl><div><dt>Sikap</dt><dd>{selectedPersona.stance}</dd></div><div><dt>Perhatian utama</dt><dd>{selectedPersona.concern}</dd></div></dl><div className="event-tags">{selectedPersona.topics.map((topic) => <span key={topic}>{topic}</span>)}</div><CitationDrawer citations={selectedPersona.citations} label="Lihat dasar persona" /></div>}<p className="responsible-note">Persona ini sintetis dan merupakan alat eksplorasi skenario, bukan profil atau pendapat warga nyata.</p></section>}
-            {tool === "multi" && <section className="multi-persona-panel"><header><div><h2>Eksplorasi beberapa persona</h2><p>Pilih maksimal 10 persona sintetis untuk menjawab pertanyaan yang sama.</p></div><span>{selectedPersonaIds.length}/10 dipilih</span></header><div className="multi-persona-actions"><button type="button" onClick={() => setSelectedPersonaIds(demo.personas.slice(0, 10).map((persona) => persona.id))}>Pilih semua</button><button type="button" onClick={() => setSelectedPersonaIds([])}>Hapus pilihan</button></div><div className="multi-persona-list">{demo.personas.map((persona) => <label key={persona.id}><input type="checkbox" checked={selectedPersonaIds.includes(persona.id)} disabled={!selectedPersonaIds.includes(persona.id) && selectedPersonaIds.length >= 10} onChange={(event) => setSelectedPersonaIds((current) => event.target.checked ? [...current, persona.id] : current.filter((id) => id !== persona.id))} /><span><b>{persona.name}</b><small>{persona.group} · {persona.stance}</small></span></label>)}</div><p className="responsible-note">Hasil menggambarkan respons persona terpilih dan tidak mewakili survei publik.</p></section>}
-            <div className="chat-messages" role="log" aria-live="polite" aria-label="Riwayat interaksi">
-              {tool !== "persona" && tool !== "multi" && threadMessages.map((message) => (
-                  <div key={message.id} className={`chat-message ${message.role}`}>
-                    <span className="message-avatar" aria-hidden="true">{message.role === "user" ? "A" : message.author.charAt(0)}</span>
-                    <div><header><b>{message.author}</b><time>{message.createdAt ? formatTime(message.createdAt).slice(11, 16) : ""}</time></header><Markdown>{message.text}</Markdown>
-                    <CitationDrawer citations={message.citations} label="Lihat sumber jawaban" />
-                    {(message.toolCalls?.length || message.sources?.length) && <details className="answer-provenance"><summary>Cara jawaban disusun</summary><p>{message.toolCalls?.length ?? 0} alat digunakan · {message.sources?.length ?? 0} sumber runtime ditemukan</p></details>}</div>
+            <header className="thread-header">
+              <div>
+                <span>
+                  {tool === "persona"
+                    ? "WAWANCARA PERSONA"
+                    : tool === "multi"
+                      ? "EKSPLORASI MULTI-PERSONA"
+                      : "AGEN ANALISIS"}
+                </span>
+                <h2>
+                  {tool === "persona"
+                    ? selectedPersona?.name
+                    : tools.find(([id]) => id === tool)?.[1]}
+                </h2>
+              </div>
+              <span>
+                {tool === "persona" || tool === "multi"
+                  ? `${visibleInterviews.length} sesi`
+                  : `${threadMessages.length} pesan`}
+              </span>
+            </header>
+            {tool === "persona" && (
+              <section
+                className="persona-context"
+                aria-label="Persona terpilih"
+              >
+                <label>
+                  Persona sintetis
+                  <select
+                    value={personaId}
+                    onChange={(event) => setPersonaId(event.target.value)}
+                  >
+                    {demo.personas.map((persona) => (
+                      <option key={persona.id} value={persona.id}>
+                        {persona.name} · {persona.group}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedPersona && (
+                  <div className="persona-profile">
+                    <span className="persona-profile-avatar" aria-hidden="true">
+                      {selectedPersona.name.charAt(0)}
+                    </span>
+                    <div>
+                      <h2>{selectedPersona.name}</h2>
+                      <p>
+                        {selectedPersona.group} · {selectedPersona.role}
+                      </p>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Sikap</dt>
+                        <dd>{selectedPersona.stance}</dd>
+                      </div>
+                      <div>
+                        <dt>Perhatian utama</dt>
+                        <dd>{selectedPersona.concern}</dd>
+                      </div>
+                    </dl>
+                    <div className="event-tags">
+                      {selectedPersona.topics.map((topic) => (
+                        <span key={topic}>{topic}</span>
+                      ))}
+                    </div>
+                    <CitationDrawer
+                      citations={selectedPersona.citations}
+                      label="Lihat dasar persona"
+                    />
+                  </div>
+                )}
+                <p className="responsible-note">
+                  Persona ini sintetis dan merupakan alat eksplorasi skenario,
+                  bukan profil atau pendapat warga nyata.
+                </p>
+              </section>
+            )}
+            {tool === "multi" && (
+              <section className="multi-persona-panel">
+                <header>
+                  <div>
+                    <h2>Eksplorasi beberapa persona</h2>
+                    <p>
+                      Pilih maksimal 10 persona sintetis untuk menjawab
+                      pertanyaan yang sama.
+                    </p>
+                  </div>
+                  <span>{selectedPersonaIds.length}/10 dipilih</span>
+                </header>
+                <div className="multi-persona-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedPersonaIds(
+                        demo.personas.slice(0, 10).map((persona) => persona.id),
+                      )
+                    }
+                  >
+                    Pilih semua
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPersonaIds([])}
+                  >
+                    Hapus pilihan
+                  </button>
+                </div>
+                <div className="multi-persona-list">
+                  {demo.personas.map((persona) => (
+                    <label key={persona.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedPersonaIds.includes(persona.id)}
+                        disabled={
+                          !selectedPersonaIds.includes(persona.id) &&
+                          selectedPersonaIds.length >= 10
+                        }
+                        onChange={(event) =>
+                          setSelectedPersonaIds((current) =>
+                            event.target.checked
+                              ? [...current, persona.id]
+                              : current.filter((id) => id !== persona.id),
+                          )
+                        }
+                      />
+                      <span>
+                        <b>{persona.name}</b>
+                        <small>
+                          {persona.group} · {persona.stance}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="responsible-note">
+                  Hasil menggambarkan respons persona terpilih dan tidak
+                  mewakili survei publik.
+                </p>
+              </section>
+            )}
+            <div
+              className="chat-messages"
+              role="log"
+              aria-live="polite"
+              aria-label="Riwayat interaksi"
+            >
+              {tool !== "persona" &&
+                tool !== "multi" &&
+                threadMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`chat-message ${message.role}`}
+                  >
+                    <span className="message-avatar" aria-hidden="true">
+                      {message.role === "user" ? "A" : message.author.charAt(0)}
+                    </span>
+                    <div>
+                      <header>
+                        <b>{message.author}</b>
+                        <time>
+                          {message.createdAt
+                            ? formatTime(message.createdAt).slice(11, 16)
+                            : ""}
+                        </time>
+                      </header>
+                      <Markdown>{message.text}</Markdown>
+                      <CitationDrawer
+                        citations={message.citations}
+                        label="Lihat sumber jawaban"
+                      />
+                      {Boolean(
+                        (message.toolCalls?.length ?? 0) +
+                        (message.sources?.length ?? 0),
+                      ) && (
+                        <details className="answer-provenance">
+                          <summary>Cara jawaban disusun</summary>
+                          <p>
+                            {message.toolCalls?.length ?? 0} alat digunakan ·{" "}
+                            {message.sources?.length ?? 0} sumber runtime
+                            ditemukan
+                          </p>
+                        </details>
+                      )}
+                    </div>
                   </div>
                 ))}
-              {(tool === "persona" || tool === "multi") && visibleInterviews.flatMap((interview) => interview.answers.filter((item) => tool === "multi" || item.persona_id === personaId).map((item) => <article className="interview-result" key={item.id}><header><span className="message-avatar" aria-hidden="true">{item.persona_name.charAt(0)}</span><div><b>{item.persona_name}</b><time>{formatTime(interview.created_at).slice(0, 16)}</time></div></header><p className="interview-question">{interview.question}</p><Markdown>{item.answer}</Markdown>{item.citations?.length ? <CitationDrawer citations={item.citations.map((citation) => ({ sourceType: citation.source_type, sourceId: citation.source_id, label: citation.label, quote: citation.quote, locator: citation.locator }))} label="Lihat dasar jawaban" /> : null}</article>))}
-              {!typing && !interviewsLoading && ((tool === "persona" || tool === "multi") ? visibleInterviews.length === 0 : threadMessages.length === 0) && <div className="chat-empty"><b>Mulai penyelidikan</b><p>Pilih pertanyaan yang disarankan atau tulis pertanyaan berbasis konteks yang tersedia.</p></div>}
+              {(tool === "persona" || tool === "multi") &&
+                visibleInterviews.flatMap((interview) =>
+                  interview.answers
+                    .filter(
+                      (item) =>
+                        tool === "multi" || item.persona_id === personaId,
+                    )
+                    .map((item) => (
+                      <article className="interview-result" key={item.id}>
+                        <header>
+                          <span className="message-avatar" aria-hidden="true">
+                            {item.persona_name.charAt(0)}
+                          </span>
+                          <div>
+                            <b>{item.persona_name}</b>
+                            <time>
+                              {formatTime(interview.created_at).slice(0, 16)}
+                            </time>
+                          </div>
+                        </header>
+                        <p className="interview-question">
+                          {interview.question}
+                        </p>
+                        <Markdown>{item.answer}</Markdown>
+                        {item.citations?.length ? (
+                          <CitationDrawer
+                            citations={item.citations.map((citation) => ({
+                              sourceType: citation.source_type,
+                              sourceId: citation.source_id,
+                              label: citation.label,
+                              quote: citation.quote,
+                              locator: citation.locator,
+                            }))}
+                            label="Lihat dasar jawaban"
+                          />
+                        ) : null}
+                      </article>
+                    )),
+                )}
+              {!typing &&
+                !interviewsLoading &&
+                (tool === "persona" || tool === "multi"
+                  ? visibleInterviews.length === 0
+                  : threadMessages.length === 0) && (
+                  <div className="chat-empty">
+                    <b>Mulai penyelidikan</b>
+                    <p>
+                      Pilih pertanyaan yang disarankan atau tulis pertanyaan
+                      berbasis konteks yang tersedia.
+                    </p>
+                  </div>
+                )}
               {typing && (
                 <div className="agent typing" role="status">
-                  <b>{tool === "persona" ? selectedPersona?.name : tools.find((item) => item[0] === tool)?.[1]}</b>
+                  <b>
+                    {tool === "persona"
+                      ? selectedPersona?.name
+                      : tools.find((item) => item[0] === tool)?.[1]}
+                  </b>
                   <span>
                     <i />
                     <i />
@@ -1272,14 +1835,68 @@ function InteractionStep({
               )}
             </div>
             <div className="chat-composer">
-              {suggestions.length > 0 && <div className="suggested-questions" aria-label="Pertanyaan yang disarankan">{suggestions.map((question) => <button key={question} type="button" onClick={() => setInput(question)}><span>{question}</span></button>)}</div>}
-              <div className="chat-input-field"><label className="chat-input-label" htmlFor="interaction-question">Pertanyaan</label><textarea id="interaction-question" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ajukan pertanyaan berbasis laporan..." rows={3} maxLength={2000} /></div>
+              {suggestions.length > 0 && (
+                <div
+                  className="suggested-questions"
+                  aria-label="Pertanyaan yang disarankan"
+                >
+                  {suggestions.map((question) => (
+                    <button
+                      key={question}
+                      type="button"
+                      onClick={() => setInput(question)}
+                    >
+                      <span>{question}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="chat-input-field">
+                <label
+                  className="chat-input-label"
+                  htmlFor="interaction-question"
+                >
+                  Pertanyaan
+                </label>
+                <textarea
+                  id="interaction-question"
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  placeholder="Ajukan pertanyaan berbasis laporan..."
+                  rows={3}
+                  maxLength={2000}
+                />
+              </div>
               {sendError && (
                 <p className="interaction-send-error" role="alert">
                   {sendError}
                 </p>
               )}
-              <div className="chat-composer-footer"><span>Enter untuk mengirim · Shift+Enter untuk baris baru</span><span>{input.length}/2000</span><button className="button primary" type="submit" disabled={!input.trim() || typing || (tool === "multi" && selectedPersonaIds.length === 0)}>{typing ? "Menunggu jawaban..." : "Kirim →"}</button></div>
+              <div className="chat-composer-footer">
+                <span>Enter untuk mengirim · Shift+Enter untuk baris baru</span>
+                <span>{input.length}/2000</span>
+                <button
+                  className="button primary"
+                  type="submit"
+                  disabled={
+                    !input.trim() ||
+                    typing ||
+                    (tool === "multi" && selectedPersonaIds.length === 0)
+                  }
+                >
+                  {typing ? "Menunggu jawaban..." : "Kirim →"}
+                </button>
+              </div>
             </div>
           </div>
         </form>
@@ -1297,7 +1914,9 @@ export default function SimulationWorkflowPage() {
     simulationId.startsWith("demo-");
   const intake = localMode ? loadProjectIntake(simulationId) : null;
   const knownDemo = localMode ? demoCases[simulationId] : undefined;
-  const project = localMode ? getWorkspaceProjectBySimulation(simulationId) : undefined;
+  const project = localMode
+    ? getWorkspaceProjectBySimulation(simulationId)
+    : undefined;
   const demo = intake ? intakeToDemoCase(intake) : knownDemo;
   const exists = localMode
     ? Boolean(simulationId && (demo || project))
@@ -1305,7 +1924,18 @@ export default function SimulationWorkflowPage() {
   const [resolvedDemo, setResolvedDemo] = useState<DemoCase>(() => {
     if (demo) return demo;
     if (project) return intakeToDemoCase(project);
-    return { id: simulationId, title: "Simulasi kebijakan", question: "", graphNodes: [], graphEdges: [], personas: [], events: [], risks: [], reportTitle: "Laporan simulasi", reportSections: [] };
+    return {
+      id: simulationId,
+      title: "Simulasi kebijakan",
+      question: "",
+      graphNodes: [],
+      graphEdges: [],
+      personas: [],
+      events: [],
+      risks: [],
+      reportTitle: "Laporan simulasi",
+      reportSections: [],
+    };
   });
   const [session, setSession] = useState(() =>
     localMode
@@ -1317,16 +1947,28 @@ export default function SimulationWorkflowPage() {
   const [backendError, setBackendError] = useState("");
   const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
   const [runtimeMappingStatus, setRuntimeMappingStatus] = useState("");
-  const [policyOntology, setPolicyOntology] = useState<{ entityTypes: string[]; relationTypes: string[] }>({ entityTypes: [], relationTypes: [] });
-  const [graphSource, setGraphSource] = useState<"policy" | "runtime">("policy");
+  const [policyOntology, setPolicyOntology] = useState<{
+    entityTypes: string[];
+    relationTypes: string[];
+  }>({ entityTypes: [], relationTypes: [] });
+  const [graphSource, setGraphSource] = useState<"policy" | "runtime">(
+    "policy",
+  );
   const backendSnapshotRef = useRef<ApiSimulationSnapshot | null>(null);
-  const runtimeGraphRef = useRef<Extract<ApiRuntimeGraph, { available: true }> | null>(null);
+  const runtimeGraphRef = useRef<Extract<
+    ApiRuntimeGraph,
+    { available: true }
+  > | null>(null);
   const graphSourceChosen = useRef(false);
   const autoSelectedRuntime = useRef(false);
-  const graphSelections = useRef<{ policy: string | null; runtime: string | null }>({ policy: null, runtime: null });
+  const graphSelections = useRef<{
+    policy: string | null;
+    runtime: string | null;
+  }>({ policy: null, runtime: null });
   const [maxProfileCount, setMaxProfileCount] = useState(10);
   const [requestedRounds, setRequestedRounds] = useState<number | null>(null);
-  const effectiveRequestedRounds = requestedRounds ?? session.environment.rounds;
+  const effectiveRequestedRounds =
+    requestedRounds ?? session.environment.rounds;
   const [useLlmForProfiles, setUseLlmForProfiles] = useState(false);
   const [useLlmForConfig, setUseLlmForConfig] = useState(false);
   const latest = useEffectEvent((next: WorkflowSession) => {
@@ -1340,8 +1982,10 @@ export default function SimulationWorkflowPage() {
     (snapshot: Awaited<ReturnType<typeof getSimulation>>) => {
       backendSnapshotRef.current = snapshot;
       setPolicyOntology({
-        entityTypes: snapshot.ontology?.entity_types?.map((type) => type.name) ?? [],
-        relationTypes: snapshot.ontology?.relation_types?.map((type) => type.name) ?? [],
+        entityTypes:
+          snapshot.ontology?.entity_types?.map((type) => type.name) ?? [],
+        relationTypes:
+          snapshot.ontology?.relation_types?.map((type) => type.name) ?? [],
       });
       setSession((current) => {
         const mapped = mapBackendSnapshot(snapshot, simulationId, current);
@@ -1364,34 +2008,44 @@ export default function SimulationWorkflowPage() {
       setBackendLoading(false);
     }
   }, [applyBackendSnapshot, simulationId]);
-  const applyRuntimeGraph = useCallback((graph: Extract<ApiRuntimeGraph, { available: true }>) => {
+  const applyRuntimeGraph = useCallback(
+    (graph: Extract<ApiRuntimeGraph, { available: true }>) => {
       runtimeGraphRef.current = graph;
       setRuntimeMappingStatus(graph.mapping_status);
       const graphNodes = graph.nodes.flatMap((node, index) => {
         const id = node.id ?? node.uuid;
         if (!id) return [];
-        return [{
-          id,
-          label: node.label ?? node.name ?? id,
-          type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Entity",
-          summary: node.summary ?? node.description ?? "Entitas hasil ekstraksi runtime.",
-          x: 100 + (index % 5) * 150,
-          y: 80 + Math.floor(index / 5) * 100,
-          citations: [],
-        }];
+        return [
+          {
+            id,
+            label: node.label ?? node.name ?? id,
+            type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Entity",
+            summary:
+              node.summary ??
+              node.description ??
+              "Entitas hasil ekstraksi runtime.",
+            x: 100 + (index % 5) * 150,
+            y: 80 + Math.floor(index / 5) * 100,
+            citations: [],
+          },
+        ];
       });
       const nodeIds = new Set(graphNodes.map((node) => node.id));
       const graphEdges = graph.edges.flatMap((edge, index) => {
         const source = edge.source ?? edge.source_node_uuid;
         const target = edge.target ?? edge.target_node_uuid;
-        if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target)) return [];
-        return [{
-          id: edge.id ?? edge.uuid ?? `runtime-edge-${index}`,
-          source,
-          target,
-          type: edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
-          citations: [],
-        }];
+        if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target))
+          return [];
+        return [
+          {
+            id: edge.id ?? edge.uuid ?? `runtime-edge-${index}`,
+            source,
+            target,
+            type:
+              edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
+            citations: [],
+          },
+        ];
       });
       setRuntimeDemo((current) => ({
         ...(current ?? resolvedDemo),
@@ -1400,11 +2054,17 @@ export default function SimulationWorkflowPage() {
         graphNodes,
         graphEdges,
       }));
-      if (!graphSourceChosen.current && !autoSelectedRuntime.current && session.currentStep >= 2) {
+      if (
+        !graphSourceChosen.current &&
+        !autoSelectedRuntime.current &&
+        session.currentStep >= 2
+      ) {
         autoSelectedRuntime.current = true;
         setGraphSource("runtime");
       }
-  }, [resolvedDemo, session.currentStep, simulationId]);
+    },
+    [resolvedDemo, session.currentStep, simulationId],
+  );
   const loadRuntimeGraph = useCallback(async () => {
     if (localMode) return;
     try {
@@ -1414,7 +2074,8 @@ export default function SimulationWorkflowPage() {
     } catch (cause) {
       // Runtime topology is supplemental; the policy workflow remains usable
       // while Zep is unavailable or before Stage 02 creates the graph.
-      if (cause instanceof ApiError && cause.status === 401) setBackendError(cause.message);
+      if (cause instanceof ApiError && cause.status === 401)
+        setBackendError(cause.message);
     }
   }, [applyRuntimeGraph, localMode, simulationId]);
   useEffect(() => {
@@ -1422,25 +2083,28 @@ export default function SimulationWorkflowPage() {
     const timer = window.setTimeout(loadBackend, 0);
     return () => window.clearTimeout(timer);
   }, [loadBackend, localMode]);
-  const handleStreamEvent = useCallback((message: SimulationStreamEvent) => {
-    if (message.type === "graph.snapshot" || message.type === "graph.delta") {
-      const current = backendSnapshotRef.current;
-      if (current) {
-        const policy = mergeSimulationStreamEvent(current, message);
-        if (policy !== current) {
-          applyBackendSnapshot(policy);
-          return;
+  const handleStreamEvent = useCallback(
+    (message: SimulationStreamEvent) => {
+      if (message.type === "graph.snapshot" || message.type === "graph.delta") {
+        const current = backendSnapshotRef.current;
+        if (current) {
+          const policy = mergeSimulationStreamEvent(current, message);
+          if (policy !== current) {
+            applyBackendSnapshot(policy);
+            return;
+          }
         }
+        const graph = mergeRuntimeGraphEvent(runtimeGraphRef.current, message);
+        if (graph) applyRuntimeGraph(graph);
+        return;
       }
-      const graph = mergeRuntimeGraphEvent(runtimeGraphRef.current, message);
-      if (graph) applyRuntimeGraph(graph);
-      return;
-    }
-    const current = backendSnapshotRef.current;
-    if (!current) return;
-    const merged = mergeSimulationStreamEvent(current, message);
-    if (merged !== current) applyBackendSnapshot(merged);
-  }, [applyBackendSnapshot, applyRuntimeGraph]);
+      const current = backendSnapshotRef.current;
+      if (!current) return;
+      const merged = mergeSimulationStreamEvent(current, message);
+      if (merged !== current) applyBackendSnapshot(merged);
+    },
+    [applyBackendSnapshot, applyRuntimeGraph],
+  );
   const stream = useSimulationStream({
     simulationId,
     enabled: !localMode && backendLoaded,
@@ -1466,17 +2130,29 @@ export default function SimulationWorkflowPage() {
       if (timer) window.clearTimeout(timer);
     };
   }, [backendPolling, loadBackend, stream.healthy]);
-  const runtimeGraphPolling = !localMode && session.steps[2].status !== "locked";
+  const runtimeGraphPolling =
+    !localMode && session.steps[2].status !== "locked";
   useEffect(() => {
     if (!runtimeGraphPolling) return;
-    const active = session.simulation.status === "running" || session.steps[2].status === "processing";
+    const active =
+      session.simulation.status === "running" ||
+      session.steps[2].status === "processing";
     const initialTimer = window.setTimeout(loadRuntimeGraph, 0);
-    const pollTimer = active && !stream.healthy ? window.setInterval(loadRuntimeGraph, 5000) : undefined;
+    const pollTimer =
+      active && !stream.healthy
+        ? window.setInterval(loadRuntimeGraph, 5000)
+        : undefined;
     return () => {
       window.clearTimeout(initialTimer);
       if (pollTimer) window.clearInterval(pollTimer);
     };
-  }, [loadRuntimeGraph, runtimeGraphPolling, session.simulation.status, session.steps, stream.healthy]);
+  }, [
+    loadRuntimeGraph,
+    runtimeGraphPolling,
+    session.simulation.status,
+    session.steps,
+    stream.healthy,
+  ]);
 
   const updateWorkflow = (next: WorkflowSession) => {
     if (!localMode && session.simulation.status !== next.simulation.status) {
@@ -1609,8 +2285,17 @@ export default function SimulationWorkflowPage() {
             next.environment = {
               ...next.environment,
               personaCount: Math.min(
-                resolvedDemo.personas.reduce((sum, persona) => sum + persona.count, 0),
-                Math.floor((progress / 50) * resolvedDemo.personas.reduce((sum, persona) => sum + persona.count, 0)),
+                resolvedDemo.personas.reduce(
+                  (sum, persona) => sum + persona.count,
+                  0,
+                ),
+                Math.floor(
+                  (progress / 50) *
+                    resolvedDemo.personas.reduce(
+                      (sum, persona) => sum + persona.count,
+                      0,
+                    ),
+                ),
               ),
             };
           if (step === 4) {
@@ -1674,7 +2359,10 @@ export default function SimulationWorkflowPage() {
                   ? "Tinggi"
                   : "Sedang",
                 eventCount: resolvedDemo.events.length,
-                personaCount: resolvedDemo.personas.reduce((sum, persona) => sum + persona.count, 0),
+                personaCount: resolvedDemo.personas.reduce(
+                  (sum, persona) => sum + persona.count,
+                  0,
+                ),
                 sections: resolvedDemo.reportSections,
               });
             }
@@ -1760,11 +2448,23 @@ export default function SimulationWorkflowPage() {
 
   const startStep = (step: WorkflowStep) => {
     if (!localMode) {
-      const config = step === 2
-        ? { rounds: effectiveRequestedRounds, max_rounds: effectiveRequestedRounds, max_profile_count: maxProfileCount, use_llm_for_profiles: useLlmForProfiles, use_llm_for_config: useLlmForConfig, parallel_profile_count: 5 }
-        : step === 3
-          ? { rounds: session.environment.rounds, max_rounds: session.environment.rounds, enable_graph_memory_update: true }
-          : undefined;
+      const config =
+        step === 2
+          ? {
+              rounds: effectiveRequestedRounds,
+              max_rounds: effectiveRequestedRounds,
+              max_profile_count: maxProfileCount,
+              use_llm_for_profiles: useLlmForProfiles,
+              use_llm_for_config: useLlmForConfig,
+              parallel_profile_count: 5,
+            }
+          : step === 3
+            ? {
+                rounds: session.environment.rounds,
+                max_rounds: session.environment.rounds,
+                enable_graph_memory_update: true,
+              }
+            : undefined;
       setSession((current) => ({
         ...current,
         steps: {
@@ -1868,18 +2568,26 @@ export default function SimulationWorkflowPage() {
     );
   const effectiveViewMode: ViewMode =
     session.currentStep >= 4 ? "workbench" : session.viewMode;
-  const displayedDemo = graphSource === "runtime" && runtimeDemo ? runtimeDemo : resolvedDemo;
-  const displayedNodeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphNodes.length : session.graph.nodeCount;
-  const displayedEdgeCount = graphSource === "runtime" && runtimeDemo ? runtimeDemo.graphEdges.length : session.graph.edgeCount;
+  const displayedDemo =
+    graphSource === "runtime" && runtimeDemo ? runtimeDemo : resolvedDemo;
+  const displayedNodeCount =
+    graphSource === "runtime" && runtimeDemo
+      ? runtimeDemo.graphNodes.length
+      : session.graph.nodeCount;
+  const displayedEdgeCount =
+    graphSource === "runtime" && runtimeDemo
+      ? runtimeDemo.graphEdges.length
+      : session.graph.edgeCount;
   const policyEntityTypes = policyOntology.entityTypes.length
     ? policyOntology.entityTypes
     : [...new Set(resolvedDemo.graphNodes.map((node) => node.type))];
   const policyRelationTypes = policyOntology.relationTypes.length
     ? policyOntology.relationTypes
     : [...new Set(resolvedDemo.graphEdges.map((edge) => edge.type))];
-  const displayedGraphBusy = graphSource === "policy"
-    ? session.steps[1].status === "processing"
-    : runtimeMappingStatus === "running";
+  const displayedGraphBusy =
+    graphSource === "policy"
+      ? session.steps[1].status === "processing"
+      : runtimeMappingStatus === "running";
   const chooseGraphSource = (source: "policy" | "runtime") => {
     if (source === "runtime" && !runtimeDemo) return;
     graphSourceChosen.current = true;
@@ -1887,7 +2595,10 @@ export default function SimulationWorkflowPage() {
     setGraphSource(source);
     setSession((current) => ({
       ...current,
-      graph: { ...current.graph, selectedNodeId: graphSelections.current[source] },
+      graph: {
+        ...current.graph,
+        selectedNodeId: graphSelections.current[source],
+      },
     }));
   };
   const connectionLabel = localMode
@@ -1903,7 +2614,13 @@ export default function SimulationWorkflowPage() {
             : "Pembaruan langsung berhenti";
   return (
     <div className="simulation-workflow">
-      <WorkflowTopBar session={session} onStep={goStep} onViewMode={setMode} connectionStatus={stream.status} connectionLabel={connectionLabel} />
+      <WorkflowTopBar
+        session={session}
+        onStep={goStep}
+        onViewMode={setMode}
+        connectionStatus={stream.status}
+        connectionLabel={connectionLabel}
+      />
       {backendError && (
         <p className="inline-alert error workflow-api-error" role="alert">
           {backendError} <button onClick={loadBackend}>Coba lagi</button>
@@ -1914,25 +2631,45 @@ export default function SimulationWorkflowPage() {
           <div className="graph-column">
             {session.currentStep >= 2 && (
               <div className="graph-source-toggle" aria-label="Sumber graf">
-                <button className={graphSource === "policy" ? "active" : ""} aria-pressed={graphSource === "policy"} onClick={() => chooseGraphSource("policy")}>Graf kebijakan</button>
-                <button className={graphSource === "runtime" ? "active" : ""} aria-pressed={graphSource === "runtime"} disabled={!runtimeDemo} onClick={() => chooseGraphSource("runtime")}>Graf runtime {runtimeDemo ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}` : "memuat"}</button>
+                <button
+                  className={graphSource === "policy" ? "active" : ""}
+                  aria-pressed={graphSource === "policy"}
+                  onClick={() => chooseGraphSource("policy")}
+                >
+                  Graf kebijakan
+                </button>
+                <button
+                  className={graphSource === "runtime" ? "active" : ""}
+                  aria-pressed={graphSource === "runtime"}
+                  disabled={!runtimeDemo}
+                  onClick={() => chooseGraphSource("runtime")}
+                >
+                  Graf runtime{" "}
+                  {runtimeDemo
+                    ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}`
+                    : "memuat"}
+                </button>
               </div>
             )}
             <PolicyGraph
               demo={displayedDemo}
               nodeCount={displayedNodeCount}
               edgeCount={displayedEdgeCount}
-              graphLabel={graphSource === "runtime" ? "GRAF RUNTIME OASIS / ZEP" : "GRAF PENGETAHUAN KEBIJAKAN"}
+              graphLabel={
+                graphSource === "runtime"
+                  ? "GRAF RUNTIME OASIS / ZEP"
+                  : "GRAF PENGETAHUAN KEBIJAKAN"
+              }
               isBusy={displayedGraphBusy}
               activeNodeId={graphActiveNode}
               selectedNodeId={session.graph.selectedNodeId}
               onSelect={(id) => {
                 graphSelections.current[graphSource] = id;
                 setSession((current) => ({
-                   ...current,
-                   graph: { ...current.graph, selectedNodeId: id },
-                 }));
-               }}
+                  ...current,
+                  graph: { ...current.graph, selectedNodeId: id },
+                }));
+              }}
               onLog={log}
             />
           </div>
@@ -1943,8 +2680,16 @@ export default function SimulationWorkflowPage() {
               <GraphBuildStep
                 demo={resolvedDemo}
                 session={session}
-                entityTypes={policyEntityTypes.length ? policyEntityTypes : fallbackEntityTypes}
-                relationTypes={policyRelationTypes.length ? policyRelationTypes : fallbackRelationTypes}
+                entityTypes={
+                  policyEntityTypes.length
+                    ? policyEntityTypes
+                    : fallbackEntityTypes
+                }
+                relationTypes={
+                  policyRelationTypes.length
+                    ? policyRelationTypes
+                    : fallbackRelationTypes
+                }
                 start={() => startStep(1)}
                 next={() => goStep(2)}
               />

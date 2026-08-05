@@ -332,7 +332,18 @@ class OpenAICompatiblePolicyProvider:
         except ImportError as error:
             raise RuntimeError("Install backend dengan extra [llm] untuk POLICY_PROVIDER=openai") from error
         # Durable worker retries already provide backoff and attempt tracking.
-        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
+        # Some OpenAI-compatible gateways sit behind a WAF that blocks the SDK's
+        # default User-Agent, so send a neutral one.
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=0,
+            default_headers={
+                "User-Agent": "curl/8.5.0",
+                "Accept": "application/json",
+            },
+        )
 
     @staticmethod
     def _local_provenance(value, fallback):

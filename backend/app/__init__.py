@@ -17,6 +17,7 @@ from .errors import ApiError
 from .middleware import OriginValidationMiddleware, RequestSecurityMiddleware, RequestSizeLimitMiddleware
 from .metrics import metrics
 from .oasis_direct import DirectOasisEngine
+from .provider_errors import ProviderError
 from .repository import Repository
 from .providers import make_provider
 from .service import WorkflowService
@@ -142,6 +143,24 @@ def create_app(config: dict | None = None) -> FastAPI:
             return error_response(404, "not_found", "Sumber daya tidak ditemukan")
         message = str(error.detail) if error.detail else "Permintaan tidak dapat diproses"
         return error_response(error.status_code, "http_error", message)
+
+    @app.exception_handler(ProviderError)
+    async def provider_error(_request: Request, error: ProviderError):
+        logger.warning(
+            "Provider API error operation=%s category=%s retryable=%s message=%s",
+            error.operation, error.category, error.retryable, error.message,
+        )
+        status_code = 503 if error.retryable else 502
+        return error_response(
+            status_code,
+            f"provider_{error.category}",
+            "Layanan model tidak dapat memproses permintaan saat ini.",
+            {
+                "operation": error.operation,
+                "category": error.category,
+                "retryable": error.retryable,
+            },
+        )
 
     @app.exception_handler(Exception)
     async def unexpected(_request: Request, error: Exception):

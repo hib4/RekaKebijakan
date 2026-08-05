@@ -9,6 +9,34 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from openai import OpenAI
+
+
+# Some OpenAI-compatible gateways sit behind a WAF (e.g. Cloudflare) that
+# fingerprints and blocks the SDK's default User-Agent, returning 403 for every
+# model. Sending a neutral User-Agent keeps those gateways reachable.
+DEFAULT_REQUEST_HEADERS: Dict[str, str] = {
+    "User-Agent": "curl/8.5.0",
+    "Accept": "application/json",
+}
+
+
+def build_openai_client(
+    *,
+    api_key: str,
+    base_url: Optional[str] = None,
+    timeout: Optional[float] = None,
+    max_retries: int = 0,
+) -> OpenAI:
+    """Create an OpenAI client configured for WAF-fronted compatible gateways."""
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout,
+        max_retries=max_retries,
+        default_headers=dict(DEFAULT_REQUEST_HEADERS),
+    )
+
 
 def is_gpt5_family(model: Optional[str]) -> bool:
     """Return True when model belongs to GPT-5 family aliases/snapshots."""

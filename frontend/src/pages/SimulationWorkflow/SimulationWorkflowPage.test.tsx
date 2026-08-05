@@ -234,7 +234,7 @@ describe("SimulationWorkflowPage live mode", () => {
         reads += 1;
         return HttpResponse.json(snapshot("interaction"));
       }),
-      http.post("/backend/api/simulations/live-chat/interactions", () => HttpResponse.json({ id: "answer-1", role: "agent", author: "Report Agent", tool: "report", text: "Risiko utama telah ditinjau." })),
+      http.post("/backend/api/simulations/live-chat/interactions", () => HttpResponse.json({ id: "answer-1", role: "agent", author: "Report Agent", tool: "report", text: "Risiko utama telah ditinjau.", tool_calls: [], sources: [] })),
     );
     const user = userEvent.setup();
     renderWorkflow("/simulation/live-chat?step=interaction");
@@ -244,6 +244,7 @@ describe("SimulationWorkflowPage live mode", () => {
     await user.click(screen.getByRole("button", { name: "Kirim →" }));
 
     expect(await screen.findByText("Risiko utama telah ditinjau.")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
     await waitFor(() => expect(reads).toBe(2));
   });
 

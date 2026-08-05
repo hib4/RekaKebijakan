@@ -13,11 +13,14 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from openai import OpenAI
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, get_locale, set_locale, t
-from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+from ..utils.openai_chat_compat import (
+    build_openai_client,
+    create_chat_completion,
+    extract_chat_completion_text,
+)
 from ..utils.zep import (
     call_zep_read_with_retry,
     get_zep_client,
@@ -252,7 +255,7 @@ class OasisProfileGenerator:
         if not self.api_key:
             raise ValueError("LLM_API_KEY is not configured")
         
-        self.client = OpenAI(
+        self.client = build_openai_client(
             api_key=self.api_key,
             base_url=self.base_url,
             timeout=Config.LLM_REQUEST_TIMEOUT_SECONDS,
