@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
-
 
 # Some OpenAI-compatible gateways sit behind a WAF (e.g. Cloudflare) that
 # fingerprints and blocks the SDK's default User-Agent, returning 403 for every
@@ -27,8 +25,10 @@ def build_openai_client(
     base_url: Optional[str] = None,
     timeout: Optional[float] = None,
     max_retries: int = 0,
-) -> OpenAI:
+) -> Any:
     """Create an OpenAI client configured for WAF-fronted compatible gateways."""
+    from openai import OpenAI
+
     return OpenAI(
         api_key=api_key,
         base_url=base_url,
