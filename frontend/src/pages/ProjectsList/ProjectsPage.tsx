@@ -289,6 +289,18 @@ export default function ProjectsPage() {
     return () => window.removeEventListener("keydown", close);
   }, []);
 
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".project-menu-wrap")) return;
+      setMenu(null);
+    };
+    window.addEventListener("pointerdown", close, { capture: true });
+    return () => window.removeEventListener("pointerdown", close, { capture: true });
+  }, [menu]);
+
   const showToast = (message: string) => {
     setToast({ id: Date.now(), message });
     window.setTimeout(() => setToast(null), 3200);

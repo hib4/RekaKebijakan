@@ -248,6 +248,61 @@ describe("SimulationWorkflowPage live mode", () => {
     await waitFor(() => expect(reads).toBe(2));
   });
 
+  it("scrolls the message log gradually after sending a chat message", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    let frameId = 0;
+    const frames: { id: number; callback: FrameRequestCallback }[] = [];
+    const cancelledFrames = new Set<number>();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++frameId;
+      frames.push({ id, callback });
+      return id;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      cancelledFrames.add(id);
+    });
+    const runFrames = (offset: number, done: () => boolean) => {
+      let count = 0;
+      while (frames.length && count < 30) {
+        count += 1;
+        const frame = frames.shift()!;
+        if (!cancelledFrames.has(frame.id)) {
+          frame.callback(window.performance.now() + offset);
+          if (done()) return true;
+        }
+      }
+      return done();
+    };
+    server.use(
+      http.get("/backend/api/simulations/live-chat-scroll", () => HttpResponse.json(snapshot("interaction"))),
+      http.get("/backend/api/simulations/live-chat-scroll/runtime-graph", () => HttpResponse.json({ available: false })),
+      http.post("/backend/api/simulations/live-chat-scroll/interactions", () => HttpResponse.json({ id: "answer-scroll", role: "agent", author: "Report Agent", tool: "report", text: "Jawaban scroll." })),
+    );
+    const user = userEvent.setup();
+    renderWorkflow("/simulation/live-chat-scroll?step=interaction");
+
+    const log = await screen.findByRole("log", { name: "Riwayat interaksi" });
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 960 },
+    });
+    log.scrollTop = 0;
+
+    await user.type(screen.getByLabelText("Pertanyaan"), "Apa risiko utama?");
+    await user.click(screen.getByRole("button", { name: "Kirim →" }));
+
+    expect(log.scrollTop).toBe(0);
+    expect(runFrames(340, () => log.scrollTop > 0)).toBe(true);
+    expect(log.scrollTop).toBeGreaterThan(0);
+    expect(log.scrollTop).toBeLessThan(840);
+    expect(await screen.findByText("Jawaban scroll.")).toBeInTheDocument();
+    runFrames(1200, () => log.scrollTop === 840);
+    await waitFor(() => expect(log.scrollTop).toBe(840));
+  });
+
   it("sends with Enter and keeps Shift+Enter available for multiline input", async () => {
     let submitted: Record<string, unknown> | undefined;
     server.use(

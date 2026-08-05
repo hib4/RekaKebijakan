@@ -45,6 +45,30 @@
   overflow-wrap: anywhere;
   color: var(--error);
 }
+.workflow-not-found {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 32px;
+  background: #fff;
+  color: var(--ink);
+  text-align: center;
+}
+.workflow-not-found h1 {
+  max-width: 20ch;
+  margin: 0;
+  font-size: 36px;
+  font-weight: 300;
+  line-height: 1.1;
+}
+.workflow-not-found p:not(.eyebrow) {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
 
 .workflow-topbar {
   min-height: 64px;
@@ -737,8 +761,8 @@
   margin-top: 18px;
 }
 .environment-start-controls {
-  display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(240px, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 14px;
   margin-top: 18px;
@@ -749,6 +773,7 @@
 .environment-start-controls > label {
   display: grid;
   gap: 7px;
+  flex: 0 1 172px;
   color: var(--muted);
   font-size: 11px;
 }
@@ -763,6 +788,7 @@
 .environment-start-controls .profile-llm-toggle {
   grid-template-columns: auto 1fr;
   align-items: center;
+  flex: 1 1 250px;
   min-height: 40px;
 }
 .environment-start-controls .profile-llm-toggle input {
@@ -770,6 +796,8 @@
   height: 16px;
 }
 .environment-start-controls .start-action {
+  flex: 0 0 auto;
+  margin-left: auto;
   margin-top: 0;
 }
 .completion-review {
@@ -2288,10 +2316,14 @@
     grid-template-columns: 1fr;
   }
   .environment-start-controls {
-    grid-template-columns: 1fr;
     align-items: stretch;
+    flex-direction: column;
+  }
+  .environment-start-controls > label {
+    width: 100%;
   }
   .environment-start-controls .start-action {
+    margin-left: 0;
     width: 100%;
   }
   .workflow-simulation-summary {

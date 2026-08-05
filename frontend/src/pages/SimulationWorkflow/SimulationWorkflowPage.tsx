@@ -761,6 +761,41 @@ function runStatusLabel(status: WorkflowSession["simulation"]["status"]) {
   }[status];
 }
 
+const chatScrollAnimations = new WeakMap<HTMLDivElement, number>();
+
+function scrollChatToBottom(container: HTMLDivElement | null) {
+  if (!container) return;
+  const target = Math.max(0, container.scrollHeight - container.clientHeight);
+  const start = container.scrollTop;
+  const distance = target - start;
+  if (Math.abs(distance) < 1) return;
+
+  const activeAnimation = chatScrollAnimations.get(container);
+  if (activeAnimation !== undefined) window.cancelAnimationFrame(activeAnimation);
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reducedMotion) {
+    container.scrollTop = target;
+    return;
+  }
+
+  const duration = 800;
+  const startedAt = window.performance.now();
+  const animate = (now: number) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    container.scrollTop = start + distance * eased;
+    if (progress < 1) {
+      chatScrollAnimations.set(container, window.requestAnimationFrame(animate));
+    } else {
+      container.scrollTop = target;
+      chatScrollAnimations.delete(container);
+    }
+  };
+
+  chatScrollAnimations.set(container, window.requestAnimationFrame(animate));
+}
+
 function SimulationStep({
   demo,
   session,
@@ -788,11 +823,11 @@ function SimulationStep({
     run.status === "failed" ||
     run.status === "cancelled" ||
     run.status === "stale";
-  const scrollRef = useAutoFollow<HTMLDivElement>(
+  const feedRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
   );
   return (
-    <div className="step-scroll simulation-step" ref={scrollRef}>
+    <div className="step-scroll simulation-step">
       <header className="simulation-run-header">
         <div className="step-intro">
           <span>TAHAP 3/5 · SIMULASI PERSONA SINTETIS</span>
@@ -1009,6 +1044,7 @@ function SimulationStep({
       </div>
       <div
         className="event-feed"
+        ref={feedRef}
         aria-live="polite"
         aria-label="Linimasa event simulasi"
       >
@@ -1328,9 +1364,13 @@ function InteractionStep({
       tool === "multi" ||
       interview.answers.some((answer) => answer.persona_id === personaId),
   );
-  const scrollRef = useAutoFollow<HTMLElement>(
+  const scrollRef = useAutoFollow<HTMLDivElement>(
     `${tool}-${personaId}-${typing}-${session.interaction.messages.length}-${interviews.length}`,
+    { force: true },
   );
+  useEffect(() => {
+    scrollChatToBottom(scrollRef.current);
+  }, [scrollRef, tool, personaId, typing, threadMessages.length, visibleInterviews.length]);
   useEffect(
     () => () => {
       if (timer.current) window.clearTimeout(timer.current);
@@ -1378,6 +1418,7 @@ function InteractionStep({
       setInput("");
       setTyping(true);
       setSendError("");
+      scrollChatToBottom(scrollRef.current);
       const ids = tool === "multi" ? selectedPersonaIds : [selectedPersona!.id];
       try {
         const result = localMode
@@ -1404,6 +1445,7 @@ function InteractionStep({
               personaIds: ids,
             });
         setInterviews((current) => [...current, result]);
+        scrollChatToBottom(scrollRef.current);
       } catch (cause) {
         setSendError(
           cause instanceof Error
@@ -1412,6 +1454,7 @@ function InteractionStep({
         );
       } finally {
         setTyping(false);
+        scrollChatToBottom(scrollRef.current);
       }
       return;
     }
@@ -1433,6 +1476,7 @@ function InteractionStep({
     setInput("");
     setTyping(true);
     setSendError("");
+    scrollChatToBottom(scrollRef.current);
     if (sendBackend) {
       try {
         const agent = await sendBackend(
@@ -1454,12 +1498,14 @@ function InteractionStep({
             `${agent.author} response generated`,
           );
         });
+        scrollChatToBottom(scrollRef.current);
       } catch (cause) {
         setSendError(
           cause instanceof Error ? cause.message : "Interaksi gagal dikirim.",
         );
       } finally {
         setTyping(false);
+        scrollChatToBottom(scrollRef.current);
       }
       return;
     }
@@ -1498,6 +1544,7 @@ function InteractionStep({
         ),
       );
       setTyping(false);
+      scrollChatToBottom(scrollRef.current);
     }, 1200);
   };
   return (
@@ -1510,7 +1557,7 @@ function InteractionStep({
             : demo.reportSections
         }
       />
-      <aside className="interaction-tools" ref={scrollRef}>
+      <aside className="interaction-tools">
         <header className="interaction-header">
           <div>
             <span>TAHAP 5/5 · RUANG ANALISIS</span>
@@ -1723,6 +1770,7 @@ function InteractionStep({
             )}
             <div
               className="chat-messages"
+              ref={scrollRef}
               role="log"
               aria-live="polite"
               aria-label="Riwayat interaksi"
