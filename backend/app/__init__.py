@@ -19,7 +19,7 @@ from .metrics import metrics
 from .oasis_direct import DirectOasisEngine
 from .provider_errors import ProviderError
 from .repository import Repository
-from .providers import make_provider
+from .providers import make_optional_llm_provider, make_provider
 from .service import WorkflowService
 from .storage import make_storage_backend
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -42,6 +42,7 @@ def create_app(config: dict | None = None) -> FastAPI:
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
         repository = Repository(settings.database_url, project_retention_days=settings.project_retention_days)
         provider = make_provider(settings)
+        quick_interaction_provider = None if settings.policy_provider == "openai" else make_optional_llm_provider(settings)
         storage = make_storage_backend(settings)
         service = WorkflowService(
             repository,
@@ -67,6 +68,7 @@ def create_app(config: dict | None = None) -> FastAPI:
             )
             if settings.oasis_enabled else None,
             settings.default_simulation_engine,
+            quick_interaction_provider,
         )
         app.state.settings = settings
         app.state.repository = repository

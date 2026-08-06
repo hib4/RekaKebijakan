@@ -7,6 +7,7 @@ import { server } from "../../test/server";
 import { AuthContext } from "../../auth/auth-context";
 import type { ApiSimulationSnapshot } from "../../api/client";
 import SimulationWorkflowPage from "./SimulationWorkflowPage";
+import { createWorkflowSession, quickPresentationSessionKey } from "./workflowSession";
 
 const auth = {
   user: { id: "user-1", name: "Analis", email: "analis@example.com" },
@@ -247,6 +248,43 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(await screen.findByText("Risiko utama telah ditinjau.")).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
     await waitFor(() => expect(reads).toBe(2));
+  });
+
+  it("uses backend answers for quick demo interactions", async () => {
+    const quick = snapshot("interaction");
+    quick.workflow_mode = "quick_demo";
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
+    quick.demo_bundle_id = "registrasi-digital-umkm-v1";
+    const presentation = createWorkflowSession("quick-chat", "Program Backend");
+    presentation.currentStep = 5;
+    presentation.viewMode = "workbench";
+    presentation.steps = {
+      1: { status: "completed", progress: 100, activeTask: null },
+      2: { status: "completed", progress: 100, activeTask: null },
+      3: { status: "completed", progress: 100, activeTask: null },
+      4: { status: "completed", progress: 100, activeTask: null },
+      5: { status: "ready", progress: 0, activeTask: null },
+    };
+    sessionStorage.setItem(quickPresentationSessionKey("quick-chat"), JSON.stringify({ version: 2, session: presentation }));
+    let submitted: Record<string, unknown> | undefined;
+    server.use(
+      http.get("/backend/api/simulations/quick-chat", () => HttpResponse.json(quick)),
+      http.get("/backend/api/simulations/quick-chat/runtime-graph", () => HttpResponse.json({ available: false })),
+      http.post("/backend/api/simulations/quick-chat/interactions", async ({ request }) => {
+        submitted = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: "quick-answer-1", role: "agent", author: "Report Agent", tool: "report", text: "Jawaban real dari backend quick demo." });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWorkflow("/simulation/quick-chat?step=interaction&mode=workbench");
+
+    const input = await screen.findByPlaceholderText("Ajukan pertanyaan berbasis laporan...");
+    await user.type(input, "Apa temuan quick demo?");
+    await user.click(screen.getByRole("button", { name: "Kirim →" }));
+
+    await waitFor(() => expect(submitted).toMatchObject({ question: "Apa temuan quick demo?", tool: "report" }));
+    expect(await screen.findByText("Jawaban real dari backend quick demo.")).toBeInTheDocument();
+    expect(screen.queryByText(/Laporan menunjukkan bahwa/i)).not.toBeInTheDocument();
   });
 
   it("scrolls the message log gradually after sending a chat message", async () => {

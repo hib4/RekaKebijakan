@@ -72,6 +72,7 @@ class WorkflowService:
         max_chunks_per_document: int = 5000,
         oasis_runtime: object | None = None,
         default_simulation_engine: str | None = None,
+        quick_interaction_provider: PolicyProvider | None = None,
     ):
         self.repository = repository
         self.provider = provider
@@ -91,6 +92,7 @@ class WorkflowService:
         self.max_chunks_per_document = max_chunks_per_document
         self.oasis_runtime = oasis_runtime
         self.default_simulation_engine = default_simulation_engine or ("oasis" if oasis_runtime else "deterministic")
+        self.quick_interaction_provider = quick_interaction_provider
         self.worker_id = f"worker_{uuid.uuid4().hex[:12]}"
         self.threads: dict[str, threading.Thread] = {}
         self.thread_lock = threading.RLock()
@@ -1147,7 +1149,12 @@ class WorkflowService:
             response = {"text": raw.get("response", ""), "citations": [], "evidence_citations": [],
                         "tool_calls": raw.get("tool_calls", []), "sources": raw.get("sources", [])}
         else:
-            response = self.provider.answer(payload, state, self.repository.chunks(simulation_id))
+            interaction_provider = (
+                self.quick_interaction_provider
+                if state.get("workflow_mode") == "quick_demo" and self.quick_interaction_provider
+                else self.provider
+            )
+            response = interaction_provider.answer(payload, state, self.repository.chunks(simulation_id))
         context = {"persona_group": payload.get("persona_group")} if payload.get("persona_group") else {}
         user = {"id": identifier("msg"), "role": "user", "author": "Anda", "tool": payload["tool"], "text": payload["question"], "citations": [], "created_at": now(), **context}
         assistant = {"id": identifier("msg"), "role": "assistant", "author": "Report Agent", "tool": payload["tool"], "created_at": now(), **context, **response}

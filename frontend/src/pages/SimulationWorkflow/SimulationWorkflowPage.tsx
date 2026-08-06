@@ -122,7 +122,7 @@ const reportTasks = [
 const quickStageTickMs = import.meta.env.MODE === "test" ? 5 : 500;
 const quickPersonaTickMs = import.meta.env.MODE === "test" ? 5 : 850;
 const quickEventTickMs = import.meta.env.MODE === "test" ? 5 : 1000;
-const quickReportTickMs = import.meta.env.MODE === "test" ? 5 : 180;
+const quickReportTickMs = import.meta.env.MODE === "test" ? 5 : 500;
 const quickPresentationVersion = 2;
 
 function initialQuickPresentation(session: WorkflowSession): WorkflowSession {
@@ -2027,9 +2027,7 @@ export default function SimulationWorkflowPage() {
   const { simulationId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const localMode =
-    import.meta.env.VITE_DEMO_MODE === "true" ||
-    simulationId.startsWith("demo-");
+  const localMode = simulationId.startsWith("demo-");
   const intake = localMode ? loadProjectIntake(simulationId) : null;
   const knownDemo = localMode ? demoCases[simulationId] : undefined;
   const project = localMode

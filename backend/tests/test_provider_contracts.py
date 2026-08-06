@@ -170,6 +170,41 @@ def test_openai_ontology_preserves_contract_sensitive_fallback_structure():
     assert result["generated_by"] == "openai-compatible"
 
 
+def test_openai_answer_uses_model_text_and_preserves_fallback_citations():
+    class AnswerCompletions:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                content=json.dumps({"text": "Temuan utama adalah risiko data dan kebutuhan layanan luring bagi UMKM mikro."}),
+            ))])
+
+    completions = AnswerCompletions()
+    provider = OpenAICompatiblePolicyProvider(
+        "unused", "model", client=client(completions), fallback_policy="raise",
+    )
+    state = {
+        "project": project(),
+        "workflow_mode": "quick_demo",
+        "simulation": {"event_count": 1, "events": [{"id": "event-1", "group": "Pelaku usaha", "stance": "Kritis", "citations": []}]},
+        "report": {"title": "Laporan", "sections": [], "risks": []},
+        "environment": {"personas": [], "config": {}},
+        "graph": {"nodes": [], "edges": []},
+    }
+    fallback = DeterministicPolicyProvider().answer({"tool": "report", "question": "Apa temuan utama?"}, state, [chunk()])
+
+    result = provider.answer({"tool": "report", "question": "Apa temuan utama?"}, state, [chunk()])
+
+    payload = json.loads(completions.calls[0]["messages"][1]["content"])
+    assert "Jangan menyalin atau memparafrasekan fallback" in payload["task"]
+    assert "fallback" not in payload["context"]
+    assert result["text"] == "Temuan utama adalah risiko data dan kebutuhan layanan luring bagi UMKM mikro."
+    assert result["citations"] == fallback["citations"]
+    assert result["evidence_citations"] == fallback["evidence_citations"]
+
+
 def test_openai_timeout_is_classified_for_worker_retry():
     completions = CapturingCompletions(TimeoutError("upstream timeout"))
     provider = OpenAICompatiblePolicyProvider(

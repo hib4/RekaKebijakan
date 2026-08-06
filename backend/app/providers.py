@@ -786,8 +786,69 @@ class OpenAICompatiblePolicyProvider:
     @validated("answer")
     def answer(self, payload: dict, state: dict, chunks: list[dict]) -> dict:
         fallback = self.fallback_provider.answer(payload, state, chunks)
-        context = {"payload": payload, "state": state, "chunks": chunks[:12], "fallback": fallback}
-        return self._generate("answer", "Jawab pertanyaan berdasarkan state dan bukti", context, fallback)
+        compact_state = {
+            "project": state.get("project", {}),
+            "workflow_mode": state.get("workflow_mode"),
+            "report": {
+                "title": state.get("report", {}).get("title"),
+                "sections": state.get("report", {}).get("sections", [])[:8],
+                "risks": state.get("report", {}).get("risks", [])[:8],
+            },
+            "simulation": {
+                "event_count": state.get("simulation", {}).get("event_count"),
+                "events": state.get("simulation", {}).get("events", [])[:40],
+            },
+            "environment": {
+                "personas": state.get("environment", {}).get("personas", [])[:20],
+                "config": state.get("environment", {}).get("config", {}),
+            },
+            "graph": {
+                "nodes": state.get("graph", {}).get("nodes", [])[:30],
+                "edges": state.get("graph", {}).get("edges", [])[:40],
+            },
+        }
+        try:
+            generated = self._json(
+                "answer",
+                (
+                    "Jawab pertanyaan analis kebijakan dalam bahasa Indonesia berdasarkan laporan, risiko, event simulasi, "
+                    "persona, dan graf yang diberikan. Jangan menyalin atau memparafrasekan fallback. Kembalikan hanya "
+                    "objek JSON dengan key text. text harus berupa 2-4 paragraf singkat yang langsung menjawab pertanyaan, "
+                    "menyebut temuan/risiko/event spesifik, dan menjelaskan implikasi kebijakan. Jangan gunakan kalimat "
+                    "template seperti 'perlu ditangani bertahap dengan umpan balik terukur' kecuali benar-benar diturunkan "
+                    "dari bukti."
+                ),
+                {
+                    "question": payload["question"],
+                    "tool": payload.get("tool", "report"),
+                    "persona_group": payload.get("persona_group"),
+                    "state": compact_state,
+                    "chunks": chunks[:12],
+                    "fallback_citations": {
+                        "citations": fallback["citations"],
+                        "evidence_citations": fallback["evidence_citations"],
+                    },
+                },
+            )
+            text = str(generated.get("text") or "").strip()
+            if not text:
+                raise ProviderResponseError("answer", "response JSON must contain non-empty text")
+            return PROVIDER_OUTPUTS["answer"].model_validate(
+                fallback | {"text": text}, strict=True,
+            ).model_dump(mode="python", exclude_none=True)
+        except ValidationError as error:
+            failure: ProviderError = ProviderOutputError(
+                "answer", "model output contract rejected payload", details=error.errors()
+            )
+        except ProviderError as error:
+            failure = error
+        if self.fallback_policy == "deterministic":
+            logger.warning(
+                "llm_fallback operation=%s category=%s message=%s",
+                "answer", failure.category, failure,
+            )
+            return fallback
+        raise failure
 
     @validated("interview")
     def interview(self, question: str, personas: list[dict], events: list[dict]) -> dict:
@@ -873,3 +934,17 @@ def make_provider(settings) -> PolicyProvider:
             max_output_tokens=settings.llm_max_output_tokens,
         )
     return DeterministicPolicyProvider()
+
+
+def make_optional_llm_provider(settings) -> PolicyProvider | None:
+    if not settings.llm_api_key:
+        return None
+    try:
+        return OpenAICompatiblePolicyProvider(
+            settings.llm_api_key, settings.llm_model, settings.llm_base_url,
+            settings.provider_timeout_seconds, settings.llm_fallback_policy,
+            max_output_tokens=settings.llm_max_output_tokens,
+        )
+    except RuntimeError as error:
+        logger.warning("quick_demo_llm_provider_unavailable message=%s", error)
+        return None

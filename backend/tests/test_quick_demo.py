@@ -14,6 +14,18 @@ QUICK_DEMO = {
 }
 
 
+class QuickInteractionProvider:
+    name = "quick-llm"
+
+    def answer(self, payload, state, chunks):
+        assert state["workflow_mode"] == "quick_demo"
+        return {
+            "text": f"Jawaban LLM quick demo untuk: {payload['question']}",
+            "citations": ["event:event-r1-1"],
+            "evidence_citations": [],
+        }
+
+
 def test_quick_demo_bootstraps_owned_artifacts_and_local_report(tmp_path, database_url):
     app = create_app({
         "TESTING": True,
@@ -108,10 +120,12 @@ def test_quick_demo_bootstraps_owned_artifacts_and_local_report(tmp_path, databa
 
         assert client.app.state.repository.get_oasis_mapping(simulation_id) is None
 
+        client.app.state.workflow.quick_interaction_provider = QuickInteractionProvider()
         interaction = client.post(f"/api/simulations/{simulation_id}/interactions", json={
             "tool": "report", "question": "Apa temuan utama?",
         })
         assert interaction.status_code == 201
+        assert interaction.json()["text"] == "Jawaban LLM quick demo untuk: Apa temuan utama?"
 
 
 def test_quick_demo_contract_rejects_invalid_bundle_and_files(tmp_path, database_url):
