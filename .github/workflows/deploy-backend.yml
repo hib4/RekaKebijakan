@@ -10,7 +10,7 @@ jobs:
   deploy:
     name: Deploy to VM
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Deploy via SSH
@@ -19,16 +19,30 @@ jobs:
           host: ${{ secrets.GCP_HOST }}
           username: ${{ secrets.GCP_USERNAME }}
           key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
-          command_timeout: 40m
+          command_timeout: 50m
+
           script: |
             set -e
 
             cd /opt/rekakebijakan
 
+            echo "== Pull latest code =="
             git pull origin main
 
+            echo "== Disk usage before build =="
+            df -h /
+
+            echo "== Cleanup Docker build cache =="
+            docker builder prune -af
+
+            echo "== Build images =="
             docker compose -f compose.yaml build --pull
 
+            echo "== Restart services =="
             docker compose -f compose.yaml up -d
 
+            echo "== Container status =="
             docker compose -f compose.yaml ps
+
+            echo "== Disk usage after deployment =="
+            df -h /
