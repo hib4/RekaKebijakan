@@ -503,17 +503,24 @@ class WorkflowService:
             return False
         if current.get("revision", 1) != job["input_revision"]:
             raise ValueError("Workflow changed while the job was running")
-        self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
-        self._persist_result_citations(simulation_id, stage, result)
         if job.get("run_id"):
-            completed_state = self.repository.get(simulation_id)
             mapping = self.repository.get_oasis_mapping(simulation_id)
-            self.repository.sync_run_status(job["run_id"], "completed", {
-                "simulation": completed_state.get("simulation", {}), "report": completed_state.get("report", {}),
-                "graph": completed_state.get("graph", {}), "logs": completed_state.get("logs", []),
-                "oasis_artifacts": (mapping or {}).get("artifacts", {}),
-                "oasis_runtime": (mapping or {}).get("runtime_status", {}),
-            })
+            self.repository.mutate_and_complete_run(
+                simulation_id,
+                lambda current: self._complete(current, stage, result),
+                job["run_id"],
+                lambda completed_state, _db: {
+                    "simulation": completed_state.get("simulation", {}),
+                    "report": completed_state.get("report", {}),
+                    "graph": completed_state.get("graph", {}),
+                    "logs": completed_state.get("logs", []),
+                    "oasis_artifacts": (mapping or {}).get("artifacts", {}),
+                    "oasis_runtime": (mapping or {}).get("runtime_status", {}),
+                },
+            )
+        else:
+            self.repository.mutate(simulation_id, lambda current: self._complete(current, stage, result))
+        self._persist_result_citations(simulation_id, stage, result)
         return True
 
     def _prepare_oasis_environment(

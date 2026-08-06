@@ -721,6 +721,10 @@ class Repository:
             ).order_by(run_events.c.sequence)).mappings()]
 
     def sync_run_status(self, run_id: str, status: str, output: dict | None = None) -> None:
+        with self.engine.begin() as db:
+            self._sync_run_status(db, run_id, status, output)
+
+    def _sync_run_status(self, db, run_id: str, status: str, output: dict | None = None) -> None:
         timestamp = utc_now()
         values = {"status": status}
         if status == "running":
@@ -729,16 +733,15 @@ class Repository:
             values["completed_at"] = timestamp
         if output is not None:
             values["output_snapshot"] = output
-        with self.engine.begin() as db:
-            db.execute(update(scenario_runs).where(scenario_runs.c.id == run_id).values(**values))
-            if output is not None:
-                db.execute(delete(run_events).where(run_events.c.run_id == run_id))
-                events = output.get("simulation", {}).get("events", [])
-                if events:
-                    db.execute(insert(run_events), [{
-                        "id": f"revent_{uuid.uuid4().hex[:16]}", "run_id": run_id,
-                        "sequence": item.get("sequence", index), "event": item, "created_at": timestamp,
-                    } for index, item in enumerate(events, 1)])
+        db.execute(update(scenario_runs).where(scenario_runs.c.id == run_id).values(**values))
+        if output is not None:
+            db.execute(delete(run_events).where(run_events.c.run_id == run_id))
+            events = output.get("simulation", {}).get("events", [])
+            if events:
+                db.execute(insert(run_events), [{
+                    "id": f"revent_{uuid.uuid4().hex[:16]}", "run_id": run_id,
+                    "sequence": item.get("sequence", index), "event": item, "created_at": timestamp,
+                } for index, item in enumerate(events, 1)])
 
     def compare_runs(self, project_id: str, scenario_id: str, user_id: str, run_ids: list[str] | None = None) -> dict | None:
         rows = self.list_runs(project_id, scenario_id, user_id)
@@ -964,6 +967,20 @@ class Repository:
     def mutate(self, simulation_id: str, callback: Callable[[dict], None]) -> dict | None:
         return self._mutate(simulation_id, callback)
 
+    def mutate_and_complete_run(
+        self,
+        simulation_id: str,
+        callback: Callable[[dict], None],
+        run_id: str,
+        output_factory: Callable[[dict, object], dict],
+    ) -> dict | None:
+        return self._mutate(
+            simulation_id,
+            callback,
+            complete_run_id=run_id,
+            run_output_factory=output_factory,
+        )
+
     def mutate_with_events(
         self,
         simulation_id: str,
@@ -986,6 +1003,8 @@ class Repository:
         user_id: str | None = None,
         event_factory: Callable[[dict], list[tuple[str, dict]]] | None = None,
         publish_snapshot: bool = True,
+        complete_run_id: str | None = None,
+        run_output_factory: Callable[[dict, object], dict] | None = None,
     ) -> dict | None:
         with self.lock, self.engine.begin() as db:
             statement = select(simulations.c.state).select_from(
@@ -1005,6 +1024,8 @@ class Repository:
                 .where(simulations.c.id == simulation_id)
                 .values(state=state, updated_at=parse_timestamp(state["updated_at"]))
             )
+            if complete_run_id and run_output_factory:
+                self._sync_run_status(db, complete_run_id, "completed", run_output_factory(state, db))
             timestamp = utc_now()
             events = event_factory(state) if event_factory else []
             if publish_snapshot:
