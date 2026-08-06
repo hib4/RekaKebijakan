@@ -160,6 +160,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 from action_logger import SimulationLogManager, PlatformActionLogger
 from activity_schedule import select_active_agent_ids
+from agent_language import apply_output_language
 from app.utils.openai_chat_compat import DEFAULT_REQUEST_HEADERS, disable_model_retries
 
 try:
@@ -1134,6 +1135,7 @@ async def run_twitter_simulation(
         model=model,
         available_actions=TWITTER_ACTIONS,
     )
+    apply_output_language(result.agent_graph, config.get("_language", "id"))
     
     # Get actual agent names from configuration, using entity_name instead of the default Agent_X.
     agent_names = get_agent_names_from_config(config)
@@ -1330,6 +1332,7 @@ async def run_reddit_simulation(
         model=model,
         available_actions=REDDIT_ACTIONS,
     )
+    apply_output_language(result.agent_graph, config.get("_language", "id"))
     
     # Get actual agent names from configuration, using entity_name instead of the default Agent_X.
     agent_names = get_agent_names_from_config(config)
@@ -1515,6 +1518,12 @@ async def main():
         help='Maximum concurrent OASIS agent requests per platform'
     )
     parser.add_argument(
+        '--language',
+        choices=('id', 'en'),
+        default='id',
+        help='Natural language used by simulated agents'
+    )
+    parser.add_argument(
         '--config', 
         type=str, 
         required=True,
@@ -1557,6 +1566,7 @@ async def main():
     config["_step_timeout_seconds"] = args.step_timeout_seconds
     config["_step_cleanup_grace_seconds"] = args.step_cleanup_grace_seconds
     config["_oasis_concurrency"] = max(1, args.oasis_concurrency)
+    config["_language"] = args.language
     simulation_dir = os.path.dirname(args.config) or "."
     wait_for_commands = not args.no_wait
     

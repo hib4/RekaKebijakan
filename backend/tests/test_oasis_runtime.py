@@ -130,7 +130,7 @@ def runtime_service(repository, runtime, tmp_path):
 
 def runtime_state():
     return {
-        "project": {"id": "project-local"},
+        "project": {"id": "project-local", "language": "id"},
         "graph": {"revision": 2},
         "environment": {"personas": [], "config": {"version": 1, "rounds": 2}},
     }
@@ -323,6 +323,7 @@ def test_host_runtime_step_timeout_is_retryable_transport_error(tmp_path):
         def start_simulation(self, _mapping, config):
             assert config["step_timeout_seconds"] == 120
             assert config["stale_timeout_seconds"] == 150
+            assert config["language"] == "id"
 
         def simulation_snapshot(self, _simulation_id, _cursor):
             return {

@@ -708,6 +708,7 @@ class WorkflowService:
             "stale_timeout_seconds": config.get("stale_timeout_seconds", 150),
             "max_run_seconds": config.get("max_run_seconds", 3600),
             "oasis_concurrency": config.get("oasis_concurrency") or 2,
+            "language": state.get("project", {}).get("language", "id"),
         }
         run_id = job.get("run_id")
         self.repository.clear_oasis_actions(simulation_id, run_id)

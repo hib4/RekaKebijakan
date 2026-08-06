@@ -255,7 +255,7 @@ def test_start_simulation_replaces_failed_alive_process(monkeypatch, tmp_path: P
 
     started = engine.start_simulation(
         {"external_simulation_id": "sim-1"},
-        {"rounds": 10, "oasis_concurrency": 3},
+        {"rounds": 10, "oasis_concurrency": 3, "language": "id"},
     )
 
     assert started["pid"] == 456
@@ -263,6 +263,8 @@ def test_start_simulation_replaces_failed_alive_process(monkeypatch, tmp_path: P
     assert started["max_rounds"] == 10
     concurrency_index = captured["command"].index("--oasis-concurrency")
     assert captured["command"][concurrency_index + 1] == "3"
+    language_index = captured["command"].index("--language")
+    assert captured["command"][language_index + 1] == "id"
 
 
 def test_hard_step_timeout_exits_when_cancellation_hangs(tmp_path: Path):

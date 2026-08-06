@@ -125,6 +125,40 @@ def test_disable_model_retries_updates_camel_and_openai_clients():
     assert model._async_client.max_retries == 0
 
 
+def test_agent_output_language_preserves_tool_configuration():
+    agent_language = load_script("agent_language")
+    tools = {"create_post": object(), "create_comment": object()}
+
+    class Agent:
+        output_language = None
+        tool_dict = tools
+
+    agents = [Agent(), Agent()]
+
+    class Graph:
+        @staticmethod
+        def get_agents():
+            return enumerate(agents)
+
+    agent_language.apply_output_language(Graph(), "id")
+
+    assert [agent.output_language for agent in agents] == ["Bahasa Indonesia"] * 2
+    assert all(agent.tool_dict is tools for agent in agents)
+
+
+def test_parallel_oasis_applies_language_to_both_agent_graphs():
+    tree = ast.parse((SCRIPTS / "run_parallel_simulation.py").read_text())
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "apply_output_language"
+    ]
+
+    assert len(calls) == 2
+    assert all(isinstance(call.args[0], ast.Attribute) for call in calls)
+
+
 def test_parallel_oasis_uses_bounded_platform_concurrency():
     tree = ast.parse((SCRIPTS / "run_parallel_simulation.py").read_text())
     semaphore_values = [

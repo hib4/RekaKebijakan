@@ -221,6 +221,7 @@ class DirectOasisEngine:
             "--step-timeout-seconds", str(float(config.get("step_timeout_seconds") or 120)),
             "--step-cleanup-grace-seconds", str(float(config.get("step_cleanup_grace_seconds") or 5)),
             "--oasis-concurrency", str(int(config.get("oasis_concurrency") or 2)),
+            "--language", str(config.get("language") or "id"),
         ]
         log = (simulation_dir / "simulation.log").open("w", encoding="utf-8")
         process = subprocess.Popen(

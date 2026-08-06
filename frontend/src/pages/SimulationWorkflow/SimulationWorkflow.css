@@ -604,7 +604,7 @@
 .step-scroll {
   height: 100%;
   overflow-y: auto;
-  padding: 28px 28px 52px;
+  padding: 28px 28px;
 }
 .step-intro {
   margin-bottom: 24px;
