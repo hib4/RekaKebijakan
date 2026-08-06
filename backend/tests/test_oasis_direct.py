@@ -245,13 +245,24 @@ def test_start_simulation_replaces_failed_alive_process(monkeypatch, tmp_path: P
     class Process:
         pid = 456
 
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    captured = {}
 
-    started = engine.start_simulation({"external_simulation_id": "sim-1"}, {"rounds": 10})
+    def start_process(command, **kwargs):
+        captured.update(command=command, kwargs=kwargs)
+        return Process()
+
+    monkeypatch.setattr(subprocess, "Popen", start_process)
+
+    started = engine.start_simulation(
+        {"external_simulation_id": "sim-1"},
+        {"rounds": 10, "oasis_concurrency": 3},
+    )
 
     assert started["pid"] == 456
     assert started["runner_status"] == "running"
     assert started["max_rounds"] == 10
+    concurrency_index = captured["command"].index("--oasis-concurrency")
+    assert captured["command"][concurrency_index + 1] == "3"
 
 
 def test_hard_step_timeout_exits_when_cancellation_hangs(tmp_path: Path):
@@ -545,6 +556,7 @@ def test_dead_child_reports_step_timeout_before_stale_timeout(monkeypatch, tmp_p
         "max_run_seconds": 3600, "max_rounds": 10,
     }), encoding="utf-8")
     (simulation / "simulation.log").write_text(
+        "profile output that should not reach the API\n"
         "Fatal timeout: OASIS reddit step round 4 timed out after 120s; "
         "cancellation grace 5s expired\n", encoding="utf-8",
     )
@@ -555,6 +567,8 @@ def test_dead_child_reports_step_timeout_before_stale_timeout(monkeypatch, tmp_p
 
     assert status["runner_status"] == "failed"
     assert "reddit step round 4 timed out after 120s" in status["error"]
+    assert "profile output" not in status["error"]
+    assert "Fatal timeout:" not in status["error"]
     assert "made no round progress" not in status["error"]
 
 

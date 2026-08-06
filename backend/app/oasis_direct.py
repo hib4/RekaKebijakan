@@ -220,6 +220,7 @@ class DirectOasisEngine:
             "--max-rounds", str(int(config.get("rounds", config.get("max_rounds", 10)))),
             "--step-timeout-seconds", str(float(config.get("step_timeout_seconds") or 120)),
             "--step-cleanup-grace-seconds", str(float(config.get("step_cleanup_grace_seconds") or 5)),
+            "--oasis-concurrency", str(int(config.get("oasis_concurrency") or 2)),
         ]
         log = (simulation_dir / "simulation.log").open("w", encoding="utf-8")
         process = subprocess.Popen(
@@ -331,7 +332,15 @@ class DirectOasisEngine:
             log_tail = self._read_text_tail(simulation_dir / "simulation.log")
             runtime["error"] = "OASIS process exited before both platforms completed"
             if log_tail:
-                runtime["error"] += f"; last output: {log_tail}"
+                fatal_timeout = next(
+                    (
+                        line.split("Fatal timeout:", 1)[1].strip()
+                        for line in reversed(log_tail.splitlines())
+                        if "Fatal timeout:" in line
+                    ),
+                    None,
+                )
+                runtime["error"] += f"; {fatal_timeout or f'last output: {log_tail}'}"
         elif stale_seconds and time.time() - float(runtime.get("last_progress_at", time.time())) > float(stale_seconds):
             self.stop_simulation(simulation_id)
             runtime["runner_status"] = "failed"

@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import hashlib
 import json
-import queue
 import threading
 import time
 import uuid
@@ -708,45 +707,20 @@ class WorkflowService:
             "step_cleanup_grace_seconds": config.get("step_cleanup_grace_seconds", 5),
             "stale_timeout_seconds": config.get("stale_timeout_seconds", 150),
             "max_run_seconds": config.get("max_run_seconds", 3600),
-            "oasis_concurrency": config.get("oasis_concurrency"),
+            "oasis_concurrency": config.get("oasis_concurrency") or 2,
         }
         run_id = job.get("run_id")
         self.repository.clear_oasis_actions(simulation_id, run_id)
         terminal = {"completed", "failed", "stopped"}
         runtime = {}
         cursor = None
-        graph_queue: queue.Queue[list[dict] | None] = queue.Queue()
-        graph_errors: list[Exception] = []
+        synthetic_failure_count = 0
+        pending_graph_actions: list[dict] = []
         graph_memory: dict = {}
-        graph_thread: threading.Thread | None = None
-        if run_config["enable_graph_memory_update"] and hasattr(self.oasis_runtime, "ingest_actions"):
-            def ingest_graph_memory() -> None:
-                batch_number = 0
-                while (batch := graph_queue.get()) is not None:
-                    batch_number += 1
-                    try:
-                        graph_memory.update(self.oasis_runtime.ingest_actions(
-                            mapping["external_simulation_id"], mapping["zep_graph_id"],
-                            f"{run_id or job['id']}-live-{batch_number}", batch,
-                        ))
-                        graph = self.runtime_graph(simulation_id)
-                        if graph is not None:
-                            self.repository.append_workflow_event(
-                                simulation_id, "graph.snapshot", {"graph": {
-                                    "available": True, "graph_kind": "runtime",
-                                    "build_id": (mapping.get("metadata") or {}).get("graph_sync", {}).get("build_id"),
-                                    **graph,
-                                }},
-                            )
-                    except Exception as error:
-                        graph_errors.append(error)
-                    finally:
-                        graph_queue.task_done()
-
-            graph_thread = threading.Thread(
-                target=ingest_graph_memory, name=f"graph-memory-{simulation_id}", daemon=True,
-            )
-            graph_thread.start()
+        graph_memory_enabled = (
+            run_config["enable_graph_memory_update"]
+            and hasattr(self.oasis_runtime, "ingest_actions")
+        )
         try:
             self.oasis_runtime.start_simulation(mapping, run_config)
             self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
@@ -765,6 +739,9 @@ class WorkflowService:
                 persisted_count = self.repository.summarize_oasis_actions(simulation_id, run_id)["total_actions"]
                 incoming = []
                 for action in snapshot.get("actions", []):
+                    if action.get("synthetic") and action.get("success") is False:
+                        synthetic_failure_count += 1
+                        continue
                     platform = str(action.get("platform", "oasis"))
                     external_sequence = int(action.get("source_sequence", 0))
                     identity = source_identity(action, external_sequence)
@@ -778,8 +755,8 @@ class WorkflowService:
                         "event": normalized, "raw_action": action, "occurred_at": action.get("timestamp"),
                     })
                 self.repository.append_oasis_actions(simulation_id, incoming, run_id)
-                if graph_thread and incoming:
-                    graph_queue.put([item["raw_action"] for item in incoming])
+                if graph_memory_enabled and incoming:
+                    pending_graph_actions.extend(item["raw_action"] for item in incoming)
                 progress = int(float(runtime.get("progress_percent", 0) or 0))
                 self.repository.mutate(
                     simulation_id,
@@ -796,15 +773,46 @@ class WorkflowService:
                 status = runtime.get("runner_status", "idle")
                 if status in terminal:
                     if status != "completed":
+                        runtime_error = runtime.get("error") or f"OASIS runtime ended as {status}"
+                        if "timed out" in runtime_error.lower() or "timeout" in runtime_error.lower():
+                            raise ProviderTransportError("simulate", runtime_error)
+                        raise ProviderResponseError("simulate", runtime_error)
+                    if self.repository.summarize_oasis_actions(simulation_id, run_id)["total_actions"] == 0:
+                        if synthetic_failure_count:
+                            raise ProviderTransportError(
+                                "simulate",
+                                "OASIS could not obtain persona actions from the configured model/provider "
+                                f"({synthetic_failure_count} active-agent attempts produced no action). "
+                                "Check provider permissions and tool-calling support.",
+                            )
                         raise ProviderResponseError(
-                            "simulate", runtime.get("error") or f"OASIS runtime ended as {status}"
+                            "simulate", "OASIS completed without producing persona activity"
                         )
                     break
                 time.sleep(2)
+
+            if graph_memory_enabled and pending_graph_actions:
+                self.repository.mutate(
+                    simulation_id,
+                    lambda current: self._oasis_graph_sync_progress(
+                        current, runtime, len(pending_graph_actions)
+                    ),
+                )
+                graph_memory.update(self.oasis_runtime.ingest_actions(
+                    mapping["external_simulation_id"], mapping["zep_graph_id"],
+                    f"{run_id or job['id']}-final", pending_graph_actions,
+                ))
+                if hasattr(self.oasis_runtime, "runtime_graph"):
+                    graph = self.runtime_graph(simulation_id)
+                    if graph is not None:
+                        self.repository.append_workflow_event(
+                            simulation_id, "graph.snapshot", {"graph": {
+                                "available": True, "graph_kind": "runtime",
+                                "build_id": (mapping.get("metadata") or {}).get("graph_sync", {}).get("build_id"),
+                                **graph,
+                            }},
+                        )
         except Exception as error:
-            if graph_thread:
-                graph_queue.put(None)
-                graph_thread.join(timeout=30)
             self.repository.upsert_oasis_mapping(simulation_id, state["project"]["id"], {
                 "external_project_id": mapping["external_project_id"],
                 "external_simulation_id": mapping["external_simulation_id"],
@@ -813,13 +821,6 @@ class WorkflowService:
                 "metadata": dict(mapping.get("metadata") or {}) | {"runtime_status": runtime, "error": str(error)},
             })
             raise
-        if graph_thread:
-            graph_queue.put(None)
-            graph_thread.join(timeout=float(run_config["max_run_seconds"]))
-            if graph_thread.is_alive():
-                raise ProviderTransportError("graph_memory", "Runtime graph synchronization timed out")
-            if graph_errors:
-                raise graph_errors[0]
         rows = self.repository.list_oasis_actions(simulation_id, limit=5000, run_id=run_id)
         events = [dict(row["event"]) | {"sequence": index} for index, row in enumerate(rows, 1)]
         artifacts = self.oasis_runtime.artifacts(mapping["external_simulation_id"]) if hasattr(self.oasis_runtime, "artifacts") else {}
@@ -989,6 +990,13 @@ class WorkflowService:
         self._progress(
             state, "simulation", min(69, max(15, progress)),
             f"OASIS ronde {runtime.get('current_round', 0)}/{runtime.get('total_rounds', 0)}",
+        )
+
+    def _oasis_graph_sync_progress(self, state: dict, runtime: dict, action_count: int) -> None:
+        state.setdefault("simulation", {})["runtime"] = runtime
+        self._progress(
+            state, "simulation", 85,
+            f"Menyinkronkan {action_count} aksi ke graph Zep",
         )
 
     def _complete(self, state: dict, stage: str, result: dict) -> None:

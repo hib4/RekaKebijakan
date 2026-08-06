@@ -19,6 +19,14 @@ DEFAULT_REQUEST_HEADERS: Dict[str, str] = {
 }
 
 
+def disable_model_retries(model: Any) -> Any:
+    """Disable retries after CAMEL has constructed its OpenAI clients."""
+    model._max_retries = 0
+    model._client.max_retries = 0
+    model._async_client.max_retries = 0
+    return model
+
+
 def build_openai_client(
     *,
     api_key: str,

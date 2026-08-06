@@ -4,7 +4,7 @@ import pytest
 
 from app.oasis_runtime import normalize_action, normalize_environment, source_identity
 from app.service import WorkflowService
-from app.provider_errors import ProviderResponseError
+from app.provider_errors import ProviderResponseError, ProviderTransportError
 
 
 def graph():
@@ -84,6 +84,7 @@ class RuntimeRepository:
             "metadata": {"prepared": True},
         }
         self.actions = []
+        self.workflow_events = []
 
     def get_oasis_mapping(self, _simulation_id):
         return self.mapping
@@ -118,6 +119,9 @@ class RuntimeRepository:
             "interaction": {},
             "logs": [],
         })
+
+    def append_workflow_event(self, simulation_id, event_type, payload):
+        self.workflow_events.append((simulation_id, event_type, payload))
 
 
 def runtime_service(repository, runtime, tmp_path):
@@ -176,6 +180,61 @@ def test_host_runtime_uses_cursor_and_runtime_source_sequence(monkeypatch, tmp_p
     assert repository.mapping["status"] == "completed"
 
 
+def test_host_runtime_coalesces_graph_ingestion_after_all_rounds(monkeypatch, tmp_path):
+    repository = RuntimeRepository()
+
+    class Runtime:
+        def __init__(self):
+            self.snapshot_number = 0
+            self.ingestion_calls = []
+
+        def start_simulation(self, _mapping, _config):
+            return {"runner_status": "running"}
+
+        def simulation_snapshot(self, _simulation_id, _cursor):
+            self.snapshot_number += 1
+            action = {
+                "source_sequence": self.snapshot_number,
+                "platform": "twitter" if self.snapshot_number == 1 else "reddit",
+                "round_num": self.snapshot_number,
+                "agent_id": self.snapshot_number,
+                "agent_name": f"Persona {self.snapshot_number}",
+                "action_type": "CREATE_POST",
+                "action_args": {"content": f"Aksi {self.snapshot_number}"},
+            }
+            return {
+                "status": {
+                    "runner_status": "running" if self.snapshot_number == 1 else "completed",
+                    "current_round": self.snapshot_number,
+                    "total_rounds": 2,
+                },
+                "actions": [action],
+                "next_cursor": f"cursor-{self.snapshot_number}",
+            }
+
+        def ingest_actions(self, simulation_id, graph_id, run_id, actions):
+            self.ingestion_calls.append((simulation_id, graph_id, run_id, actions))
+            return {"items_sent": len(actions)}
+
+    runtime = Runtime()
+    monkeypatch.setattr("app.service.time.sleep", lambda _seconds: None)
+
+    result = runtime_service(repository, runtime, tmp_path)._run_oasis_simulation(
+        {"id": "job-1", "simulation_id": "simulation-local", "execution_token": "token"},
+        runtime_state(),
+        {},
+    )
+
+    assert len(runtime.ingestion_calls) == 1
+    simulation_id, graph_id, run_id, actions = runtime.ingestion_calls[0]
+    assert (simulation_id, graph_id, run_id) == (
+        "simulation-remote", "graph-remote", "job-1-final"
+    )
+    assert [action["action_args"]["content"] for action in actions] == ["Aksi 1", "Aksi 2"]
+    assert result["event_count"] == 2
+    assert result["graph_memory"] == {"items_sent": 2}
+
+
 def test_host_runtime_marks_mapping_failed_when_start_fails(tmp_path):
     repository = RuntimeRepository()
 
@@ -194,7 +253,70 @@ def test_host_runtime_marks_mapping_failed_when_start_fails(tmp_path):
     assert repository.mapping["metadata"]["error"] == "runtime unavailable"
 
 
-def test_host_runtime_step_timeout_is_terminal_provider_error(tmp_path):
+def test_host_runtime_rejects_completed_run_without_persona_activity(tmp_path):
+    repository = RuntimeRepository()
+
+    class Runtime:
+        def start_simulation(self, _mapping, _config):
+            return {"runner_status": "running"}
+
+        def simulation_snapshot(self, _simulation_id, _cursor):
+            return {
+                "status": {"runner_status": "completed", "current_round": 2, "total_rounds": 2},
+                "actions": [],
+                "next_cursor": "cursor-1",
+            }
+
+    with pytest.raises(ProviderResponseError, match="completed without producing persona activity"):
+        runtime_service(repository, Runtime(), tmp_path)._run_oasis_simulation(
+            {"id": "job-1", "simulation_id": "simulation-local", "execution_token": "token"},
+            runtime_state(),
+            {},
+        )
+
+    assert repository.mapping["status"] == "failed"
+
+
+def test_host_runtime_rejects_synthetic_no_actions_as_provider_failure(tmp_path):
+    repository = RuntimeRepository()
+
+    class Runtime:
+        def start_simulation(self, _mapping, _config):
+            return {"runner_status": "running"}
+
+        def simulation_snapshot(self, _simulation_id, _cursor):
+            return {
+                "status": {"runner_status": "completed", "current_round": 2, "total_rounds": 2},
+                "actions": [{
+                    "source_sequence": 1,
+                    "platform": "twitter",
+                    "round_num": 1,
+                    "agent_id": 7,
+                    "agent_name": "Rina",
+                    "action_type": "DO_NOTHING",
+                    "action_args": {},
+                    "result": "No platform action was recorded for this active agent.",
+                    "success": False,
+                    "synthetic": True,
+                }],
+                "next_cursor": "cursor-1",
+            }
+
+    with pytest.raises(
+        ProviderTransportError,
+        match="configured model/provider.*1 active-agent attempts.*tool-calling support",
+    ):
+        runtime_service(repository, Runtime(), tmp_path)._run_oasis_simulation(
+            {"id": "job-1", "simulation_id": "simulation-local", "execution_token": "token"},
+            runtime_state(),
+            {},
+        )
+
+    assert repository.actions == []
+    assert repository.mapping["status"] == "failed"
+
+
+def test_host_runtime_step_timeout_is_retryable_transport_error(tmp_path):
     repository = RuntimeRepository()
 
     class Runtime:
@@ -211,13 +333,13 @@ def test_host_runtime_step_timeout_is_terminal_provider_error(tmp_path):
                 "actions": [],
             }
 
-    with pytest.raises(ProviderResponseError, match="reddit step round 4 timed out after 120s") as captured:
+    with pytest.raises(ProviderTransportError, match="reddit step round 4 timed out after 120s") as captured:
         runtime_service(repository, Runtime(), tmp_path)._run_oasis_simulation(
             {"id": "job-1", "simulation_id": "simulation-local", "execution_token": "token"},
             runtime_state(), {},
         )
 
-    assert captured.value.retryable is False
+    assert captured.value.retryable is True
 
 
 def test_runtime_graph_is_supplemental_and_includes_mapping_metadata(tmp_path):

@@ -159,6 +159,8 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from activity_schedule import select_active_agent_ids
+from app.utils.openai_chat_compat import DEFAULT_REQUEST_HEADERS, disable_model_retries
 
 try:
     from camel.models import ModelFactory
@@ -1047,12 +1049,21 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     if llm_base_url:
         os.environ["OPENAI_API_BASE_URL"] = llm_base_url
+
+    step_timeout = float(config.get("_step_timeout_seconds", 120))
+    configured_timeout = float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", 90))
+    request_timeout = max(1.0, min(configured_timeout, step_timeout - 15.0))
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else 'default'}...")
     
-    return ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=llm_model,
+    return disable_model_retries(
+        ModelFactory.create(
+            model_platform=ModelPlatformType.OPENAI,
+            model_type=llm_model,
+            default_headers=dict(DEFAULT_REQUEST_HEADERS),
+            timeout=request_timeout,
+            max_retries=0,
+        )
     )
 
 
@@ -1063,43 +1074,8 @@ def get_active_agents_for_round(
     round_num: int
 ) -> List:
     """Determine which agents are active this round from time and configuration."""
-    time_config = config.get("time_config", {})
-    agent_configs = config.get("agent_configs", [])
-    
-    base_min = time_config.get("agents_per_hour_min", 5)
-    base_max = time_config.get("agents_per_hour_max", 20)
-    
-    peak_hours = time_config.get("peak_hours", [9, 10, 11, 14, 15, 20, 21, 22])
-    off_peak_hours = time_config.get("off_peak_hours", [0, 1, 2, 3, 4, 5])
-    
-    if current_hour in peak_hours:
-        multiplier = time_config.get("peak_activity_multiplier", 1.5)
-    elif current_hour in off_peak_hours:
-        multiplier = time_config.get("off_peak_activity_multiplier", 0.3)
-    else:
-        multiplier = 1.0
-    
-    target_count = int(random.uniform(base_min, base_max) * multiplier)
-    
-    candidates = []
-    for cfg in agent_configs:
-        agent_id = cfg.get("agent_id", 0)
-        active_hours = cfg.get("active_hours", list(range(8, 23)))
-        activity_level = cfg.get("activity_level", 0.5)
-        
-        if current_hour not in active_hours:
-            continue
-        
-        if random.random() < activity_level:
-            candidates.append(agent_id)
-    
-    selected_ids = random.sample(
-        candidates, 
-        min(target_count, len(candidates))
-    ) if candidates else []
-    
     active_agents = []
-    for agent_id in selected_ids:
+    for agent_id in select_active_agent_ids(config, current_hour):
         try:
             agent = env.agent_graph.get_agent(agent_id)
             active_agents.append((agent_id, agent))
@@ -1175,7 +1151,7 @@ async def run_twitter_simulation(
         agent_graph=result.agent_graph,
         platform=oasis.DefaultPlatformType.TWITTER,
         database_path=db_path,
-        semaphore=30,  # Limit concurrent LLM requests to prevent API overload.
+        semaphore=int(config.get("_oasis_concurrency", 2)),
     )
     
     step_timeout_seconds = float(config.get("_step_timeout_seconds", 120))
@@ -1287,18 +1263,13 @@ async def run_twitter_simulation(
             db_path, last_rowid, agent_names
         )
         
-        round_action_count = 0
-        for action_data in actual_actions:
-            if action_logger:
-                action_logger.log_action(
-                    round_num=round_num + 1,
-                    agent_id=action_data['agent_id'],
-                    agent_name=action_data['agent_name'],
-                    action_type=action_data['action_type'],
-                    action_args=action_data['action_args']
-                )
-                total_actions += 1
-                round_action_count += 1
+        round_action_count = action_logger.log_round_actions(
+            round_num + 1,
+            [agent_id for agent_id, _agent in active_agents],
+            actual_actions,
+            agent_names,
+        ) if action_logger else len(actual_actions)
+        total_actions += round_action_count
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
@@ -1376,7 +1347,7 @@ async def run_reddit_simulation(
         agent_graph=result.agent_graph,
         platform=oasis.DefaultPlatformType.REDDIT,
         database_path=db_path,
-        semaphore=30,  # Limit concurrent LLM requests to prevent API overload.
+        semaphore=int(config.get("_oasis_concurrency", 2)),
     )
     
     step_timeout_seconds = float(config.get("_step_timeout_seconds", 120))
@@ -1496,18 +1467,13 @@ async def run_reddit_simulation(
             db_path, last_rowid, agent_names
         )
         
-        round_action_count = 0
-        for action_data in actual_actions:
-            if action_logger:
-                action_logger.log_action(
-                    round_num=round_num + 1,
-                    agent_id=action_data['agent_id'],
-                    agent_name=action_data['agent_name'],
-                    action_type=action_data['action_type'],
-                    action_args=action_data['action_args']
-                )
-                total_actions += 1
-                round_action_count += 1
+        round_action_count = action_logger.log_round_actions(
+            round_num + 1,
+            [agent_id for agent_id, _agent in active_agents],
+            actual_actions,
+            agent_names,
+        ) if action_logger else len(actual_actions)
+        total_actions += round_action_count
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
@@ -1541,6 +1507,12 @@ async def main():
         type=float,
         default=5,
         help='Seconds allowed for cancellation before the simulation process exits'
+    )
+    parser.add_argument(
+        '--oasis-concurrency',
+        type=int,
+        default=2,
+        help='Maximum concurrent OASIS agent requests per platform'
     )
     parser.add_argument(
         '--config', 
@@ -1584,6 +1556,7 @@ async def main():
     config = load_config(args.config)
     config["_step_timeout_seconds"] = args.step_timeout_seconds
     config["_step_cleanup_grace_seconds"] = args.step_cleanup_grace_seconds
+    config["_oasis_concurrency"] = max(1, args.oasis_concurrency)
     simulation_dir = os.path.dirname(args.config) or "."
     wait_for_commands = not args.no_wait
     

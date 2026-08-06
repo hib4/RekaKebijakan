@@ -48,7 +48,8 @@ class PlatformActionLogger:
         action_type: str,
         action_args: Optional[Dict[str, Any]] = None,
         result: Optional[str] = None,
-        success: bool = True
+        success: bool = True,
+        synthetic: bool = False,
     ):
         """Record an action."""
         entry = {
@@ -61,9 +62,45 @@ class PlatformActionLogger:
             "result": result,
             "success": success,
         }
+        if synthetic:
+            entry["synthetic"] = True
         
         with open(self.log_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+
+    def log_round_actions(
+        self,
+        round_num: int,
+        active_agent_ids: list[int],
+        actions: list[dict],
+        agent_names: dict[int, str],
+    ) -> int:
+        """Log executed actions and explicit no-op decisions for active agents."""
+        acted_ids = set()
+        for action in actions:
+            agent_id = int(action["agent_id"])
+            acted_ids.add(agent_id)
+            self.log_action(
+                round_num=round_num,
+                agent_id=agent_id,
+                agent_name=action["agent_name"],
+                action_type=action["action_type"],
+                action_args=action["action_args"],
+            )
+        for agent_id in active_agent_ids:
+            if agent_id in acted_ids:
+                continue
+            self.log_action(
+                round_num=round_num,
+                agent_id=agent_id,
+                agent_name=agent_names.get(agent_id, f"Agent_{agent_id}"),
+                action_type="DO_NOTHING",
+                action_args={},
+                result="No platform action was recorded for this active agent.",
+                success=False,
+                synthetic=True,
+            )
+        return len(actions)
     
     def log_round_start(self, round_num: int, simulated_hour: int):
         """Record the start of a round."""

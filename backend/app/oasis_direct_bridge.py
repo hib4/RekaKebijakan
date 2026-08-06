@@ -206,7 +206,11 @@ def artifacts(payload: dict) -> dict:
                     item = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if "agent_id" in item and "event_type" not in item:
+                if (
+                    "agent_id" in item
+                    and "event_type" not in item
+                    and not item.get("synthetic")
+                ):
                     actions.append(item | {"platform": item.get("platform", platform)})
     timeline = {}
     stats = {}

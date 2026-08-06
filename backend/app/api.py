@@ -54,9 +54,10 @@ def require_state(request: Request, simulation_id: str):
     if not state:
         raise ResourceNotFound()
     actions = repository(request).list_oasis_actions(simulation_id, limit=5000)
-    if actions and state.get("stages", {}).get("simulation", {}).get("status") in {"queued", "running", "paused"}:
+    engine = state.get("environment", {}).get("config", {}).get("engine")
+    if actions and engine == "oasis":
         state = dict(state)
-        events = [dict(item["event"]) | {"sequence": index} for index, item in enumerate(actions, 1)]
+        events = [dict(item["event"]) | {"sequence": item["sequence"]} for item in actions]
         state["simulation"] = dict(state.get("simulation", {})) | {
             "events": events, "event_count": len(events),
         }

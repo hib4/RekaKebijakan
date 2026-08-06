@@ -92,6 +92,52 @@ def test_full_frontend_workflow(client):
     assert client.get("/api/health").json()["status"] == "ok"
 
 
+def test_oasis_actions_are_hydrated_during_and_after_simulation(client):
+    simulation_id = project(
+        client,
+        "Linimasa OASIS",
+        b"Kebijakan membutuhkan tanggapan persona sintetis.",
+    ).json()["simulation_id"]
+    wait_for(client, simulation_id, "graph")
+    repository = client.app.state.repository
+
+    def set_simulation_status(state, status):
+        state["environment"].setdefault("config", {})["engine"] = "oasis"
+        state["stages"]["simulation"]["status"] = status
+        state["simulation"] = {"status": status, "events": [], "event_count": 0}
+        state["current_stage"] = "simulation"
+
+    repository.mutate(simulation_id, lambda state: set_simulation_status(state, "processing"))
+    repository.append_oasis_actions(simulation_id, [{
+        "platform": "twitter",
+        "external_sequence": 7,
+        "source_identity": "oasis-action-7",
+        "round": 2,
+        "event": {
+            "id": "oasis-event-live-7",
+            "round": 2,
+            "channel": "twitter",
+            "persona_id": "oasis-1",
+            "persona": "Persona OASIS",
+            "group": "Warga terdampak",
+            "type": "CREATE_POST",
+            "statement": "Persona menyampaikan tanggapan kebijakan.",
+        },
+    }])
+    persisted = repository.list_oasis_actions(simulation_id)
+
+    processing = client.get(f"/api/simulations/{simulation_id}").json()
+    assert processing["simulation"]["event_count"] == 1
+    assert processing["simulation"]["events"][0]["id"] == "oasis-event-live-7"
+    assert processing["simulation"]["events"][0]["sequence"] == persisted[0]["sequence"]
+
+    repository.mutate(simulation_id, lambda state: set_simulation_status(state, "completed"))
+    completed = client.get(f"/api/simulations/{simulation_id}").json()
+    assert completed["simulation"]["event_count"] == 1
+    assert completed["simulation"]["events"][0]["id"] == "oasis-event-live-7"
+    assert completed["simulation"]["events"][0]["sequence"] == persisted[0]["sequence"]
+
+
 def test_round_validation_and_pause_resume(tmp_path, database_url):
     application = create_app({"TESTING": True, "DATABASE_URL": database_url, "UPLOAD_DIR": tmp_path / "uploads", "JOB_DELAY": 0.03})
     with TestClient(application) as client:
