@@ -54,6 +54,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Simulasi menunjukkan bahwa kepastian jadwal, transparansi stok, dan akses klarifikasi menjadi penentu utama respons stakeholder.",
       "Indikasi risiko tertinggi muncul ketika perubahan mekanisme penyaluran dipahami sebagai pembatasan akses tanpa masa transisi yang jelas.",
+      "Respons membaik ketika informasi operasional dikaitkan dengan bukti layanan: jadwal per wilayah, definisi status stok, dan alur pengaduan yang dapat ditelusuri.",
     ],
   },
   {
@@ -62,6 +63,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Kelompok petani bergerak dari sikap khawatir menuju netral setelah penyuluh menjelaskan jadwal penyaluran dan mekanisme pengaduan.",
       "Kios resmi dan distributor tetap netral, dengan perhatian pada sinkronisasi data dan kepastian waktu pengiriman.",
+      "Penyuluh menjadi aktor penyangga karena mampu menerjemahkan kebijakan menjadi tindakan lapangan, tetapi kapasitas klarifikasi mereka perlu didukung materi resmi yang selalu diperbarui.",
     ],
   },
   {
@@ -70,6 +72,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Narasi bahwa pupuk akan semakin sulit diakses menyebar paling cepat di Forum Publik pada ronde kedua.",
       "Risiko meningkat ketika informasi stok tidak disertai sumber dan jadwal pembaruan yang dapat ditelusuri.",
+      "Narasi tandingan perlu menampilkan kondisi per wilayah, alasan keterlambatan, dan langkah koreksi agar tidak terbaca sebagai bantahan umum tanpa bukti.",
     ],
   },
   {
@@ -78,6 +81,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Ketidakpastian penyaluran mendorong penundaan keputusan tanam dan meningkatkan beban klarifikasi pada penyuluh lapangan.",
       "Kelompok tani berpotensi menjadi penghubung informasi, tetapi juga mempercepat penyebaran narasi risiko jika tidak mendapat pembaruan resmi.",
+      "Dampak tidak langsung juga terlihat pada koordinasi kios dan distributor: perbedaan data stok dapat menciptakan persepsi kelangkaan meskipun pasokan sedang dipindahkan antarwilayah.",
     ],
   },
   {
@@ -86,6 +90,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Publikasikan jadwal penyaluran per wilayah, definisi status stok, serta waktu pembaruan data dalam satu kanal resmi.",
       "Tambahkan masa transisi, protokol eskalasi pengaduan, dan materi klarifikasi singkat untuk penyuluh serta kelompok tani.",
+      "Gunakan indikator mingguan berupa keluhan akses, waktu respons, ketepatan jadwal, dan jumlah koreksi data untuk menentukan apakah wilayah tertentu membutuhkan intervensi tambahan.",
     ],
   },
   {
@@ -94,6 +99,7 @@ const reportSections: ReportSection[] = [
     content: [
       "Temuan mengacu pada 8 event simulasi, 6 kelompok stakeholder, 30 persona sintetis, dan 3 narasi risiko yang ditinjau sepanjang 5 ronde.",
       "Jejak ini merupakan keluaran simulasi berbasis asumsi skenario dan bukan representasi opini masyarakat sebenarnya.",
+      "Setiap rekomendasi perlu divalidasi dengan data lapangan, catatan pengaduan, dan wawancara pelaksana sebelum dijadikan keputusan implementasi final.",
     ],
   },
 ];

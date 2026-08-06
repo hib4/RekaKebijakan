@@ -46,6 +46,12 @@ export type WorkflowSession = {
 
 const prefix = "rekakebijakan-workflow-v2:";
 const sessionKey = (simulationId: string) => authStorageKey(`${prefix}${simulationId}`);
+export const quickPresentationSessionKey = (simulationId: string) =>
+  `rekakebijakan-quick-presentation:${simulationId}`;
+
+export function clearQuickPresentationSession(simulationId: string) {
+  sessionStorage.removeItem(quickPresentationSessionKey(simulationId));
+}
 
 function readyStep(status: StepRunStatus): WorkflowStepState {
   return { status, progress: 0, activeTask: null };

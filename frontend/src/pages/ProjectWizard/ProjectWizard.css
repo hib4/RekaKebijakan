@@ -445,6 +445,17 @@
 .create-workflow-list p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .create-project-console { min-width: 0; padding: 0 28px 28px; }
 .create-console-header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; margin: 0 -28px 24px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--ink); color: #fff; font-size: 10px; letter-spacing: .4px; }
+.workflow-mode-selector { min-width: 0; margin: 0 0 24px; border: 0; padding: 0; }
+.workflow-mode-selector legend { width: 100%; margin-bottom: 8px; padding: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.workflow-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.workflow-mode-selector label { min-width: 0; min-height: 104px; display: grid; grid-template-columns: 20px minmax(0, 1fr); align-content: start; gap: 10px; background: #fff; padding: 16px; cursor: pointer; }
+.workflow-mode-selector label.selected { box-shadow: inset 0 -3px var(--blue); background: #edf5ff; }
+.workflow-mode-selector input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--blue); }
+.workflow-mode-selector b, .workflow-mode-selector small { display: block; overflow-wrap: anywhere; }
+.workflow-mode-selector b { font-size: 14px; }
+.workflow-mode-selector small { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.workflow-mode-selector em { display: inline-block; margin-left: 4px; color: var(--blue-dark); font-size: 10px; font-style: normal; font-weight: 600; }
+.workflow-mode-selector label:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: -2px; }
 .create-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .create-console-section { margin-top: 24px; }
 .create-console-section > header { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 10px; letter-spacing: .3px; }
@@ -463,6 +474,9 @@
 .project-file-list button { border: 0; background: transparent; color: var(--error); font-size: 17px; cursor: pointer; }
 .project-file-list button:disabled { cursor: not-allowed; opacity: .5; }
 .file-rejection { min-height: 18px; margin: 7px 0 0; color: var(--error); font-size: 12px; line-height: 1.45; }
+.quick-demo-source { margin-top: 24px; border: 1px solid #a6c8ff; background: #edf5ff; padding: 16px; }
+.quick-demo-source b { font-size: 14px; }
+.quick-demo-source p { max-width: 65ch; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .create-console-section textarea { width: 100%; resize: vertical; border: 0; border-bottom: 1px solid var(--subtle); background: var(--surface); padding: 14px; color: var(--ink); }
 .create-submit-status { display: grid; gap: 8px; margin-top: 20px; }
 .create-submit-status-heading { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 12px; }
@@ -470,10 +484,10 @@
 .create-upload-progress { height: 7px; overflow: hidden; background: var(--surface-strong); }
 .create-upload-progress span { display: block; height: 100%; background: var(--blue); transition: width .2s ease; }
 .create-upload-progress.indeterminate span { width: 35% !important; animation: create-project-progress 1.2s ease-in-out infinite; }
-.create-project-submit { width: 100%; min-height: 54px; display: grid; justify-items: center; gap: 2px; margin-top: 24px; }
+.create-project-submit { width: 100%; min-height: 54px; display: grid; justify-items: start; align-content: center; gap: 2px; margin-top: 24px; text-align: left; }
 .create-submit-status + .create-project-submit { margin-top: 12px; }
 .create-project-submit small { font-size: 10px; font-weight: 400; opacity: .82; }
 @keyframes create-project-progress { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .create-upload-progress.indeterminate span { animation: none; } }
 @media (max-width: 900px) { .create-project-layout { grid-template-columns: 1fr; } .create-project-guide { border-right: 0; border-bottom: 1px solid var(--line); } }
-@media (max-width: 640px) { .create-project-layout { margin-top: 20px; } .create-project-guide { padding: 22px 18px; } .create-project-console { padding: 0 18px 18px; } .create-console-header { margin: 0 -18px 20px; } .create-fields { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .create-project-layout { margin-top: 20px; } .create-project-guide { padding: 22px 18px; } .create-project-console { padding: 0 18px 18px; } .create-console-header { margin: 0 -18px 20px; } .create-fields, .workflow-mode-options { grid-template-columns: 1fr; } .workflow-mode-selector label { min-height: 0; } }

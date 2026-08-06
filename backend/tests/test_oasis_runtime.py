@@ -321,8 +321,8 @@ def test_host_runtime_step_timeout_is_retryable_transport_error(tmp_path):
 
     class Runtime:
         def start_simulation(self, _mapping, config):
-            assert config["step_timeout_seconds"] == 120
-            assert config["stale_timeout_seconds"] == 150
+            assert config["step_timeout_seconds"] == 600
+            assert config["stale_timeout_seconds"] == 660
             assert config["language"] == "id"
 
         def simulation_snapshot(self, _simulation_id, _cursor):

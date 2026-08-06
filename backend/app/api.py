@@ -114,6 +114,9 @@ async def create_project(
         "project_name": form.get("project_name") or form.get("name"),
         "institution": form.get("institution"),
         "objective": form.get("objective") or form.get("description"),
+        "language": form.get("language") or "id",
+        "workflow_mode": form.get("workflow_mode") or "full_simulation",
+        "demo_bundle_id": form.get("demo_bundle_id"),
     }
     model = ProjectInput.model_validate(values)
     files = [item for item in form.getlist("files") if hasattr(item, "file")]
@@ -158,6 +161,8 @@ def project_summary(row: dict) -> dict:
         "delete_after": row.get("delete_after"), "deleted_at": row.get("deleted_at"),
         "pending_delete": row["status"] == "pending_delete",
         "scenario_count": row.get("scenario_count", 0),
+        "workflow_mode": row.get("workflow_mode", "full_simulation"),
+        "demo_bundle_id": row.get("demo_bundle_id"),
     }
 
 
@@ -514,6 +519,13 @@ async def run_scenario_v1(request: Request, project_id: str, scenario_id: str):
     current = await run_in_threadpool(repository(request).scenario, project_id, scenario_id, user_id(request))
     if model.expected_scenario_version and current and current["version"] != model.expected_scenario_version:
         raise RevisionConflict()
+    if current:
+        project = await run_in_threadpool(repository(request).project, project_id, user_id(request))
+        state = await run_in_threadpool(
+            repository(request).get_for_user, project["simulation_id"], user_id(request)
+        ) if project else None
+        if state and state.get("workflow_mode") == "quick_demo":
+            raise StageConflict("Proyek ini tidak mendukung scenario run")
     try:
         run = await run_in_threadpool(
             repository(request).prepare_scenario_run, project_id, scenario_id, user_id(request), None, model.engine
@@ -665,9 +677,12 @@ async def create_run_interaction_v1(request: Request, run_id: str):
     run = await run_in_threadpool(repository(request).run, run_id, user_id(request))
     if not run:
         raise ResourceNotFound()
-    message = await run_in_threadpool(
-        service(request).interact, run["simulation_id"], model.model_dump(), user_id(request)
-    )
+    try:
+        message = await run_in_threadpool(
+            service(request).interact, run["simulation_id"], model.model_dump(), user_id(request)
+        )
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
     if not message:
         raise ResourceNotFound()
     return message | {"content": message.get("text", "")}
@@ -1028,9 +1043,12 @@ async def get_citations(request: Request, simulation_id: str):
 @router.post("/simulations/{simulation_id}/interviews")
 async def create_interview(request: Request, simulation_id: str):
     model = InterviewInput.model_validate(await silent_json(request))
-    result = await run_in_threadpool(
-        service(request).interview, simulation_id, model.question, model.persona_ids, user_id(request)
-    )
+    try:
+        result = await run_in_threadpool(
+            service(request).interview, simulation_id, model.question, model.persona_ids, user_id(request)
+        )
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
     if not result:
         raise ResourceNotFound()
     return JSONResponse(result, status_code=201)
@@ -1080,7 +1098,10 @@ async def list_graph_feedback(request: Request, simulation_id: str):
 @router.post("/interactions/{simulation_id}/messages")
 async def create_interaction(request: Request, simulation_id: str):
     model = InteractionInput.model_validate(await silent_json(request))
-    message = await run_in_threadpool(service(request).interact, simulation_id, model.model_dump(), user_id(request))
+    try:
+        message = await run_in_threadpool(service(request).interact, simulation_id, model.model_dump(), user_id(request))
+    except ValueError as error:
+        raise StageConflict(str(error)) from error
     if not message:
         raise ResourceNotFound()
     return JSONResponse(message, status_code=201)

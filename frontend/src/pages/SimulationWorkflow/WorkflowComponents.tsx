@@ -122,6 +122,7 @@ export function SystemConsole({ logs }: { logs: ConsoleLog[] }) {
 }
 
 export function StepCard({ number, task, state, progress = 0, className = "", children }: { number: number; task: WorkflowTask; state: StepRunStatus; progress?: number; className?: string; children?: React.ReactNode }) {
-  const label = state === "processing" ? `${progress}%` : stateLabels[state] ?? "Siap";
-  return <article className={`workflow-task ${state} ${className}`.trim()}><header><span className="task-number">{String(number).padStart(2, "0")}</span><h3>{task.title}</h3><span className={`task-badge ${state}`}>{label}</span></header><code>{task.operation}</code><p>{task.description}</p>{state === "processing" && <div className="task-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div>}{children}</article>;
+  const displayProgress = Math.round(progress);
+  const label = state === "processing" ? `${displayProgress}%` : stateLabels[state] ?? "Siap";
+  return <article className={`workflow-task ${state} ${className}`.trim()}><header><span className="task-number">{String(number).padStart(2, "0")}</span><h3>{task.title}</h3><span className={`task-badge ${state}`}>{label}</span></header><code>{task.operation}</code><p>{task.description}</p>{state === "processing" && <div className="task-progress" role="progressbar" aria-valuenow={displayProgress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${displayProgress}%` }} /></div>}{children}</article>;
 }

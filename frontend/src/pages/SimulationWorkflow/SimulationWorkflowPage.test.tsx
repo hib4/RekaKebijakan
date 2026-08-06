@@ -54,6 +54,7 @@ function renderWorkflow(entry: string) {
 
 describe("SimulationWorkflowPage live mode", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -431,11 +432,9 @@ describe("SimulationWorkflowPage live mode", () => {
 
     const profileCount = await screen.findByRole("spinbutton", { name: "Jumlah maksimum profil" });
     const rounds = screen.getByRole("spinbutton", { name: "Jumlah ronde simulasi" });
-    const llmToggle = screen.getByRole("checkbox", { name: "Perkaya setiap profil dengan LLM (lebih lambat)" });
-    const configLlmToggle = screen.getByRole("checkbox", { name: "Perkaya konfigurasi simulasi dengan LLM (lebih lambat)" });
     expect(profileCount).toHaveValue(10);
-    expect(llmToggle).not.toBeChecked();
-    expect(configLlmToggle).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Perkaya setiap profil dengan LLM (lebih lambat)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Perkaya konfigurasi simulasi dengan LLM (lebih lambat)" })).not.toBeInTheDocument();
     fireEvent.change(rounds, { target: { value: "10" } });
     await user.click(screen.getByRole("button", { name: "Siapkan lingkungan OASIS →" }));
 
@@ -447,5 +446,108 @@ describe("SimulationWorkflowPage live mode", () => {
       use_llm_for_config: false,
       parallel_profile_count: 5,
     }));
+  });
+
+  it("renders Simulasi Cepat through the standard five-step workflow", async () => {
+    const quick = snapshot("report");
+    quick.current_stage = "graph";
+    quick.workflow_mode = "quick_demo";
+    quick.demo_bundle_id = "registrasi-digital-umkm-v1";
+    quick.stages!.graph = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
+    quick.stages!.environment = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
+    quick.stages!.simulation = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
+    quick.stages!.report = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
+    quick.stages!.interaction = { status: "ready", progress: 0 };
+    quick.simulation = {
+      status: "completed",
+      event_count: 1,
+      events: [{
+        id: "quick-event-1",
+        round: 1,
+        time: "2026-08-06T09:00:00+07:00",
+        channel: "twitter",
+        persona: "Sari Wulandari",
+        group: "Pelaku usaha",
+        type: "CREATE_POST",
+        statement: "Pelaku usaha membutuhkan kepastian masa transisi.",
+        stance: "Netral",
+        concerns: ["Masa transisi"],
+        risk_narrative: "Ketidakpastian dapat menunda partisipasi.",
+        influence_source: "Pengumuman kebijakan",
+      }, {
+        id: "quick-event-2",
+        round: 1,
+        time: "2026-08-06T09:00:01+07:00",
+        channel: "reddit",
+        persona: "Ratna Prameswari",
+        group: "Pemerintah daerah",
+        type: "CREATE_POST",
+        statement: "Registrasi dibuka bertahap melalui meja bantuan kecamatan.",
+        stance: "Positif",
+        concerns: ["Akses layanan"],
+        risk_narrative: "Pelaku usaha membutuhkan pendampingan lokal.",
+        influence_source: "Publikasi pemerintah daerah",
+      }],
+    };
+    quick.report = {
+      status: "completed",
+      progress: 100,
+      title: "Laporan Simulasi Registrasi Digital UMKM",
+      sections: [{
+        id: "summary",
+        title: "Ringkasan Eksekutif",
+        paragraphs: ["Respons membaik setelah kepastian masa transisi dan layanan bergerak diumumkan."],
+        citations: [{ source_type: "event", source_id: "quick-event-1" }],
+      }],
+      risks: [],
+    };
+    let stageCalls = 0;
+    server.use(
+      http.get("/backend/api/simulations/quick-live", () => HttpResponse.json(quick)),
+      http.get("/backend/api/simulations/quick-live/runtime-graph", () => HttpResponse.json({ available: false })),
+      http.post("/backend/api/simulations/quick-live/stages/report/start", () => {
+        stageCalls += 1;
+        return HttpResponse.json({ ...quick, current_stage: "report", stages: { ...quick.stages, report: { status: "processing", progress: 0 } } });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWorkflow("/simulation/quick-live?step=graph&mode=workbench");
+
+    expect(await screen.findByRole("heading", { name: "Bangun graf kebijakan" })).toBeInTheDocument();
+    const stepper = screen.getByRole("navigation", { name: "Tahap workflow" });
+    expect(within(stepper).getByRole("button", { name: /Bangun Graf/ })).toHaveTextContent("0%");
+    expect(within(stepper).getByRole("button", { name: /Siapkan Lingkungan/ })).toHaveTextContent("Terkunci");
+    expect(within(stepper).getByRole("button", { name: /^03Simulasi/ })).toHaveTextContent("Terkunci");
+    expect(screen.queryByRole("button", { name: "Mulai membangun graf →" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Simulasi Cepat|dipercepat|dikonfigurasi|tur berpindah|presentasi terpandu|lewati animasi/i)).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Lanjut ke penyiapan lingkungan →" }));
+    expect(await screen.findByRole("heading", { name: "Siapkan lingkungan simulasi" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Siapkan lingkungan OASIS →" }));
+    await user.click(await screen.findByRole("button", { name: "Mulai simulasi →" }));
+    const simulationHeading = await screen.findByRole("heading", { name: "Pantau dinamika skenario" });
+    const simulationPane = simulationHeading.closest<HTMLElement>(".simulation-step")!;
+    simulationPane.style.overflowY = "auto";
+    const scrollTo = vi.fn();
+    simulationPane.scrollTo = scrollTo;
+    Object.defineProperties(simulationPane, {
+      scrollHeight: { configurable: true, value: 1800 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    await user.click(screen.getByRole("button", { name: "Mulai simulasi →" }));
+    const reportButton = await screen.findByRole("button", { name: "Buka laporan →" });
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 1800 })));
+    const reportStep = within(stepper).getByRole("button", { name: /Laporan/ });
+    expect(reportStep).toHaveTextContent("Terkunci");
+    expect(reportStep).toBeDisabled();
+    await user.click(reportButton);
+    expect(await screen.findByRole("heading", { name: "Susun laporan kebijakan" })).toBeInTheDocument();
+    expect(reportStep).toHaveTextContent("Siap");
+    expect(reportStep).toBeEnabled();
+    expect(stageCalls).toBe(0);
+    await user.click(screen.getByRole("button", { name: "Susun laporan →" }));
+    expect(await screen.findByText("Respons membaik setelah kepastian masa transisi dan layanan bergerak diumumkan.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Buka interaksi →" })).toBeInTheDocument();
+    expect(stageCalls).toBe(0);
   });
 });

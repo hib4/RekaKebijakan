@@ -125,6 +125,23 @@ describe("project creation API client", () => {
 
     await expect(result).rejects.toMatchObject({ status: 422, code: "invalid_document", message: "Dokumen tidak valid", details: { field: "files" } });
   });
+
+  it("submits the Quick Demo mode and bundle without files", () => {
+    vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
+    createProject({
+      projectName: "Registrasi Digital UMKM",
+      institution: "Dinas Koperasi dan UMKM",
+      objective: "Tinjau respons UMKM",
+      files: [],
+      workflowMode: "quick_demo",
+      demoBundleId: "registrasi-digital-umkm-v1",
+    });
+
+    const body = FakeXMLHttpRequest.latest.body as FormData;
+    expect(body.get("workflow_mode")).toBe("quick_demo");
+    expect(body.get("demo_bundle_id")).toBe("registrasi-digital-umkm-v1");
+    expect(body.getAll("files")).toHaveLength(0);
+  });
 });
 
 describe("workspace v1 API client", () => {

@@ -64,6 +64,8 @@ class Repository:
                 db.execute(insert(projects).values(
                     id=project["id"], owner_user_id=owner_user_id, name=project.get("name") or project["project_name"],
                     institution=project["institution"], objective=project["objective"], status="active",
+                    workflow_mode=state.get("workflow_mode", "full_simulation"),
+                    demo_bundle_id=state.get("demo_bundle_id"),
                     version=state.get("revision", 1), created_at=parse_timestamp(state["updated_at"]),
                     updated_at=parse_timestamp(state["updated_at"]),
                 ))
@@ -135,6 +137,8 @@ class Repository:
                     id=project["id"], owner_user_id=owner_user_id,
                     name=project.get("name") or project["project_name"], institution=project["institution"],
                     objective=project["objective"], idempotency_key=idempotency_key,
+                    workflow_mode=state.get("workflow_mode", "full_simulation"),
+                    demo_bundle_id=state.get("demo_bundle_id"),
                     status="active", version=state.get("revision", 1),
                     created_at=timestamp, updated_at=timestamp,
                 ))
@@ -164,6 +168,8 @@ class Repository:
                     ))
                 self._audit(db, owner_user_id, project["id"], "project.created", "project", project["id"], {
                     "file_count": len(document_values), "size_bytes": incoming_bytes,
+                    "workflow_mode": state.get("workflow_mode", "full_simulation"),
+                    "demo_bundle_id": state.get("demo_bundle_id"),
                 })
         except IntegrityError:
             existing = self.project_state_for_idempotency_key(owner_user_id, idempotency_key) if idempotency_key else None

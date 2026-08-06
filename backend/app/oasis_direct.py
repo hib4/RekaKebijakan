@@ -298,13 +298,16 @@ class DirectOasisEngine:
         completed: dict[str, bool] = {}
         rounds: dict[str, int] = {}
         next_offsets: dict[str, int] = {}
+        log_sizes: dict[str, int] = {}
         for platform in ("twitter", "reddit"):
-            records, next_offset = self._read_log(simulation_dir / platform / "actions.jsonl", offsets.get(platform, 0))
+            log_path = simulation_dir / platform / "actions.jsonl"
+            records, next_offset = self._read_log(log_path, offsets.get(platform, 0))
             next_offsets[platform] = next_offset
-            completed[platform] = any(item.get("event_type") == "simulation_end" for item in self._read_all_log(simulation_dir / platform / "actions.jsonl"))
+            log_sizes[platform] = self._file_size(log_path)
+            completed[platform] = any(item.get("event_type") == "simulation_end" for item in self._read_all_log(log_path))
             platform_actions = [item for item in records if "agent_id" in item and "event_type" not in item]
             base_sequence = sum(
-                1 for item in self._read_log_before(simulation_dir / platform / "actions.jsonl", offsets.get(platform, 0))
+                1 for item in self._read_log_before(log_path, offsets.get(platform, 0))
                 if "agent_id" in item and "event_type" not in item
             )
             for index, item in enumerate(platform_actions, base_sequence + 1):
@@ -314,9 +317,14 @@ class DirectOasisEngine:
                     json.dumps(item, sort_keys=True, ensure_ascii=False).encode()
                 ).hexdigest()
             actions.extend(platform_actions)
-            rounds[platform] = max((int(item.get("round", 0)) for item in self._read_all_log(simulation_dir / platform / "actions.jsonl")), default=0)
+            rounds[platform] = max((int(item.get("round", 0)) for item in self._read_all_log(log_path)), default=0)
         pid_alive = self._pid_alive(runtime.get("pid"))
-        progress_signature = f"{rounds.get('twitter', 0)}:{rounds.get('reddit', 0)}:{completed.get('twitter', False)}:{completed.get('reddit', False)}"
+        progress_signature = ":".join(str(item) for item in (
+            rounds.get("twitter", 0), rounds.get("reddit", 0),
+            completed.get("twitter", False), completed.get("reddit", False),
+            log_sizes.get("twitter", 0), log_sizes.get("reddit", 0),
+            self._file_size(simulation_dir / "simulation.log"),
+        ))
         if runtime.get("last_progress_signature") != progress_signature:
             runtime["last_progress_signature"] = progress_signature
             runtime["last_progress_at"] = time.time()
@@ -345,7 +353,7 @@ class DirectOasisEngine:
         elif stale_seconds and time.time() - float(runtime.get("last_progress_at", time.time())) > float(stale_seconds):
             self.stop_simulation(simulation_id)
             runtime["runner_status"] = "failed"
-            runtime["error"] = "OASIS simulation made no round progress before its stale timeout"
+            runtime["error"] = "OASIS simulation made no observable progress before its stale timeout"
         generated_config = self._read_json(simulation_dir / "simulation_config.json")
         natural_rounds = int(generated_config.get("time_config", {}).get("total_simulation_hours", 1) * 60 / max(1, generated_config.get("time_config", {}).get("minutes_per_round", 60)))
         total_rounds = max(1, int(runtime.get("max_rounds") or natural_rounds))
@@ -607,6 +615,13 @@ class DirectOasisEngine:
             except json.JSONDecodeError:
                 continue
         return records
+
+    @staticmethod
+    def _file_size(path: Path) -> int:
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
 
     @staticmethod
     def _read_text_tail(path: Path, limit: int = 2000) -> str:

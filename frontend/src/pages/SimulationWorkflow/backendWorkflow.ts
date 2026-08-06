@@ -146,6 +146,7 @@ export function mapBackendSnapshot(snapshot: ApiSimulationSnapshot, simulationId
     const number = (index + 1) as WorkflowStep;
     const dto = stage(snapshot, index);
     let stepStatus = status(dto.status);
+    if (dto.execution_kind === "accelerated_fixture" && index < 3) stepStatus = "completed";
     if (!dto.status && index === 0) stepStatus = "ready";
     session.steps[number] = {
       status: stepStatus,

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { createProject } from "../../api/client";
 import { AppShell } from "../../components/AppShell/AppShell";
 import { saveProjectIntake } from "../SimulationWorkflow/projectIntake";
+import { clearQuickPresentationSession } from "../SimulationWorkflow/workflowSession";
 import "./ProjectWizard.css";
 
 const workflow = [
@@ -17,6 +18,13 @@ const workflow = [
 const acceptedExtensions = new Set(["pdf", "md", "txt", "docx"]);
 const maxFiles = 20;
 const maxFileBytes = 16 * 1024 * 1024;
+const quickDemoBundleId = "registrasi-digital-umkm-v1";
+const quickDemoMetadata = {
+  projectName: "Registrasi Digital UMKM",
+  institution: "Dinas Koperasi dan UMKM",
+  objective: "Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital, dan narasi risiko apa yang perlu diklarifikasi?",
+};
+type WorkflowMode = "full_simulation" | "quick_demo";
 
 type SubmitPhase = "idle" | "preparing" | "uploading" | "processing" | "opening";
 
@@ -31,9 +39,10 @@ const phaseLabels: Record<SubmitPhase, string> = {
 export default function ProjectWizardPage() {
   const navigate = useNavigate();
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
-  const [projectName, setProjectName] = useState(demoMode ? "Registrasi Digital UMKM" : "");
-  const [institution, setInstitution] = useState(demoMode ? "Dinas Koperasi dan UMKM" : "");
-  const [objective, setObjective] = useState(demoMode ? "Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital, dan narasi risiko apa yang perlu diklarifikasi?" : "");
+  const [projectName, setProjectName] = useState(quickDemoMetadata.projectName);
+  const [institution, setInstitution] = useState(quickDemoMetadata.institution);
+  const [objective, setObjective] = useState(quickDemoMetadata.objective);
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("quick_demo");
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -54,6 +63,26 @@ export default function ProjectWizardPage() {
   const markFormChanged = () => {
     idempotencyKeyRef.current = null;
     setError("");
+  };
+  const selectWorkflowMode = (mode: WorkflowMode) => {
+    if (submitting) return;
+    setWorkflowMode(mode);
+    if (mode === "quick_demo") {
+      setProjectName(quickDemoMetadata.projectName);
+      setInstitution(quickDemoMetadata.institution);
+      setObjective(quickDemoMetadata.objective);
+      setFiles([]);
+      setFileError("");
+    } else if (
+      projectName === quickDemoMetadata.projectName &&
+      institution === quickDemoMetadata.institution &&
+      objective === quickDemoMetadata.objective
+    ) {
+      setProjectName("");
+      setInstitution("");
+      setObjective("");
+    }
+    markFormChanged();
   };
 
   const addFiles = (list: FileList | null) => {
@@ -82,7 +111,7 @@ export default function ProjectWizardPage() {
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (submitLockRef.current || !projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0) return;
+    if (submitLockRef.current || !projectName.trim() || !institution.trim() || !objective.trim() || (workflowMode === "full_simulation" && files.length === 0)) return;
     submitLockRef.current = true;
     setSubmitting(true);
     setSubmitPhase("preparing");
@@ -93,7 +122,7 @@ export default function ProjectWizardPage() {
     idempotencyKeyRef.current ??= globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
     try {
       const result = await createProject(
-        { projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files },
+        { projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files, workflowMode, demoBundleId: workflowMode === "quick_demo" ? quickDemoBundleId : undefined },
         {
           idempotencyKey: idempotencyKeyRef.current,
           signal: controller.signal,
@@ -109,6 +138,8 @@ export default function ProjectWizardPage() {
       );
       const simulationId = result.simulation_id || result.id;
       if (!simulationId) throw new Error("Backend tidak mengembalikan simulation_id.");
+      if (workflowMode === "quick_demo")
+        clearQuickPresentationSession(simulationId);
       if (demoMode) {
         saveProjectIntake({ simulationId, projectName: projectName.trim(), institution: institution.trim(), domain: "Kebijakan publik", region: "Indonesia", period: "2026", purpose: objective.trim(), question: objective.trim(), policySource: files.map((file) => file.name).join(", "), framing: {}, createdAt: new Date().toISOString() });
       }
@@ -135,25 +166,38 @@ export default function ProjectWizardPage() {
       </aside>
       <form className="create-project-console" onSubmit={submit} aria-busy={submitting}>
         <div className="create-console-header"><span>PROJECT INPUT</span><span>FLASK API</span></div>
+        <fieldset className="workflow-mode-selector">
+          <legend>Pilih cara memulai</legend>
+          <div className="workflow-mode-options">
+            <label className={workflowMode === "quick_demo" ? "selected" : ""}>
+              <input type="radio" name="workflow-mode" value="quick_demo" checked={workflowMode === "quick_demo"} onChange={() => selectWorkflowMode("quick_demo")} disabled={submitting} />
+              <span><b>Simulasi Cepat <em>Direkomendasikan</em></b><small>Jelajahi skenario Registrasi Digital UMKM.</small></span>
+            </label>
+            <label className={workflowMode === "full_simulation" ? "selected" : ""}>
+              <input type="radio" name="workflow-mode" value="full_simulation" checked={workflowMode === "full_simulation"} onChange={() => selectWorkflowMode("full_simulation")} disabled={submitting} />
+              <span><b>Simulasi lengkap</b><small>Unggah sumber sendiri dan jalankan seluruh tahap dari awal.</small></span>
+            </label>
+          </div>
+        </fieldset>
         <div className="create-fields">
-          <label className="field"><span>Nama proyek</span><input value={projectName} onChange={(event) => { setProjectName(event.target.value); markFormChanged(); }} required disabled={submitting} /></label>
-          <label className="field"><span>Instansi/tim</span><input value={institution} onChange={(event) => { setInstitution(event.target.value); markFormChanged(); }} required disabled={submitting} /></label>
+          <label className="field"><span>Nama proyek</span><input value={projectName} onChange={(event) => { setProjectName(event.target.value); markFormChanged(); }} required disabled={submitting || workflowMode === "quick_demo"} /></label>
+          <label className="field"><span>Instansi/tim</span><input value={institution} onChange={(event) => { setInstitution(event.target.value); markFormChanged(); }} required disabled={submitting || workflowMode === "quick_demo"} /></label>
         </div>
-        <section className="create-console-section">
+        {workflowMode === "full_simulation" ? <section className="create-console-section">
           <header><b>SUMBER KEBIJAKAN</b><span>PDF, DOCX, MD, TXT</span></header>
           <div className={`project-upload-zone ${dragging ? "dragging" : ""} ${files.length ? "has-files" : ""}`} onDragOver={(event: DragEvent) => { event.preventDefault(); if (!submitting) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event: DragEvent) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
             <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.md,.txt" onChange={(event: ChangeEvent<HTMLInputElement>) => addFiles(event.target.files)} disabled={submitting} aria-describedby="project-file-help project-file-error" />
             {files.length === 0 ? <><strong aria-hidden="true">↑</strong><button className="project-upload-picker" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Tarik dokumen ke sini atau pilih berkas</button><span id="project-file-help">Maksimal 20 berkas PDF, DOCX, MD, atau TXT; masing-masing hingga 16 MB.</span></> : <><div className="project-file-list">{files.map((file) => <span key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name}<button type="button" disabled={submitting} aria-label={`Hapus ${file.name}`} onClick={() => { setFiles((current) => current.filter((item) => item !== file)); setFileError(""); markFormChanged(); }}>×</button></span>)}</div><button className="project-upload-picker add-more" type="button" onClick={() => inputRef.current?.click()} disabled={submitting || files.length >= maxFiles}>Tambah berkas</button></>}
           </div>
           <p id="project-file-error" className="file-rejection" role="alert">{fileError}</p>
-        </section>
+        </section> : <section className="quick-demo-source" aria-label="Sumber Simulasi Cepat"><b>Registrasi Digital UMKM</b><p>Telusuri graf kebijakan, persona sintetis, dinamika respons, laporan, dan interaksi dalam satu alur.</p></section>}
         <section className="create-console-section">
           <header><b>TUJUAN SIMULASI</b><span>PERTANYAAN ANALISIS</span></header>
-          <textarea value={objective} onChange={(event) => { setObjective(event.target.value); markFormChanged(); }} rows={7} required disabled={submitting} placeholder="Jelaskan hal yang ingin diuji melalui simulasi skenario..." />
+          <textarea value={objective} onChange={(event) => { setObjective(event.target.value); markFormChanged(); }} rows={7} required disabled={submitting || workflowMode === "quick_demo"} placeholder="Jelaskan hal yang ingin diuji melalui simulasi skenario..." />
         </section>
         {error && <p className="inline-alert error" role="alert">{error}</p>}
         {submitting && <div className="create-submit-status"><div className="create-submit-status-heading" aria-live="polite" aria-atomic="true"><b>{phaseLabels[submitPhase]}</b><span>{submitPhase === "uploading" ? `${uploadProgress}%` : submitPhase === "processing" ? "Memproses" : ""}</span></div><div className={`create-upload-progress ${submitPhase !== "uploading" ? "indeterminate" : ""}`} role="progressbar" aria-label="Progres pembuatan proyek" aria-valuemin={0} aria-valuemax={100} aria-valuenow={submitPhase === "uploading" ? uploadProgress : undefined}><span style={{ width: `${submitPhase === "uploading" ? uploadProgress : 100}%` }} /></div></div>}
-        <button className={`button primary create-project-submit ${submitting ? "loading" : ""}`} type="submit" disabled={submitting || !projectName.trim() || !institution.trim() || !objective.trim() || files.length === 0}><span>Buat Proyek &amp; Bangun Graf →</span>{submitting && <small>{phaseLabels[submitPhase]}</small>}</button>
+        <button className={`button primary create-project-submit ${submitting ? "loading" : ""}`} type="submit" disabled={submitting || !projectName.trim() || !institution.trim() || !objective.trim() || (workflowMode === "full_simulation" && files.length === 0)}><span>{workflowMode === "quick_demo" ? "Mulai Simulasi Cepat →" : "Buat Proyek & Bangun Graf →"}</span>{submitting && <small>{phaseLabels[submitPhase]}</small>}</button>
       </form>
     </section>
   </AppShell>;

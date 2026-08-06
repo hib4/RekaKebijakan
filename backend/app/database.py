@@ -40,6 +40,8 @@ projects = Table(
     Column("name", String, nullable=False),
     Column("institution", String, nullable=False),
     Column("objective", Text, nullable=False),
+    Column("workflow_mode", String, nullable=False, server_default="full_simulation"),
+    Column("demo_bundle_id", String, nullable=True),
     Column("idempotency_key", String(255), nullable=True),
     Column("status", String, nullable=False, server_default="active"),
     Column("version", Integer, nullable=False, server_default="1"),
@@ -49,6 +51,12 @@ projects = Table(
     Column("delete_after", DateTime(timezone=True), nullable=True),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
     CheckConstraint("status IN ('draft','active','archived','pending_delete','deleted')", name="projects_status_valid"),
+    CheckConstraint("workflow_mode IN ('quick_demo','full_simulation')", name="projects_workflow_mode_valid"),
+    CheckConstraint(
+        "(workflow_mode = 'quick_demo' AND demo_bundle_id = 'registrasi-digital-umkm-v1') OR "
+        "(workflow_mode = 'full_simulation' AND demo_bundle_id IS NULL)",
+        name="projects_demo_bundle_valid",
+    ),
 )
 Index("projects_owner_updated", projects.c.owner_user_id, projects.c.updated_at.desc())
 Index("projects_owner_status", projects.c.owner_user_id, projects.c.status)

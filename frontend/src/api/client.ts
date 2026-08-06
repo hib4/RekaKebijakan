@@ -22,6 +22,7 @@ export type ApiStageDto = {
   error?: string;
   stale?: boolean;
   stale_reason?: string;
+  execution_kind?: "accelerated_fixture" | string;
 };
 
 export type ApiCitationDto = {
@@ -194,7 +195,14 @@ export type ApiSimulationSnapshot = {
     institution?: string;
     objective?: string;
     question?: string;
+    workflow?: ApiWorkflowDto;
+    bundle?: ApiDemoBundleDto;
   };
+  workflow?: ApiWorkflowDto;
+  workflow_mode?: "quick_demo" | "full_simulation";
+  demo_bundle_id?: string;
+  bundle?: ApiDemoBundleDto;
+  demo_bundle?: ApiDemoBundleDto;
   stages?: Partial<Record<ApiStageName, ApiStageDto>>;
   graph?: ApiStageDto & ApiGraphStreamMetadata & {
     nodes?: ApiGraphNodeDto[];
@@ -290,6 +298,23 @@ export type CreateProjectInput = {
   institution: string;
   objective: string;
   files: File[];
+  workflowMode?: "quick_demo" | "full_simulation";
+  demoBundleId?: string;
+};
+
+export type ApiDemoBundleDto = {
+  id?: string;
+  name?: string;
+  title?: string;
+  version?: string;
+  description?: string;
+};
+
+export type ApiWorkflowDto = {
+  mode?: "quick_demo" | "full_simulation";
+  bundle?: ApiDemoBundleDto;
+  bundle_id?: string;
+  demo_bundle_id?: string;
 };
 
 export type CreateProjectOptions = {
@@ -388,6 +413,8 @@ export function createProject(input: CreateProjectInput, options: CreateProjectO
   body.append("project_name", input.projectName);
   body.append("institution", input.institution);
   body.append("objective", input.objective);
+  body.append("workflow_mode", input.workflowMode ?? "full_simulation");
+  if (input.demoBundleId) body.append("demo_bundle_id", input.demoBundleId);
   input.files.forEach((file) => body.append("files", file, file.name));
   const path = "/api/projects";
 
@@ -571,6 +598,10 @@ export type ApiProject = {
   updated_at: string;
   created_at: string;
   archived_at: string | null;
+  workflow_mode?: "quick_demo" | "full_simulation";
+  demo_bundle_id?: string;
+  workflow?: ApiWorkflowDto;
+  bundle?: ApiDemoBundleDto;
 };
 
 export type ApiDocument = {

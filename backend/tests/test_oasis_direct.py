@@ -574,6 +574,33 @@ def test_dead_child_reports_step_timeout_before_stale_timeout(monkeypatch, tmp_p
     assert "made no round progress" not in status["error"]
 
 
+def test_same_round_file_activity_refreshes_stale_timeout(monkeypatch, tmp_path: Path):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    simulation = tmp_path / "data" / "sim-1"
+    (simulation / "twitter").mkdir(parents=True)
+    (simulation / "reddit").mkdir(parents=True)
+    (simulation / "simulation_config.json").write_text("{}", encoding="utf-8")
+    (simulation / "direct_runtime.json").write_text(json.dumps({
+        "pid": 123, "runner_status": "running", "started_at": time.time() - 200,
+        "last_progress_at": time.time() - 200,
+        "last_progress_signature": "0:0:false:false:0:0:0",
+        "stale_timeout_seconds": 150, "max_run_seconds": 3600, "max_rounds": 10,
+    }), encoding="utf-8")
+    (simulation / "twitter" / "actions.jsonl").write_text(
+        json.dumps({"event_type": "round_start", "round": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (simulation / "simulation.log").write_text("still initializing model\n", encoding="utf-8")
+    engine = DirectOasisEngine(runtime, tmp_path / "data")
+    monkeypatch.setattr(engine, "_pid_alive", lambda _pid: True)
+
+    status = engine.simulation_snapshot("sim-1")["status"]
+
+    assert status["runner_status"] == "running"
+    assert "error" not in status
+
+
 def test_oasis_projection_preserves_initial_round():
     event = normalize_action(
         {"platform": "twitter", "round_num": 0, "agent_id": 1, "agent_name": "A", "action_type": "CREATE_POST",

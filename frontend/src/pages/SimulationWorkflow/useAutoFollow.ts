@@ -33,10 +33,16 @@ export function useAutoFollow<T extends HTMLElement>(
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
       if (options.force) followingRef.current = true;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      const settleToBottom = () => {
+        if (autoScrollingRef.current && followingRef.current) {
+          container.scrollTop = container.scrollHeight;
+        }
+      };
 
       const scroll = () => {
         if (!followingRef.current) return;
-        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         const overflowY = window.getComputedStyle(container).overflowY;
         autoScrollingRef.current = true;
         if (overflowY === "auto" || overflowY === "scroll") {
@@ -52,18 +58,31 @@ export function useAutoFollow<T extends HTMLElement>(
           });
         }
         settleTimerRef.current = window.setTimeout(() => {
-          if (autoScrollingRef.current && followingRef.current) {
-            container.scrollTop = container.scrollHeight;
-          }
+          settleToBottom();
+          window.setTimeout(settleToBottom, reducedMotion ? 0 : 360);
+          window.setTimeout(() => {
+            settleToBottom();
+            autoScrollingRef.current = false;
+            updateFollowing();
+          }, reducedMotion ? 0 : 760);
+        }, reducedMotion ? 0 : 420);
+      };
+
+      const delayedSettle = () => {
+        window.setTimeout(() => {
+          settleToBottom();
           autoScrollingRef.current = false;
           updateFollowing();
-        }, reducedMotion ? 0 : 320);
+        }, reducedMotion ? 0 : 1180);
       };
 
       frameRef.current = window.requestAnimationFrame(() => {
         frameRef.current = window.requestAnimationFrame(scroll);
       });
-      timerRef.current = window.setTimeout(scroll, 280);
+      timerRef.current = window.setTimeout(() => {
+        scroll();
+        delayedSettle();
+      }, 280);
     };
 
     const resizeObserver = new ResizeObserver(followBottom);

@@ -57,6 +57,7 @@ import {
   formatTime,
   highestUnlockedStep,
   loadWorkflowSession,
+  quickPresentationSessionKey,
   saveWorkflowSession,
 } from "./workflowSession";
 import type { InteractionMessage, WorkflowSession } from "./workflowSession";
@@ -118,6 +119,74 @@ const reportTasks = [
   "Selesai",
 ];
 
+const quickStageTickMs = import.meta.env.MODE === "test" ? 5 : 500;
+const quickPersonaTickMs = import.meta.env.MODE === "test" ? 5 : 850;
+const quickEventTickMs = import.meta.env.MODE === "test" ? 5 : 1000;
+const quickReportTickMs = import.meta.env.MODE === "test" ? 5 : 180;
+const quickPresentationVersion = 2;
+
+function initialQuickPresentation(session: WorkflowSession): WorkflowSession {
+  return {
+    ...session,
+    currentStep: 1,
+    steps: {
+      ...session.steps,
+      1: {
+        status: "processing",
+        progress: 0,
+        activeTask: graphTasks[0].title,
+        startedAt: new Date().toISOString(),
+      },
+      2: { status: "locked", progress: 0, activeTask: null },
+      3: { status: "locked", progress: 0, activeTask: null },
+      4: { status: "locked", progress: 0, activeTask: null },
+      5: { status: "locked", progress: 0, activeTask: null },
+    },
+    graph: { ...session.graph, nodeCount: 0, edgeCount: 0 },
+    environment: { ...session.environment, personaCount: 0 },
+    simulation: { ...session.simulation, status: "ready", eventCount: 0 },
+    report: {
+      ...session.report,
+      progress: 0,
+      sections: [],
+      timestamps: [],
+      completedAt: undefined,
+    },
+    logs: [
+      {
+        id: "graph-started",
+        time: formatTime(),
+        level: "INFO",
+        message: "Tahap graph masuk antrean",
+      },
+    ],
+  };
+}
+
+function loadQuickPresentation(simulationId: string) {
+  try {
+    const value = sessionStorage.getItem(
+      quickPresentationSessionKey(simulationId),
+    );
+    if (!value) return null;
+    const stored = JSON.parse(value) as {
+      version?: number;
+      session?: WorkflowSession;
+    };
+    const session = stored.session;
+    if (
+      stored.version !== quickPresentationVersion ||
+      !session ||
+      session.simulationId !== simulationId ||
+      session.steps[1].status === "ready"
+    )
+      return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 function stepQuery(step: WorkflowStep) {
   return ["graph", "environment", "simulation", "report", "interaction"][
     step - 1
@@ -165,6 +234,28 @@ function taskState(progress: number, index: number, running: boolean) {
     return "completed" as const;
   if (running && progress >= start) return "processing" as const;
   return "ready" as const;
+}
+
+function environmentTaskState(progress: number, index: number, running: boolean) {
+  if (index === 0) {
+    if (progress >= 50) return "completed" as const;
+    return running ? "processing" as const : "ready" as const;
+  }
+  if (index === 1) {
+    if (progress >= 85) return "completed" as const;
+    if (running && progress >= 50) return "processing" as const;
+    return "ready" as const;
+  }
+  if (progress === 100) return "completed" as const;
+  if (running && progress >= 85) return "processing" as const;
+  return "ready" as const;
+}
+
+function environmentTaskProgress(progress: number, index: number) {
+  if (index === 0) return Math.min(100, Math.max(0, progress * 2));
+  if (index === 1)
+    return Math.min(100, Math.max(0, ((progress - 50) / 35) * 100));
+  return Math.min(100, Math.max(0, ((progress - 85) / 15) * 100));
 }
 
 function hydrateSession(simulationId: string, demo: DemoCase): WorkflowSession {
@@ -237,6 +328,7 @@ function GraphBuildStep({
   relationTypes,
   start,
   next,
+  autoStart = false,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
@@ -244,6 +336,7 @@ function GraphBuildStep({
   relationTypes: string[];
   start: () => void;
   next: () => void;
+  autoStart?: boolean;
 }) {
   const step = session.steps[1];
   const scrollRef = useAutoFollow<HTMLDivElement>(
@@ -326,7 +419,7 @@ function GraphBuildStep({
           )}
         </StepCard>
       ))}
-      {step.status === "ready" && (
+      {step.status === "ready" && !autoStart && (
         <button className="button primary start-action" onClick={start}>
           Mulai membangun graf →
         </button>
@@ -346,12 +439,8 @@ function EnvironmentStep({
   start,
   maxProfileCount,
   rounds,
-  useLlmForProfiles,
-  useLlmForConfig,
   onMaxProfileCountChange,
   onRoundsChange,
-  onUseLlmForProfilesChange,
-  onUseLlmForConfigChange,
   next,
 }: {
   demo: DemoCase;
@@ -359,12 +448,8 @@ function EnvironmentStep({
   start: () => void;
   maxProfileCount: number;
   rounds: number;
-  useLlmForProfiles: boolean;
-  useLlmForConfig: boolean;
   onMaxProfileCountChange: (value: number) => void;
   onRoundsChange: (value: number) => void;
-  onUseLlmForProfilesChange: (value: boolean) => void;
-  onUseLlmForConfigChange: (value: boolean) => void;
   next: () => void;
 }) {
   const step = session.steps[2];
@@ -380,6 +465,7 @@ function EnvironmentStep({
     : 0;
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${step.status}-${step.progress}-${session.environment.personaCount}`,
+    { force: step.status === "processing" },
   );
   return (
     <div className="step-scroll" ref={scrollRef}>
@@ -397,11 +483,12 @@ function EnvironmentStep({
           key={task.title}
           number={index + 1}
           task={task}
-          state={taskState(step.progress, index, step.status === "processing")}
-          progress={Math.min(
-            100,
-            Math.max(0, (step.progress - index * 33) * 3),
+          state={environmentTaskState(
+            step.progress,
+            index,
+            step.status === "processing",
           )}
+          progress={environmentTaskProgress(step.progress, index)}
         >
           {index === 0 && step.progress > 0 && (
             <>
@@ -459,15 +546,15 @@ function EnvironmentStep({
             <>
               <div className="config-controls">
                 <span>
-                  <small>Generated rounds</small>
+                  <small>Generated rounds: </small>
                   <b>{session.environment.rounds}</b>
                 </span>
                 <span>
-                  <small>Simulated time</small>
+                  <small>Simulated time: </small>
                   <b>{session.environment.totalSimulationHours ?? "–"} jam</b>
                 </span>
                 <span>
-                  <small>Time step</small>
+                  <small>Time step: </small>
                   <b>
                     {session.environment.minutesPerRound ?? "–"} menit/round
                   </b>
@@ -528,26 +615,6 @@ function EnvironmentStep({
                 )
               }
             />
-          </label>
-          <label className="profile-llm-toggle">
-            <input
-              type="checkbox"
-              checked={useLlmForProfiles}
-              onChange={(event) =>
-                onUseLlmForProfilesChange(event.target.checked)
-              }
-            />
-            <span>Perkaya setiap profil dengan LLM (lebih lambat)</span>
-          </label>
-          <label className="profile-llm-toggle">
-            <input
-              type="checkbox"
-              checked={useLlmForConfig}
-              onChange={(event) =>
-                onUseLlmForConfigChange(event.target.checked)
-              }
-            />
-            <span>Perkaya konfigurasi simulasi dengan LLM (lebih lambat)</span>
           </label>
           <button className="button primary start-action" onClick={start}>
             Siapkan lingkungan OASIS →
@@ -823,11 +890,12 @@ function SimulationStep({
     run.status === "failed" ||
     run.status === "cancelled" ||
     run.status === "stale";
-  const feedRef = useAutoFollow<HTMLDivElement>(
+  const scrollRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
+    { force: run.status === "running" || run.status === "completed" },
   );
   return (
-    <div className="step-scroll simulation-step">
+    <div className="step-scroll simulation-step" ref={scrollRef}>
       <header className="simulation-run-header">
         <div className="step-intro">
           <span>TAHAP 3/5 · SIMULASI PERSONA SINTETIS</span>
@@ -857,9 +925,6 @@ function SimulationStep({
               eksplorasi skenario, bukan prediksi opini publik.
             </p>
           </div>
-          <button className="button primary" onClick={start}>
-            Mulai simulasi →
-          </button>
         </section>
       )}
 
@@ -1044,7 +1109,6 @@ function SimulationStep({
       </div>
       <div
         className="event-feed"
-        ref={feedRef}
         aria-live="polite"
         aria-label="Linimasa event simulasi"
       >
@@ -1097,8 +1161,14 @@ function SimulationStep({
                 ? "Tinjau konfigurasi di atas, lalu mulai simulasi saat siap."
                 : "Event, pengaruh, dan perubahan risiko akan muncul di linimasa ini."}
             </p>
+            {run.status === "ready" && (
+              <button className="button primary" onClick={start}>
+                Mulai simulasi →
+              </button>
+            )}
           </div>
         )}
+        <div className="timeline-bottom" aria-hidden="true" />
       </div>
       {run.status === "completed" && (
         <div className="simulation-complete-action">
@@ -1990,9 +2060,14 @@ export default function SimulationWorkflowPage() {
       ? hydrateSession(simulationId, resolvedDemo)
       : createWorkflowSession(simulationId, "Simulasi kebijakan"),
   );
+  const presentationData = useEffectEvent(() => ({
+    demo: resolvedDemo,
+    project,
+  }));
   const [backendLoading, setBackendLoading] = useState(!localMode);
   const [backendLoaded, setBackendLoaded] = useState(localMode);
   const [backendError, setBackendError] = useState("");
+  const [isQuickDemo, setIsQuickDemo] = useState(false);
   const [runtimeDemo, setRuntimeDemo] = useState<DemoCase | null>(null);
   const [runtimeMappingStatus, setRuntimeMappingStatus] = useState("");
   const [policyOntology, setPolicyOntology] = useState<{
@@ -2003,6 +2078,7 @@ export default function SimulationWorkflowPage() {
     "policy",
   );
   const backendSnapshotRef = useRef<ApiSimulationSnapshot | null>(null);
+  const quickPresentationInitialized = useRef(false);
   const runtimeGraphRef = useRef<Extract<
     ApiRuntimeGraph,
     { available: true }
@@ -2017,18 +2093,30 @@ export default function SimulationWorkflowPage() {
   const [requestedRounds, setRequestedRounds] = useState<number | null>(null);
   const effectiveRequestedRounds =
     requestedRounds ?? session.environment.rounds;
-  const [useLlmForProfiles, setUseLlmForProfiles] = useState(false);
-  const [useLlmForConfig, setUseLlmForConfig] = useState(false);
+  const useLlmForProfiles = false;
+  const useLlmForConfig = false;
   const latest = useEffectEvent((next: WorkflowSession) => {
     if (localMode) saveWorkflowSession(next);
   });
   useEffect(() => {
     latest(session);
   }, [session]);
+  useEffect(() => {
+    if (!isQuickDemo || !quickPresentationInitialized.current) return;
+    sessionStorage.setItem(
+      quickPresentationSessionKey(simulationId),
+      JSON.stringify({ version: quickPresentationVersion, session }),
+    );
+  }, [isQuickDemo, session, simulationId]);
 
   const applyBackendSnapshot = useCallback(
     (snapshot: Awaited<ReturnType<typeof getSimulation>>) => {
       backendSnapshotRef.current = snapshot;
+      const quickDemo =
+        (snapshot.workflow?.mode ?? snapshot.workflow_mode) === "quick_demo";
+      setIsQuickDemo(quickDemo);
+      if (quickDemo)
+        setMaxProfileCount(snapshot.environment?.persona_count ?? 30);
       setPolicyOntology({
         entityTypes:
           snapshot.ontology?.entity_types?.map((type) => type.name) ?? [],
@@ -2038,6 +2126,40 @@ export default function SimulationWorkflowPage() {
       setSession((current) => {
         const mapped = mapBackendSnapshot(snapshot, simulationId, current);
         setResolvedDemo(mapped.demo);
+        if (quickDemo) {
+          const presentation = quickPresentationInitialized.current
+            ? current
+            : loadQuickPresentation(simulationId) ??
+              initialQuickPresentation(mapped.session);
+          quickPresentationInitialized.current = true;
+          return reconcileRoute(
+            {
+              ...mapped.session,
+              currentStep: presentation.currentStep,
+              viewMode: presentation.viewMode,
+              steps: {
+                ...mapped.session.steps,
+                1: presentation.steps[1],
+                2: presentation.steps[2],
+                3: presentation.steps[3],
+                4: presentation.steps[4],
+                5: presentation.steps[5],
+              },
+              graph: presentation.graph,
+              environment: presentation.environment,
+              simulation: presentation.simulation,
+              report:
+                presentation.currentStep <= 4
+                  ? presentation.report
+                  : mapped.session.report,
+              logs:
+                presentation.currentStep <= 4
+                  ? presentation.logs
+                  : mapped.session.logs,
+            },
+            location.search,
+          );
+        }
         return reconcileRoute(mapped.session, location.search);
       });
       setBackendError("");
@@ -2159,11 +2281,11 @@ export default function SimulationWorkflowPage() {
     onEvent: handleStreamEvent,
   });
   const backendPolling =
-    (!localMode &&
+    (!localMode && !isQuickDemo &&
       Object.values(session.steps).some(
         (item) => item.status === "processing",
       )) ||
-    (!localMode && session.simulation.status === "running");
+    (!localMode && !isQuickDemo && session.simulation.status === "running");
   useEffect(() => {
     if (!backendPolling || stream.healthy) return;
     let cancelled = false;
@@ -2203,6 +2325,10 @@ export default function SimulationWorkflowPage() {
   ]);
 
   const updateWorkflow = (next: WorkflowSession) => {
+    if (isQuickDemo) {
+      setSession(next);
+      return;
+    }
     if (!localMode && session.simulation.status !== next.simulation.status) {
       const action =
         next.simulation.status === "paused"
@@ -2255,6 +2381,22 @@ export default function SimulationWorkflowPage() {
       `/simulation/${simulationId}?step=${stepQuery(step)}&mode=${mode}`,
     );
   };
+  const openReport = () => {
+    if (!isQuickDemo) {
+      goStep(4);
+      return;
+    }
+    setSession((current) => ({
+      ...current,
+      currentStep: 4,
+      steps: {
+        ...current.steps,
+        4: { ...current.steps[4], status: "ready" },
+      },
+    }));
+    document.title = `${resolvedDemo.title} · report · RekaKebijakan`;
+    navigate(`/simulation/${simulationId}?step=report&mode=workbench`);
+  };
   const setMode = (mode: ViewMode) => {
     if (session.currentStep >= 4) return;
     setSession((current) => ({ ...current, viewMode: mode }));
@@ -2271,14 +2413,58 @@ export default function SimulationWorkflowPage() {
     return () => window.clearTimeout(timer);
   }, [location.search]);
 
+  const quickGraphStatus = session.steps[1].status;
+  const startQuickGraph = useEffectEvent(() => {
+    setSession((current) => ({
+      ...current,
+      steps: {
+        ...current.steps,
+        1: {
+          ...current.steps[1],
+          status: "processing",
+          progress: 0,
+          activeTask: graphTasks[0].title,
+          startedAt: new Date().toISOString(),
+        },
+      },
+    }));
+  });
   useEffect(() => {
-    if (!localMode) return;
-    const step = session.currentStep;
-    const state = session.steps[step];
-    if (state.status !== "processing" || step === 3) return;
-    const delay = step === 1 ? 360 : step === 2 ? 380 : 330;
+    if (!isQuickDemo || session.currentStep !== 1) return;
+    if (quickGraphStatus !== "ready" && quickGraphStatus !== "locked") return;
+    const timer = window.setTimeout(startQuickGraph, 0);
+    return () => window.clearTimeout(timer);
+  }, [isQuickDemo, quickGraphStatus, session.currentStep]);
+
+  const activePresentationStep = session.currentStep;
+  const activePresentationStatus = session.steps[activePresentationStep].status;
+  const activePresentationProgress = session.steps[activePresentationStep].progress;
+  useEffect(() => {
+    if (!localMode && !isQuickDemo) return;
+    const step = activePresentationStep;
+    if (
+      activePresentationStatus !== "processing" ||
+      step === 3 ||
+      (isQuickDemo && step > 4)
+    )
+      return;
+    const delay = isQuickDemo
+      ? step === 4
+        ? quickReportTickMs
+        : step === 2 && activePresentationProgress < 50
+          ? quickPersonaTickMs
+          : quickStageTickMs
+      : step === 1
+        ? 360
+        : step === 2
+          ? 380
+          : 330;
     const timer = window.setTimeout(
-      () =>
+      () => {
+        const {
+          demo: presentationDemo,
+          project: presentationProject,
+        } = presentationData();
         setSession((current) => {
           const currentState = current.steps[step];
           if (currentState.status !== "processing") return current;
@@ -2296,14 +2482,16 @@ export default function SimulationWorkflowPage() {
                 activeTask:
                   step === 1
                     ? progress < 33
-                      ? "ontology"
+                      ? graphTasks[0].title
                       : progress < 66
-                        ? "graph"
-                        : "validation"
+                        ? graphTasks[1].title
+                        : graphTasks[2].title
                     : step === 2
                       ? progress < 50
-                        ? "personas"
-                        : "config"
+                        ? environmentTasks[0].title
+                        : progress < 85
+                          ? environmentTasks[1].title
+                          : environmentTasks[2].title
                       : progress < 20
                         ? "outline"
                         : progress < 40
@@ -2318,14 +2506,14 @@ export default function SimulationWorkflowPage() {
             next.graph = {
               ...next.graph,
               nodeCount: Math.min(
-                resolvedDemo.graphNodes.length,
-                Math.floor((progress / 100) * resolvedDemo.graphNodes.length),
+                presentationDemo.graphNodes.length,
+                Math.floor((progress / 100) * presentationDemo.graphNodes.length),
               ),
               edgeCount: Math.min(
-                resolvedDemo.graphEdges.length,
+                presentationDemo.graphEdges.length,
                 Math.floor(
                   (Math.max(0, progress - 28) / 72) *
-                    resolvedDemo.graphEdges.length,
+                    presentationDemo.graphEdges.length,
                 ),
               ),
             };
@@ -2333,13 +2521,13 @@ export default function SimulationWorkflowPage() {
             next.environment = {
               ...next.environment,
               personaCount: Math.min(
-                resolvedDemo.personas.reduce(
+                presentationDemo.personas.reduce(
                   (sum, persona) => sum + persona.count,
                   0,
                 ),
                 Math.floor(
                   (progress / 50) *
-                    resolvedDemo.personas.reduce(
+                    presentationDemo.personas.reduce(
                       (sum, persona) => sum + persona.count,
                       0,
                     ),
@@ -2348,16 +2536,16 @@ export default function SimulationWorkflowPage() {
             };
           if (step === 4) {
             const sectionCount = Math.min(
-              resolvedDemo.reportSections.length,
+              presentationDemo.reportSections.length,
               Math.floor(
                 (Math.max(0, progress - 35) / 65) *
-                  (resolvedDemo.reportSections.length + 1),
+                  (presentationDemo.reportSections.length + 1),
               ),
             );
             next.report = {
               ...next.report,
               progress,
-              sections: resolvedDemo.reportSections.slice(0, sectionCount),
+              sections: presentationDemo.reportSections.slice(0, sectionCount),
               timestamps:
                 progress % 20 < 4
                   ? [
@@ -2396,58 +2584,63 @@ export default function SimulationWorkflowPage() {
               saveWorkspaceReport({
                 id: `report-${simulationId}`,
                 simulationId,
-                projectId: project?.projectId ?? simulationId,
-                projectName: resolvedDemo.title,
-                institution: project?.institution ?? "Institusi kebijakan",
-                title: resolvedDemo.reportTitle,
+                projectId: presentationProject?.projectId ?? simulationId,
+                projectName: presentationDemo.title,
+                institution: presentationProject?.institution ?? "Institusi kebijakan",
+                title: presentationDemo.reportTitle,
                 completedAt,
-                highestRisk: resolvedDemo.risks.some(
+                highestRisk: presentationDemo.risks.some(
                   (risk) => risk.level === "Tinggi",
                 )
                   ? "Tinggi"
                   : "Sedang",
-                eventCount: resolvedDemo.events.length,
-                personaCount: resolvedDemo.personas.reduce(
+                eventCount: presentationDemo.events.length,
+                personaCount: presentationDemo.personas.reduce(
                   (sum, persona) => sum + persona.count,
                   0,
                 ),
-                sections: resolvedDemo.reportSections,
+                sections: presentationDemo.reportSections,
               });
             }
           }
           return next;
-        }),
+        });
+      },
       delay,
     );
     return () => window.clearTimeout(timer);
   }, [
     localMode,
-    project?.institution,
-    project?.projectId,
-    resolvedDemo,
-    session.currentStep,
-    session.steps,
+    isQuickDemo,
+    activePresentationStep,
+    activePresentationStatus,
+    activePresentationProgress,
     simulationId,
   ]);
 
+  const simulationPlaybackStatus = session.simulation.status;
+  const simulationPlaybackSpeed = session.simulation.speed;
+  const simulationPlaybackCount = session.simulation.eventCount;
   useEffect(() => {
-    if (!localMode) return;
-    if (session.simulation.status !== "running") return;
+    if (!localMode && !isQuickDemo) return;
+    if (simulationPlaybackStatus !== "running") return;
+    const { demo: presentationDemo } = presentationData();
+    if (presentationDemo.events.length === 0) return;
     const timer = window.setTimeout(
       () =>
         setSession((current) => {
           const count = Math.min(
-            resolvedDemo.events.length,
+            presentationDemo.events.length,
             current.simulation.eventCount + 1,
           );
-          const event = resolvedDemo.events[count - 1];
+          const event = presentationDemo.events[count - 1];
           let next: WorkflowSession = {
             ...current,
             simulation: { ...current.simulation, eventCount: count },
             graph: {
               ...current.graph,
               selectedNodeId:
-                resolvedDemo.graphNodes.find(
+                presentationDemo.graphNodes.find(
                   (node) => node.group === event?.group,
                 )?.id ?? current.graph.selectedNodeId,
             },
@@ -2456,7 +2649,7 @@ export default function SimulationWorkflowPage() {
               3: {
                 ...current.steps[3],
                 progress: Math.round(
-                  (count / resolvedDemo.events.length) * 100,
+                  (count / presentationDemo.events.length) * 100,
                 ),
                 activeTask: `round-${event?.round ?? 1}`,
               },
@@ -2467,7 +2660,7 @@ export default function SimulationWorkflowPage() {
             `Ronde ${event?.round}: ${event?.persona} · ${event?.type}`,
             event?.success === false ? "WARN" : "INFO",
           );
-          if (count === resolvedDemo.events.length) {
+          if (count === presentationDemo.events.length) {
             next.simulation.status = "completed";
             next.steps[3] = {
               ...next.steps[3],
@@ -2476,25 +2669,63 @@ export default function SimulationWorkflowPage() {
               activeTask: null,
               completedAt: new Date().toISOString(),
             };
-            next.steps[4] = { ...next.steps[4], status: "ready" };
+            if (!isQuickDemo)
+              next.steps[4] = { ...next.steps[4], status: "ready" };
             next = appendSessionLog(next, "Simulation completed", "DONE");
             if (localMode) updateProjectStage(simulationId, 3);
           }
           return next;
         }),
-      1100 / session.simulation.speed,
+      (isQuickDemo ? quickEventTickMs : 1100) / simulationPlaybackSpeed,
     );
     return () => window.clearTimeout(timer);
   }, [
     localMode,
-    resolvedDemo.events,
-    resolvedDemo.graphNodes,
-    session.simulation.speed,
-    session.simulation.status,
+    isQuickDemo,
+    simulationPlaybackCount,
+    simulationPlaybackSpeed,
+    simulationPlaybackStatus,
     simulationId,
   ]);
 
   const startStep = (step: WorkflowStep) => {
+    if (isQuickDemo && step <= 4) {
+      setSession((current) =>
+        appendSessionLog(
+          {
+            ...current,
+            steps: {
+              ...current.steps,
+              [step]: {
+                ...current.steps[step],
+                status: "processing",
+                startedAt: new Date().toISOString(),
+                progress: 0,
+                activeTask:
+                  step === 2
+                    ? environmentTasks[0].title
+                    : step === 3
+                      ? "Menjalankan ronde simulasi"
+                      : step === 4
+                        ? "Menyusun kerangka laporan"
+                        : graphTasks[0].title,
+              },
+            },
+            ...(step === 3
+              ? {
+                  simulation: {
+                    ...current.simulation,
+                    status: "running" as const,
+                    eventCount: 0,
+                  },
+                }
+              : {}),
+          },
+          `${stepQuery(step)} started`,
+        ),
+      );
+      return;
+    }
     if (!localMode) {
       const config =
         step === 2
@@ -2740,6 +2971,7 @@ export default function SimulationWorkflowPage() {
                 }
                 start={() => startStep(1)}
                 next={() => goStep(2)}
+                autoStart={isQuickDemo}
               />
             )}
             {session.currentStep === 2 && (
@@ -2749,12 +2981,8 @@ export default function SimulationWorkflowPage() {
                 start={() => startStep(2)}
                 maxProfileCount={maxProfileCount}
                 rounds={effectiveRequestedRounds}
-                useLlmForProfiles={useLlmForProfiles}
-                useLlmForConfig={useLlmForConfig}
                 onMaxProfileCountChange={setMaxProfileCount}
                 onRoundsChange={setRequestedRounds}
-                onUseLlmForProfilesChange={setUseLlmForProfiles}
-                onUseLlmForConfigChange={setUseLlmForConfig}
                 next={() => goStep(3)}
               />
             )}
@@ -2764,7 +2992,7 @@ export default function SimulationWorkflowPage() {
                 session={session}
                 update={updateWorkflow}
                 start={() => startStep(3)}
-                report={() => goStep(4)}
+                report={openReport}
                 localMode={localMode}
               />
             )}

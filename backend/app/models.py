@@ -35,10 +35,22 @@ class LoginInput(AuthInput):
 
 
 class ProjectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_name: str = Field(min_length=2, max_length=160)
     institution: str = Field(min_length=2, max_length=160)
     objective: str = Field(min_length=2, max_length=1000)
     language: Literal["id", "en"] = "id"
+    workflow_mode: Literal["quick_demo", "full_simulation"] = "full_simulation"
+    demo_bundle_id: Literal["registrasi-digital-umkm-v1"] | None = None
+
+    @model_validator(mode="after")
+    def validate_demo_bundle(self):
+        if self.workflow_mode == "quick_demo" and self.demo_bundle_id != "registrasi-digital-umkm-v1":
+            raise ValueError("Quick demo requires demo_bundle_id registrasi-digital-umkm-v1")
+        if self.workflow_mode == "full_simulation" and self.demo_bundle_id is not None:
+            raise ValueError("demo_bundle_id is only valid for quick_demo")
+        return self
 
 
 class EnvironmentInput(BaseModel):

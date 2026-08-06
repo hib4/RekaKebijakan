@@ -18,6 +18,12 @@ function LocationProbe() {
 
 function renderWizard() {
   const view = render(<MemoryRouter initialEntries={["/projects/new"]}><ProjectWizardPage /><LocationProbe /></MemoryRouter>);
+  return view;
+}
+
+function renderFullWizard() {
+  const view = renderWizard();
+  fireEvent.click(screen.getByRole("radio", { name: /Simulasi lengkap/ }));
   fireEvent.change(screen.getByLabelText("Nama proyek"), { target: { value: "Program Uji" } });
   fireEvent.change(screen.getByLabelText("Instansi/tim"), { target: { value: "Tim Kebijakan" } });
   fireEvent.change(screen.getByPlaceholderText("Jelaskan hal yang ingin diuji melalui simulasi skenario..."), { target: { value: "Bagaimana dampaknya?" } });
@@ -27,10 +33,11 @@ function renderWizard() {
 describe("project creation wizard", () => {
   beforeEach(() => {
     createProjectMock.mockReset();
+    sessionStorage.clear();
   });
 
   it("visibly rejects unsupported, oversized, and excess files", () => {
-    const { input } = renderWizard();
+    const { input } = renderFullWizard();
     const oversized = new File(["x"], "large.pdf", { type: "application/pdf" });
     Object.defineProperty(oversized, "size", { value: 16 * 1024 * 1024 + 1 });
     fireEvent.change(input, { target: { files: [new File(["x"], "image.png"), oversized] } });
@@ -47,7 +54,7 @@ describe("project creation wizard", () => {
   it("synchronously blocks duplicate submits, shows progress, and opens the graph workflow", async () => {
     let resolveRequest: (value: { simulation_id: string }) => void = () => undefined;
     createProjectMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
-    const { input } = renderWizard();
+    const { input } = renderFullWizard();
     fireEvent.change(input, { target: { files: [new File(["policy"], "policy.txt")] } });
     const submitButton = screen.getByRole("button", { name: /Buat Proyek & Bangun Graf/ });
     const form = submitButton.closest("form")!;
@@ -71,7 +78,7 @@ describe("project creation wizard", () => {
     createProjectMock.mockImplementation((_input, options) => new Promise((_resolve, reject) => {
       options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
     }));
-    const { input, unmount } = renderWizard();
+    const { input, unmount } = renderFullWizard();
     fireEvent.change(input, { target: { files: [new File(["policy"], "policy.txt")] } });
     fireEvent.click(screen.getByRole("button", { name: /Buat Proyek & Bangun Graf/ }));
     const signal = createProjectMock.mock.calls[0][1].signal as AbortSignal;
@@ -79,5 +86,29 @@ describe("project creation wizard", () => {
     expect(signal.aborted).toBe(false);
     unmount();
     expect(signal.aborted).toBe(true);
+  });
+
+  it("prefills and submits Simulasi Cepat without requiring files", async () => {
+    createProjectMock.mockResolvedValue({ simulation_id: "quick-1" });
+    sessionStorage.setItem("rekakebijakan-quick-presentation:quick-1", "stale");
+    renderWizard();
+
+    const modeOptions = screen.getAllByRole("radio");
+    expect(modeOptions[0]).toHaveAccessibleName(/Simulasi Cepat/);
+    expect(modeOptions[1]).toHaveAccessibleName(/Simulasi lengkap/);
+    expect(modeOptions[0]).toBeChecked();
+    expect(screen.getByLabelText("Nama proyek")).toHaveValue("Registrasi Digital UMKM");
+    expect(screen.getByLabelText("Instansi/tim")).toHaveValue("Dinas Koperasi dan UMKM");
+    expect(document.querySelector('input[type="file"]')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mulai Simulasi Cepat →" }));
+
+    await waitFor(() => expect(createProjectMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(sessionStorage.getItem("rekakebijakan-quick-presentation:quick-1")).toBeNull());
+    expect(createProjectMock.mock.calls[0][0]).toMatchObject({
+      projectName: "Registrasi Digital UMKM",
+      files: [],
+      workflowMode: "quick_demo",
+      demoBundleId: "registrasi-digital-umkm-v1",
+    });
   });
 });

@@ -16,7 +16,8 @@ from werkzeug.utils import secure_filename
 from .documents import chunk_text, extract_document
 from .errors import UploadQuotaExceeded
 from .provider_errors import ProviderError, ProviderResponseError, ProviderTransportError
-from .providers import PolicyProvider
+from .providers import DeterministicPolicyProvider, PolicyProvider
+from .quick_demo import build_quick_demo, bundle_metadata
 from .oasis_runtime import normalize_action, normalize_environment, source_identity
 from .repository import Repository
 from .storage import LocalStorageBackend, StorageBackend
@@ -102,22 +103,50 @@ class WorkflowService:
             existing = self.repository.project_state_for_idempotency_key(owner_user_id, idempotency_key)
             if existing:
                 return existing
-        if not files or not any(upload.filename for upload in files):
-            raise ValueError("Minimal satu dokumen kebijakan diperlukan")
         files = [upload for upload in files if upload.filename]
+        workflow_mode = project.get("workflow_mode", "full_simulation")
+        demo_bundle_id = project.get("demo_bundle_id")
+        if workflow_mode == "quick_demo":
+            if demo_bundle_id != "registrasi-digital-umkm-v1":
+                raise ValueError("Quick demo requires demo_bundle_id registrasi-digital-umkm-v1")
+            if files:
+                raise ValueError("Quick demo tidak menerima unggahan dokumen")
+        elif workflow_mode == "full_simulation":
+            if demo_bundle_id is not None:
+                raise ValueError("demo_bundle_id hanya berlaku untuk quick_demo")
+            if not files:
+                raise ValueError("Minimal satu dokumen kebijakan diperlukan")
+        else:
+            raise ValueError("workflow_mode tidak valid")
         if len(files) > self.max_files_per_project:
             raise UploadQuotaExceeded("Jumlah berkas per proyek melebihi batas")
         project_id, simulation_id = identifier("project"), identifier("sim")
         timestamp = now()
+        workflow = {
+            "mode": workflow_mode,
+            "accelerated_steps": ["graph", "environment", "simulation"] if workflow_mode == "quick_demo" else [],
+        }
+        if demo_bundle_id:
+            workflow["bundle"] = bundle_metadata()
         state = upgrade_state({
             "id": simulation_id,
             "simulation_id": simulation_id,
             "status": "ready",
             "current_stage": "graph",
+            "workflow_mode": workflow_mode,
+            "demo_bundle_id": demo_bundle_id,
+            "workflow": workflow,
+            "provenance": {
+                "workflow_mode": workflow_mode,
+                "demo_bundle_id": demo_bundle_id,
+                "execution_kind": "accelerated_fixture" if workflow_mode == "quick_demo" else "provider_workflow",
+            },
             "project": {
                 "id": project_id, "name": project["project_name"], "project_name": project["project_name"],
                 "institution": project["institution"], "objective": project["objective"], "question": project["objective"],
                 "language": project.get("language", "id"),
+                "workflow_mode": workflow_mode, "demo_bundle_id": demo_bundle_id,
+                "workflow": workflow,
             },
             "stages": {}, "graph": {"revision": 0, "nodes": [], "edges": []}, "environment": {},
             "simulation": {"events": [], "event_count": 0, "speed": 1},
@@ -126,6 +155,8 @@ class WorkflowService:
             "provider": {"name": self.provider.name},
         })
         self._sync_stages(state)
+        if workflow_mode == "quick_demo":
+            self._bootstrap_quick_demo(state)
         ingested = []
         saved_keys: list[str] = []
         try:
@@ -160,13 +191,14 @@ class WorkflowService:
             for key in saved_keys:
                 self.storage.delete(key)
             raise
-        graph_job_id = identifier("job")
-        state["stages"]["graph"].update(
-            status="queued", progress=0, active_task="Menyiapkan graph", started_at=now(), job_id=graph_job_id,
-        )
-        state["status"] = "processing"
-        self._touch(state, "Tahap graph masuk antrean")
-        self._sync_stages(state)
+        graph_job_id = identifier("job") if workflow_mode == "full_simulation" else None
+        if graph_job_id:
+            state["stages"]["graph"].update(
+                status="queued", progress=0, active_task="Menyiapkan graph", started_at=now(), job_id=graph_job_id,
+            )
+            state["status"] = "processing"
+            self._touch(state, "Tahap graph masuk antrean")
+            self._sync_stages(state)
         try:
             if owner_user_id:
                 stored_state = self.repository.create_project_bundle(
@@ -175,7 +207,7 @@ class WorkflowService:
                     {
                         "id": graph_job_id, "simulation_id": simulation_id, "stage": "graph", "status": "queued",
                         "config": {}, "input_revision": state["revision"],
-                    },
+                    } if graph_job_id else None,
                 )
                 if stored_state["id"] != simulation_id:
                     for key in saved_keys:
@@ -190,9 +222,37 @@ class WorkflowService:
             for key in saved_keys:
                 self.storage.delete(key)
             raise
-        if self.embedded_worker:
+        if self.embedded_worker and graph_job_id:
             self._spawn(graph_job_id)
         return state
+
+    def _bootstrap_quick_demo(self, state: dict) -> None:
+        fixture_provider = DeterministicPolicyProvider()
+        ontology, graph, environment, simulation, runtime_graph, report = build_quick_demo(fixture_provider)
+        state.update(
+            ontology=ontology,
+            graph=graph,
+            environment=environment,
+            simulation=simulation,
+            runtime_graph=runtime_graph,
+            report=report,
+        )
+        completed_at = now()
+        for stage in ("graph", "environment", "simulation"):
+            state["stages"][stage].update(
+                status="completed", progress=100, active_task=None, completed_at=completed_at,
+                execution_kind="accelerated_fixture", error=None,
+            )
+        report.update(status="completed", progress=100, completed_at=completed_at)
+        state["stages"]["report"].update(
+            status="completed", progress=100, active_task=None,
+            completed_at=completed_at, execution_kind="accelerated_fixture",
+        )
+        state["stages"]["interaction"].update(status="ready", progress=0, active_task=None)
+        state["current_stage"] = "report"
+        state["status"] = "ready"
+        self._touch(state, "Tahap simulation selesai", "DONE")
+        self._sync_stages(state)
 
     def purge_due_projects(self, limit: int = 100) -> int:
         return self.repository.purge_due_projects(self.storage.delete, limit)
@@ -212,6 +272,8 @@ class WorkflowService:
             project = {
                 "project_name": name or f"{source['name']} (Salinan)", "institution": source["institution"],
                 "objective": source["objective"],
+                "workflow_mode": source.get("workflow_mode", "full_simulation"),
+                "demo_bundle_id": source.get("demo_bundle_id"),
             }
             created = self.create_project(project, [document["upload"] for document in documents], owner_user_id)
             for scenario in self.repository.list_scenarios(project_id, owner_user_id) or []:
@@ -234,6 +296,8 @@ class WorkflowService:
         if not state or stage not in STAGES[:4]:
             return None
         state = upgrade_state(state)
+        if state.get("workflow_mode") == "quick_demo" and stage in {"graph", "environment", "simulation", "report"}:
+            raise ValueError(f"Tahap {stage} sudah selesai dan tidak dapat dijalankan ulang")
         if stage != "graph" and state["stages"][stage]["status"] == "locked":
             raise ValueError("Tahap sebelumnya belum selesai")
         if stage == "graph" and state["stages"][stage]["status"] in {"queued", "running", "paused"}:
@@ -412,7 +476,7 @@ class WorkflowService:
                 result = {"simulation": simulation, "graph": self.provider.graph_memory(state["graph"], simulation["events"])}
         else:
             mapping = self.repository.get_oasis_mapping(simulation_id)
-            if (mapping and mapping.get("zep_graph_id") and self.oasis_runtime
+            if (state.get("workflow_mode") != "quick_demo" and mapping and mapping.get("zep_graph_id") and self.oasis_runtime
                     and state.get("environment", {}).get("config", {}).get("engine") == "oasis"):
                 raw_report = self.oasis_runtime.generate_report(
                     mapping.get("external_simulation_id") or simulation_id,
@@ -698,14 +762,18 @@ class WorkflowService:
             requested_rounds = config.get("max_rounds")
         if requested_rounds is None:
             requested_rounds = environment_config.get("rounds", environment_config.get("max_rounds", 10))
+        step_timeout_seconds = config.get("step_timeout_seconds", 600)
+        stale_timeout_seconds = config.get("stale_timeout_seconds")
+        if stale_timeout_seconds is None:
+            stale_timeout_seconds = max(600, float(step_timeout_seconds) + 60)
         run_config = {
             "rounds": int(requested_rounds),
             "max_rounds": int(requested_rounds),
             "enable_graph_memory_update": config.get("enable_graph_memory_update", True),
             "force": config.get("force", False),
-            "step_timeout_seconds": config.get("step_timeout_seconds", 120),
+            "step_timeout_seconds": step_timeout_seconds,
             "step_cleanup_grace_seconds": config.get("step_cleanup_grace_seconds", 5),
-            "stale_timeout_seconds": config.get("stale_timeout_seconds", 150),
+            "stale_timeout_seconds": stale_timeout_seconds,
             "max_run_seconds": config.get("max_run_seconds", 3600),
             "oasis_concurrency": config.get("oasis_concurrency") or 2,
             "language": state.get("project", {}).get("language", "id"),
@@ -839,6 +907,10 @@ class WorkflowService:
         }
 
     def runtime_graph(self, simulation_id: str) -> dict | None:
+        get_state = getattr(self.repository, "get", None)
+        state = get_state(simulation_id) if get_state else None
+        if isinstance(state, dict) and state.get("runtime_graph"):
+            return state["runtime_graph"]
         mapping = self.repository.get_oasis_mapping(simulation_id)
         if not mapping or not mapping.get("zep_graph_id") or not self.oasis_runtime:
             return None
@@ -1061,6 +1133,9 @@ class WorkflowService:
         state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state:
             return None
+        if (state.get("workflow_mode") == "quick_demo"
+                and state.get("stages", {}).get("report", {}).get("status") != "completed"):
+            raise ValueError("Laporan harus selesai sebelum interaksi")
         mapping = self.repository.get_oasis_mapping(simulation_id)
         if payload.get("tool") == "report" and mapping and mapping.get("zep_graph_id") and self.oasis_runtime:
             raw = self.oasis_runtime.report_chat(
@@ -1091,6 +1166,9 @@ class WorkflowService:
         state = self.repository.get_for_user(simulation_id, owner_user_id) if owner_user_id else self.repository.get(simulation_id)
         if not state:
             return None
+        if (state.get("workflow_mode") == "quick_demo"
+                and state.get("stages", {}).get("report", {}).get("status") != "completed"):
+            raise ValueError("Laporan harus selesai sebelum wawancara")
         personas = state["environment"].get("personas", [])
         if persona_ids:
             personas = [item for item in personas if item["id"] in persona_ids]
@@ -1141,6 +1219,8 @@ class WorkflowService:
 
     def apply_graph_feedback(self, simulation_id: str, payload: dict, owner_user_id: str) -> dict | None:
         def apply(state):
+            if state.get("workflow_mode") == "quick_demo":
+                raise ValueError("Graf pada proyek ini dikunci dan tidak dapat diubah")
             graph = state["graph"]
             action, patch, target = payload["action"], payload.get("patch", {}), payload.get("target_id")
             if payload.get("base_revision", graph.get("revision", 1)) != graph.get("revision", 1):
