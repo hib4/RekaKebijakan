@@ -89,6 +89,20 @@ async def health():
     return {"status": "ok", "service": "rekakebijakan", "engine": "configurable"}
 
 
+@public_router.get("/public/quick-demo")
+async def public_quick_demo(request: Request):
+    return await run_in_threadpool(service(request).public_quick_demo)
+
+
+@public_router.post("/public/quick-demo/interactions", status_code=201)
+async def public_quick_demo_interaction(request: Request):
+    model = InteractionInput.model_validate(await silent_json(request))
+    return await run_in_threadpool(
+        service(request).public_quick_demo_interact,
+        model.model_dump(),
+    )
+
+
 @public_router.post("/pilot/contact", status_code=201)
 @public_router.post("/v1/contact-requests", status_code=201, include_in_schema=False)
 async def pilot_contact(request: Request):

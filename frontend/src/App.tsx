@@ -336,7 +336,7 @@ function LandingPage() {
               <div className="actions">
                 <button
                   className="button primary"
-                  onClick={() => scrollTo("simulasi")}
+                  onClick={() => navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split")}
                 >
                   Mulai simulasi <b>→</b>
                 </button>
@@ -721,7 +721,7 @@ function LandingPage() {
             <div className="actions">
               <button
                 className="button white"
-                onClick={() => scrollTo("simulasi")}
+                onClick={() => navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split")}
               >
                 Coba simulasi <b>→</b>
               </button>
@@ -778,12 +778,19 @@ function Protected({ children }: { children: React.ReactNode }) {
 
 function SimulationRoute() {
   const { simulationId = "" } = useParams();
+  const isQuickDemo = simulationId.startsWith("demo-");
   return (
-    <Protected>
+    isQuickDemo ? (
       <WorkflowErrorBoundary simulationId={simulationId}>
         <SimulationWorkflowPage />
       </WorkflowErrorBoundary>
-    </Protected>
+    ) : (
+      <Protected>
+        <WorkflowErrorBoundary simulationId={simulationId}>
+          <SimulationWorkflowPage />
+        </WorkflowErrorBoundary>
+      </Protected>
+    )
   );
 }
 

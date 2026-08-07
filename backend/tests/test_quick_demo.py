@@ -149,3 +149,25 @@ def test_quick_demo_contract_rejects_invalid_bundle_and_files(tmp_path, database
         )
         assert with_file.status_code == 422
         assert client.get("/api/projects").json()["projects"] == []
+
+
+def test_public_quick_demo_uses_the_same_bundle_artifacts(tmp_path, database_url):
+    app = create_app({"TESTING": True, "DATABASE_URL": database_url, "UPLOAD_DIR": tmp_path / "uploads"})
+    with TestClient(app) as client:
+        public = client.get("/api/public/quick-demo")
+        assert public.status_code == 200
+        state = public.json()
+        assert state["workflow_mode"] == "quick_demo"
+        assert state["demo_bundle_id"] == QUICK_DEMO["demo_bundle_id"]
+        assert state["workflow"]["bundle"]["id"] == QUICK_DEMO["demo_bundle_id"]
+        assert state["simulation"]["event_count"] == 30
+        assert state["graph"]["nodes"]
+        assert state["environment"]["personas"]
+        assert state["report"]["sections"]
+
+        interaction = client.post("/api/public/quick-demo/interactions", json={
+            "tool": "report",
+            "question": "Apa risiko utama?",
+        })
+        assert interaction.status_code == 201
+        assert interaction.json()["role"] == "assistant"

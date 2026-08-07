@@ -17,7 +17,7 @@ from .documents import chunk_text, extract_document
 from .errors import UploadQuotaExceeded
 from .provider_errors import ProviderError, ProviderResponseError, ProviderTransportError
 from .providers import DeterministicPolicyProvider, PolicyProvider
-from .quick_demo import build_quick_demo, bundle_metadata
+from .quick_demo import QUICK_DEMO_SOURCE, build_quick_demo, bundle_metadata
 from .oasis_runtime import normalize_action, normalize_environment, source_identity
 from .repository import Repository
 from .storage import LocalStorageBackend, StorageBackend
@@ -229,8 +229,7 @@ class WorkflowService:
         return state
 
     def _bootstrap_quick_demo(self, state: dict) -> None:
-        fixture_provider = DeterministicPolicyProvider()
-        ontology, graph, environment, simulation, runtime_graph, report = build_quick_demo(fixture_provider)
+        ontology, graph, environment, simulation, runtime_graph, report = self._quick_demo_artifacts()
         state.update(
             ontology=ontology,
             graph=graph,
@@ -255,6 +254,75 @@ class WorkflowService:
         state["status"] = "ready"
         self._touch(state, "Tahap simulation selesai", "DONE")
         self._sync_stages(state)
+
+    def _quick_demo_artifacts(self) -> tuple[dict, dict, dict, dict, dict, dict]:
+        return build_quick_demo(DeterministicPolicyProvider())
+
+    def public_quick_demo(self) -> dict:
+        ontology, graph, environment, simulation, runtime_graph, report = self._quick_demo_artifacts()
+        state = upgrade_state({
+            "id": "demo-registrasi-umkm",
+            "simulation_id": "demo-registrasi-umkm",
+            "status": "ready",
+            "current_stage": "report",
+            "workflow_mode": "quick_demo",
+            "demo_bundle_id": "registrasi-digital-umkm-v1",
+            "workflow": {
+                "mode": "quick_demo",
+                "accelerated_steps": ["graph", "environment", "simulation"],
+                "bundle": bundle_metadata(),
+            },
+            "provenance": {
+                "workflow_mode": "quick_demo",
+                "demo_bundle_id": "registrasi-digital-umkm-v1",
+                "execution_kind": "accelerated_fixture",
+            },
+            "project": {
+                "id": "registrasi-digital-umkm-v1",
+                "name": "Registrasi Digital UMKM",
+                "project_name": "Registrasi Digital UMKM",
+                "institution": "Dinas Koperasi dan UMKM",
+                "objective": "Menilai respons pelaku UMKM terhadap registrasi digital dan mengidentifikasi narasi risiko yang perlu diklarifikasi.",
+                "question": "Menilai respons pelaku UMKM terhadap registrasi digital dan mengidentifikasi narasi risiko yang perlu diklarifikasi.",
+                "language": "id",
+                "workflow_mode": "quick_demo",
+                "demo_bundle_id": "registrasi-digital-umkm-v1",
+            },
+            "ontology": ontology,
+            "graph": graph,
+            "environment": environment,
+            "simulation": simulation,
+            "runtime_graph": runtime_graph,
+            "report": report,
+            "interactions": {"messages": []},
+            "interaction": {},
+            "logs": [{"message": "Tahap simulation selesai", "level": "DONE"}],
+        })
+        for stage in ("graph", "environment", "simulation", "report"):
+            state["stages"][stage].update(status="completed", progress=100, execution_kind="accelerated_fixture")
+        state["stages"]["interaction"].update(status="ready", progress=0)
+        return state
+
+    def public_quick_demo_interact(self, payload: dict) -> dict:
+        state = self.public_quick_demo()
+        chunk = {
+            "id": "quick-demo-source",
+            "document_id": "quick-demo-bundle",
+            "ordinal": 0,
+            "text": QUICK_DEMO_SOURCE,
+            "char_start": 0,
+            "char_end": len(QUICK_DEMO_SOURCE),
+        }
+        provider = self.quick_interaction_provider or self.provider
+        response = provider.answer(payload, state, [chunk])
+        return {
+            "id": identifier("msg"),
+            "role": "assistant",
+            "author": "Report Agent",
+            "tool": payload["tool"],
+            "created_at": now(),
+            **response,
+        }
 
     def purge_due_projects(self, limit: int = 100) -> int:
         return self.repository.purge_due_projects(self.storage.delete, limit)

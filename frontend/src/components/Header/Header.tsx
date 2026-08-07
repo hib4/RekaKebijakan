@@ -11,6 +11,8 @@ const scrollTo = (id: string) => {
   }
 };
 
+const quickDemoPath = "/simulation/demo-registrasi-umkm?step=graph&mode=split";
+
 export function Brand() {
   const navigate = useNavigate();
   return (
@@ -50,7 +52,7 @@ export default function Header({ isDashboard = false }: HeaderProps) {
 
     const sections = [
       document.getElementById("hero"),
-      ...navigation.map(([, id]) => document.getElementById(id))
+      ...navigation.map(([, id]) => document.getElementById(id)),
     ].filter(Boolean) as HTMLElement[];
 
     const observer = new IntersectionObserver(
@@ -64,7 +66,7 @@ export default function Header({ isDashboard = false }: HeaderProps) {
             }
           }
         }),
-      { rootMargin: "-35% 0px -55% 0px" }
+      { rootMargin: "-35% 0px -55% 0px" },
     );
 
     sections.forEach((section) => observer.observe(section));
@@ -88,8 +90,15 @@ export default function Header({ isDashboard = false }: HeaderProps) {
       <div className="shell nav-wrap">
         <Brand />
         {isDashboard ? (
-          <nav className="desktop-nav dashboard-nav" aria-label="Navigasi dashboard">
-            <a className="active" href="/dashboard" onClick={(e) => e.preventDefault()}>
+          <nav
+            className="desktop-nav dashboard-nav"
+            aria-label="Navigasi dashboard"
+          >
+            <a
+              className="active"
+              href="/dashboard"
+              onClick={(e) => e.preventDefault()}
+            >
               Dashboard
             </a>
             <a href="/projects" onClick={handleProjectsClick}>
@@ -117,11 +126,32 @@ export default function Header({ isDashboard = false }: HeaderProps) {
         {!isDashboard && !loading && (
           <div className="nav-auth">
             {user ? (
-              <a className="button primary nav-action" href="/dashboard" onClick={handleDashboardClick}>Dashboard</a>
+              <a
+                className="button primary nav-action"
+                href="/dashboard"
+                onClick={handleDashboardClick}
+              >
+                Dashboard
+              </a>
             ) : (
               <>
-               <Link to="/login">Masuk</Link>
-               <Link className="button primary nav-action" to="/register">Daftar</Link>
+                <Link
+                  className="quick-demo-nav"
+                  to={quickDemoPath}
+                  aria-label="Simulasi Cepat, Coba tanpa masuk"
+                >
+                  <span className="quick-demo-nav-copy">
+                    <strong>Simulasi Cepat</strong>
+                    <small>Coba tanpa masuk</small>
+                  </span>
+                  <span className="quick-demo-nav-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </Link>
+                <Link to="/login">Masuk</Link>
+                <Link className="button primary nav-action" to="/register">
+                  Daftar
+                </Link>
               </>
             )}
           </div>
@@ -143,7 +173,14 @@ export default function Header({ isDashboard = false }: HeaderProps) {
         <nav className="mobile-nav" aria-label="Navigasi seluler">
           {isDashboard ? (
             <>
-              <a className="active" href="/dashboard" onClick={(e) => { e.preventDefault(); setMenuOpen(false); }}>
+              <a
+                className="active"
+                href="/dashboard"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setMenuOpen(false);
+                }}
+              >
                 Dashboard
               </a>
               <a href="/projects" onClick={handleProjectsClick}>
@@ -165,12 +202,49 @@ export default function Header({ isDashboard = false }: HeaderProps) {
                   {label}
                 </a>
               ))}
+              <Link
+                className="quick-demo-nav"
+                to={quickDemoPath}
+                onClick={() => setMenuOpen(false)}
+                aria-label="Simulasi Cepat, Coba tanpa masuk"
+              >
+                <span className="quick-demo-nav-copy">
+                  <strong>Simulasi Cepat</strong>
+                  <small>Coba tanpa masuk</small>
+                </span>
+                <span className="quick-demo-nav-arrow" aria-hidden="true">
+                  →
+                </span>
+              </Link>
               {user ? (
-                <button className="button primary" onClick={handleDashboardClick}>Dashboard</button>
+                <button
+                  className="button primary"
+                  onClick={handleDashboardClick}
+                >
+                  Dashboard
+                </button>
               ) : (
                 <>
-                  <a href="/login" onClick={(event) => { event.preventDefault(); setMenuOpen(false); navigate("/login"); }}>Masuk</a>
-                  <a href="/register" onClick={(event) => { event.preventDefault(); setMenuOpen(false); navigate("/register"); }}>Daftar</a>
+                  <a
+                    href="/login"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setMenuOpen(false);
+                      navigate("/login");
+                    }}
+                  >
+                    Masuk
+                  </a>
+                  <a
+                    href="/register"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setMenuOpen(false);
+                      navigate("/register");
+                    }}
+                  >
+                    Daftar
+                  </a>
                 </>
               )}
             </>

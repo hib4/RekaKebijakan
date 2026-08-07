@@ -466,6 +466,9 @@ export function createProject(input: CreateProjectInput, options: CreateProjectO
 export const getSimulation = (simulationId: string) =>
   request<ApiSimulationSnapshot>(`/api/simulations/${encodeURIComponent(simulationId)}`);
 
+export const getPublicQuickDemo = () =>
+  request<ApiSimulationSnapshot>("/api/public/quick-demo");
+
 export async function connectSimulationStream(simulationId: string, options: SimulationStreamOptions) {
   const path = `/api/simulations/${encodeURIComponent(simulationId)}/stream`;
   const headers = new Headers({ Accept: "text/event-stream" });
@@ -564,6 +567,13 @@ export const cancelSimulation = (simulationId: string) =>
 
 export const sendInteraction = (simulationId: string, input: { tool: string; question: string; personaGroup?: string }) =>
   request<ApiInteractionMessageDto>(`/api/simulations/${encodeURIComponent(simulationId)}/interactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool: input.tool, question: input.question, persona_group: input.personaGroup }),
+  });
+
+export const sendPublicQuickDemoInteraction = (input: { tool: string; question: string; personaGroup?: string }) =>
+  request<ApiInteractionMessageDto>("/api/public/quick-demo/interactions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tool: input.tool, question: input.question, persona_group: input.personaGroup }),

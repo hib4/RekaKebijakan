@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connectSimulationStream, controlRun, createProject, duplicateProject, getCurrentUser, loginUser, submitContact } from "./client";
+import { connectSimulationStream, controlRun, createProject, duplicateProject, getCurrentUser, getPublicQuickDemo, loginUser, sendPublicQuickDemoInteraction, submitContact } from "./client";
 
 describe("authentication API client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -46,6 +46,35 @@ describe("simulation SSE client", () => {
 
     expect(onEvent).toHaveBeenCalledOnce();
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ id: "8", type: "graph.delta", data: expect.objectContaining({ graph_kind: "policy" }) }));
+  });
+});
+
+describe("public quick demo API client", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("loads the backend quick demo bundle without an auth-specific route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ workflow_mode: "quick_demo" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPublicQuickDemo()).resolves.toMatchObject({ workflow_mode: "quick_demo" });
+    expect(fetchMock).toHaveBeenCalledWith("/backend/api/public/quick-demo", expect.objectContaining({ credentials: "include" }));
+  });
+
+  it("sends public quick demo interactions to the shared backend bundle", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ role: "assistant", text: "Jawaban" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPublicQuickDemoInteraction({ tool: "report", question: "Apa risikonya?" });
+    expect(fetchMock).toHaveBeenCalledWith("/backend/api/public/quick-demo/interactions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ tool: "report", question: "Apa risikonya?" }),
+    }));
   });
 });
 

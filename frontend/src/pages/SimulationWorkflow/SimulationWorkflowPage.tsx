@@ -10,12 +10,14 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
   createSimulationInterview,
+  getPublicQuickDemo,
   getRuntimeGraph,
   getSimulation,
   listSimulationInterviews,
   pauseSimulation,
   resumeSimulation,
   sendInteraction,
+  sendPublicQuickDemoInteraction,
   startStage,
   updateEnvironment,
 } from "../../api/client";
@@ -2032,7 +2034,8 @@ export default function SimulationWorkflowPage() {
   const { simulationId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const localMode = simulationId.startsWith("demo-");
+  const publicQuickDemo = simulationId === "demo-registrasi-umkm";
+  const localMode = simulationId.startsWith("demo-") && !publicQuickDemo;
   const intake = localMode ? loadProjectIntake(simulationId) : null;
   const knownDemo = localMode ? demoCases[simulationId] : undefined;
   const project = localMode
@@ -2173,14 +2176,14 @@ export default function SimulationWorkflowPage() {
   );
   const loadBackend = useCallback(async () => {
     try {
-      applyBackendSnapshot(await getSimulation(simulationId));
+      applyBackendSnapshot(await (publicQuickDemo ? getPublicQuickDemo() : getSimulation(simulationId)));
     } catch (cause) {
       setBackendError(
         cause instanceof Error ? cause.message : "Simulasi gagal dimuat.",
       );
       setBackendLoading(false);
     }
-  }, [applyBackendSnapshot, simulationId]);
+  }, [applyBackendSnapshot, publicQuickDemo, simulationId]);
   const applyRuntimeGraph = useCallback(
     (graph: Extract<ApiRuntimeGraph, { available: true }>) => {
       runtimeGraphRef.current = graph;
@@ -2239,7 +2242,7 @@ export default function SimulationWorkflowPage() {
     [resolvedDemo, session.currentStep, simulationId],
   );
   const loadRuntimeGraph = useCallback(async () => {
-    if (localMode) return;
+    if (localMode || publicQuickDemo) return;
     try {
       const graph = await getRuntimeGraph(simulationId);
       if (!graph.available) return;
@@ -2250,7 +2253,7 @@ export default function SimulationWorkflowPage() {
       if (cause instanceof ApiError && cause.status === 401)
         setBackendError(cause.message);
     }
-  }, [applyRuntimeGraph, localMode, simulationId]);
+  }, [applyRuntimeGraph, localMode, publicQuickDemo, simulationId]);
   useEffect(() => {
     if (localMode) return;
     const timer = window.setTimeout(loadBackend, 0);
@@ -2280,7 +2283,7 @@ export default function SimulationWorkflowPage() {
   );
   const stream = useSimulationStream({
     simulationId,
-    enabled: !localMode && backendLoaded,
+    enabled: !localMode && !publicQuickDemo && backendLoaded,
     onEvent: handleStreamEvent,
   });
   const backendPolling =
@@ -2304,7 +2307,7 @@ export default function SimulationWorkflowPage() {
     };
   }, [backendPolling, loadBackend, stream.healthy]);
   const runtimeGraphPolling =
-    !localMode && session.steps[2].status !== "locked";
+    !localMode && !publicQuickDemo && session.steps[2].status !== "locked";
   useEffect(() => {
     if (!runtimeGraphPolling) return;
     const active =
@@ -3016,14 +3019,20 @@ export default function SimulationWorkflowPage() {
                 simulationId={simulationId}
                 localMode={localMode}
                 sendBackend={
-                  localMode
+                  localMode && !publicQuickDemo
                     ? undefined
                     : async (tool, question, group) => {
-                        const response = await sendInteraction(simulationId, {
+                        const response = await (publicQuickDemo
+                          ? sendPublicQuickDemoInteraction({
+                              tool,
+                              question,
+                              personaGroup: group || undefined,
+                            })
+                          : sendInteraction(simulationId, {
                           tool,
                           question,
                           personaGroup: group || undefined,
-                        });
+                          }));
                         await loadBackend();
                         return mapInteractionMessage(response);
                       }
