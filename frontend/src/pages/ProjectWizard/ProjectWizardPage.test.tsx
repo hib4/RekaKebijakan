@@ -5,8 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectWizardPage from "./ProjectWizardPage";
 
 const createProjectMock = vi.hoisted(() => vi.fn());
+const authUser = vi.hoisted(() => ({ current: { id: "user-1", name: "Analis", email: "analis@example.com" } as Record<string, unknown> | null }));
 
 vi.mock("../../api/client", () => ({ createProject: createProjectMock }));
+vi.mock("../../auth/useAuth", () => ({
+  useAuth: () => ({ user: authUser.current, loading: false }),
+}));
 vi.mock("../../components/AppShell/AppShell", () => ({
   AppShell: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
@@ -33,6 +37,7 @@ function renderFullWizard() {
 describe("project creation wizard", () => {
   beforeEach(() => {
     createProjectMock.mockReset();
+    authUser.current = { id: "user-1", name: "Analis", email: "analis@example.com" };
     sessionStorage.clear();
   });
 
@@ -110,5 +115,24 @@ describe("project creation wizard", () => {
       workflowMode: "quick_demo",
       demoBundleId: "registrasi-digital-umkm-v1",
     });
+  });
+
+  it("redirects guests to login when selecting full simulation", () => {
+    authUser.current = null;
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("radio", { name: /Simulasi lengkap/ }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/login?next=%2Fprojects%2Fnew");
+  });
+
+  it("sends guests directly to the simulation without calling the backend", async () => {
+    authUser.current = null;
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mulai Simulasi Cepat →" }));
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/simulation/demo-registrasi-umkm?step=graph&mode=split"));
+    expect(createProjectMock).not.toHaveBeenCalled();
   });
 });

@@ -79,47 +79,9 @@ describe("application routing", () => {
         disconnect() {}
       },
     );
-    Object.defineProperties(SVGSVGElement.prototype, {
-      width: { configurable: true, value: { baseVal: { value: 820 } } },
-      height: { configurable: true, value: { baseVal: { value: 440 } } },
-    });
     server.use(
       http.get("/backend/api/auth/me", () =>
         HttpResponse.json({}, { status: 401 }),
-      ),
-      http.get("/backend/api/public/quick-demo", () =>
-        HttpResponse.json({
-          project: {
-            name: "Registrasi Digital UMKM",
-            question: "Tinjau respons UMKM",
-          },
-          current_stage: "report",
-          workflow_mode: "quick_demo",
-          demo_bundle_id: "registrasi-digital-umkm-v1",
-          workflow: {
-            mode: "quick_demo",
-            bundle: {
-              id: "registrasi-digital-umkm-v1",
-              title: "Registrasi Digital UMKM",
-            },
-          },
-          stages: {
-            graph: { status: "completed", progress: 100 },
-            environment: { status: "completed", progress: 100 },
-            simulation: { status: "completed", progress: 100 },
-            report: { status: "completed", progress: 100 },
-            interaction: { status: "ready", progress: 0 },
-          },
-          graph: { nodes: [], edges: [] },
-          environment: {
-            personas: [],
-            persona_count: 0,
-            config: { rounds: 5 },
-          },
-          simulation: { status: "completed", events: [], event_count: 0 },
-          report: { status: "completed", sections: [], risks: [] },
-          logs: [],
-        }),
       ),
     );
     renderApp("/");
@@ -132,11 +94,9 @@ describe("application routing", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Registrasi Digital UMKM" }),
+      await screen.findByRole("heading", { name: "Buat Proyek Kebijakan" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/simulation/demo-registrasi-umkm?step=graph&mode=split",
-    );
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/new");
     expect(
       screen.queryByRole("heading", { name: "Masuk ke RekaKebijakan" }),
     ).not.toBeInTheDocument();

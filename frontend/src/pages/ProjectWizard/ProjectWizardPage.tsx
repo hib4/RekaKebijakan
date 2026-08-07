@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { createProject } from "../../api/client";
+import { useAuth } from "../../auth/useAuth";
 import { AppShell } from "../../components/AppShell/AppShell";
 import { saveProjectIntake } from "../SimulationWorkflow/projectIntake";
 import { clearQuickPresentationSession } from "../SimulationWorkflow/workflowSession";
@@ -38,6 +39,8 @@ const phaseLabels: Record<SubmitPhase, string> = {
 
 export default function ProjectWizardPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isGuest = !user;
   const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
   const [projectName, setProjectName] = useState(quickDemoMetadata.projectName);
   const [institution, setInstitution] = useState(quickDemoMetadata.institution);
@@ -66,6 +69,10 @@ export default function ProjectWizardPage() {
   };
   const selectWorkflowMode = (mode: WorkflowMode) => {
     if (submitting) return;
+    if (mode === "full_simulation" && isGuest) {
+      navigate("/login?next=%2Fprojects%2Fnew");
+      return;
+    }
     setWorkflowMode(mode);
     if (mode === "quick_demo") {
       setProjectName(quickDemoMetadata.projectName);
@@ -120,6 +127,11 @@ export default function ProjectWizardPage() {
     const controller = new AbortController();
     requestRef.current = controller;
     idempotencyKeyRef.current ??= globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    if (isGuest && workflowMode === "quick_demo") {
+      clearQuickPresentationSession("demo-registrasi-umkm");
+      navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split");
+      return;
+    }
     try {
       const result = await createProject(
         { projectName: projectName.trim(), institution: institution.trim(), objective: objective.trim(), files, workflowMode, demoBundleId: workflowMode === "quick_demo" ? quickDemoBundleId : undefined },
@@ -155,7 +167,7 @@ export default function ProjectWizardPage() {
     }
   };
 
-  return <AppShell title="Buat Proyek Kebijakan" subtitle="Masukkan sumber kebijakan dan tujuan simulasi untuk memulai Graph Build." eyebrow="Proyek kebijakan" actions={<button className="button secondary" onClick={() => navigate("/projects")}>Kembali ke daftar proyek</button>}>
+  return <AppShell title="Buat Proyek Kebijakan" subtitle="Masukkan sumber kebijakan dan tujuan simulasi untuk memulai Graph Build." eyebrow="Proyek kebijakan" actions={<button className="button secondary" onClick={() => navigate(isGuest ? "/" : "/projects")}>{isGuest ? "Kembali ke beranda" : "Kembali ke daftar proyek"}</button>}>
     <section className="create-project-layout">
       <aside className="create-project-guide">
         <p className="eyebrow">ALUR PROYEK</p>

@@ -60,7 +60,7 @@
   display: flex;
   align-items: center;
   background: var(--surface);
-  border-bottom: 1px solid var(--subtle);
+  border: 1px solid var(--line);
 }
 
 .auth-password-control:focus-within {

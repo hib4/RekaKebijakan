@@ -336,9 +336,9 @@ function LandingPage() {
               <div className="actions">
                 <button
                   className="button primary"
-                  onClick={() => navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split")}
-                >
-                  Mulai simulasi <b>→</b>
+                  onClick={() => navigate("/projects/new")}
+                  >
+                    Mulai simulasi <b>→</b>
                 </button>
                 <button
                   className="button secondary"
@@ -721,9 +721,9 @@ function LandingPage() {
             <div className="actions">
               <button
                 className="button white"
-                onClick={() => navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split")}
-              >
-                Coba simulasi <b>→</b>
+                onClick={() => navigate("/projects/new")}
+                >
+                  Coba simulasi <b>→</b>
               </button>
               <button
                 className="button outline-white"
@@ -801,7 +801,7 @@ function App() {
       <Route path="/register" element={<AuthPage mode="register" />} />
       <Route path="/dashboard/*" element={<Protected><Dashboard /></Protected>} />
       <Route path="/simulation/:simulationId" element={<SimulationRoute />} />
-      <Route path="/projects/new" element={<Protected><ProjectWizardPage /></Protected>} />
+      <Route path="/projects/new" element={<ProjectWizardPage />} />
       <Route path="/projects/:projectId" element={<Protected><ProjectDetailPage /></Protected>} />
       <Route path="/projects/:projectId/scenarios" element={<Protected><ScenarioBuilderPage /></Protected>} />
       <Route path="/projects/:projectId/scenarios/:scenarioId" element={<Protected><ScenarioBuilderPage /></Protected>} />

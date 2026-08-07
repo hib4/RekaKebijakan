@@ -11,7 +11,7 @@ const scrollTo = (id: string) => {
   }
 };
 
-const quickDemoPath = "/simulation/demo-registrasi-umkm?step=graph&mode=split";
+const quickDemoPath = "/projects/new";
 
 export function Brand() {
   const navigate = useNavigate();
