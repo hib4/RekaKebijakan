@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 export function useAutoFollow<T extends HTMLElement>(
   dependency: unknown,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; pin?: boolean } = {},
 ) {
   const containerRef = useRef<T>(null);
   const frameRef = useRef<number | null>(null);
@@ -35,9 +35,33 @@ export function useAutoFollow<T extends HTMLElement>(
       if (options.force) followingRef.current = true;
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+      const pinToBottom = () => {
+        container.scrollTop = container.scrollHeight;
+      };
+
+      if (options.force && options.pin) {
+        autoScrollingRef.current = true;
+        pinToBottom();
+        frameRef.current = window.requestAnimationFrame(() => {
+          pinToBottom();
+          frameRef.current = window.requestAnimationFrame(pinToBottom);
+        });
+        timerRef.current = window.setTimeout(pinToBottom, 120);
+        settleTimerRef.current = window.setTimeout(() => {
+          pinToBottom();
+          window.setTimeout(pinToBottom, 240);
+          window.setTimeout(() => {
+            pinToBottom();
+            autoScrollingRef.current = false;
+            followingRef.current = true;
+          }, 720);
+        }, 360);
+        return;
+      }
+
       const settleToBottom = () => {
         if (autoScrollingRef.current && followingRef.current) {
-          container.scrollTop = container.scrollHeight;
+          pinToBottom();
         }
       };
 
@@ -105,7 +129,7 @@ export function useAutoFollow<T extends HTMLElement>(
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
     };
-  }, [dependency, options.force]);
+  }, [dependency, options.force, options.pin]);
 
   return containerRef;
 }

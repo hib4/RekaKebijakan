@@ -870,6 +870,7 @@ function SimulationStep({
   start,
   report,
   localMode,
+  isQuickDemo,
 }: {
   demo: DemoCase;
   session: WorkflowSession;
@@ -877,6 +878,7 @@ function SimulationStep({
   start: () => void;
   report: () => void;
   localMode: boolean;
+  isQuickDemo: boolean;
 }) {
   const run = session.simulation;
   const step = session.steps[3];
@@ -892,7 +894,10 @@ function SimulationStep({
     run.status === "stale";
   const scrollRef = useAutoFollow<HTMLDivElement>(
     `${run.status}-${events.length}`,
-    { force: run.status === "running" || run.status === "completed" },
+    {
+      force: run.status === "running" || run.status === "completed",
+      pin: !localMode && !isQuickDemo,
+    },
   );
   return (
     <div className="step-scroll simulation-step" ref={scrollRef}>
@@ -2992,6 +2997,7 @@ export default function SimulationWorkflowPage() {
                 start={() => startStep(3)}
                 report={openReport}
                 localMode={localMode}
+                isQuickDemo={isQuickDemo}
               />
             )}
             {session.currentStep === 4 && (

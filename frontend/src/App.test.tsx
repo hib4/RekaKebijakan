@@ -48,6 +48,30 @@ describe("application routing", () => {
     expect(screen.getByRole("heading", { name: "Daftar ke RekaKebijakan" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/register");
   });
+
+  it("toggles password visibility from icon buttons without coupling register fields", async () => {
+    const user = userEvent.setup();
+    renderApp("/register");
+
+    const password = await screen.findByLabelText("Kata sandi") as HTMLInputElement;
+    const confirmation = screen.getByLabelText("Konfirmasi kata sandi") as HTMLInputElement;
+    const passwordToggle = screen.getByRole("button", { name: "Tampilkan kata sandi" });
+    const confirmationToggle = screen.getByRole("button", { name: "Tampilkan konfirmasi kata sandi" });
+
+    expect(password.type).toBe("password");
+    expect(confirmation.type).toBe("password");
+
+    await user.click(passwordToggle);
+
+    expect(password.type).toBe("text");
+    expect(confirmation.type).toBe("password");
+    expect(screen.getByRole("button", { name: "Sembunyikan kata sandi" })).toBeInTheDocument();
+
+    await user.click(confirmationToggle);
+
+    expect(confirmation.type).toBe("text");
+    expect(screen.getByRole("button", { name: "Sembunyikan konfirmasi kata sandi" })).toBeInTheDocument();
+  });
 });
 
 function QuerySmoke({ queryFn }: { queryFn: () => Promise<string> }) {

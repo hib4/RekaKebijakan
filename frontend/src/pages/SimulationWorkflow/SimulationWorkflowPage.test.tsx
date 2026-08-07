@@ -400,6 +400,49 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(maxActivePolls).toBe(1);
   });
 
+  it("keeps full simulation event timeline pinned to the bottom while events stream in", async () => {
+    const makeEvent = (index: number) => ({
+      id: `event-${index}`,
+      round: Math.ceil(index / 3),
+      channel: index % 2 === 0 ? "reddit" : "twitter",
+      persona: `Persona ${index}`,
+      group: "Warga terdampak",
+      type: "CREATE_POST",
+      statement: `Aktivitas simulasi ${index}`,
+      stance: "Netral",
+      concerns: ["Akses"],
+      risk_narrative: "Risiko akses layanan",
+      influence_source: "Simulasi OASIS",
+    });
+    let reads = 0;
+    server.use(
+      http.get("/backend/api/simulations/live-simulation-scroll", () => {
+        reads += 1;
+        const state = snapshot("simulation");
+        state.environment = { personas: [], persona_count: 30, config: { rounds: 12, platforms: ["twitter", "reddit"] } };
+        state.simulation = {
+          status: "running",
+          event_count: reads > 1 ? 24 : 2,
+          events: Array.from({ length: reads > 1 ? 24 : 2 }, (_, index) => makeEvent(index + 1)),
+        };
+        return HttpResponse.json(state);
+      }),
+      http.get("/backend/api/simulations/live-simulation-scroll/runtime-graph", () => HttpResponse.json({ available: false })),
+    );
+    renderWorkflow("/simulation/live-simulation-scroll?step=simulation&mode=workbench");
+
+    const simulationHeading = await screen.findByRole("heading", { name: "Pantau dinamika skenario" });
+    const simulationPane = simulationHeading.closest<HTMLElement>(".simulation-step")!;
+    Object.defineProperties(simulationPane, {
+      scrollHeight: { configurable: true, value: 2400 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    simulationPane.scrollTop = 0;
+
+    expect(await screen.findByText("Aktivitas simulasi 24", {}, { timeout: 4000 })).toBeInTheDocument();
+    await waitFor(() => expect(simulationPane.scrollTop).toBe(2400));
+  });
+
   it("keeps the runtime graph separate and connects Zep-shaped edges", async () => {
     server.use(
       http.get("/backend/api/simulations/live-runtime-graph", () => HttpResponse.json(snapshot("simulation"))),

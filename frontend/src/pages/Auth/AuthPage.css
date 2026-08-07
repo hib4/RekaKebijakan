@@ -57,27 +57,90 @@
 }
 .auth-password-control {
   position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--subtle);
+}
+
+.auth-password-control:focus-within {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+  border-bottom-color: var(--ink);
 }
 
 .auth-password-control input {
-  padding-right: 7.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  min-height: 51px;
+  padding-right: 16px;
+  border: 0;
+  background: transparent;
+}
+
+.auth-password-control input:focus {
+  outline: 0;
+  border: 0;
+}
+
+.auth-form-wrap .auth-password-control input:focus {
+  outline: 0;
+  border: 0;
 }
 
 .auth-password-control button {
-  position: absolute;
-  right: 0.75rem;
-  top: 50%;
+  position: static;
+  flex: 0 0 3.25rem;
+  width: 3.25rem;
+  align-self: stretch;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  background: transparent;
-  color: #0f62fe;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--muted);
   font: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
   cursor: pointer;
-  transform: translateY(-50%);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.auth-password-control button:hover:not(:disabled) {
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.auth-password-control button:focus-visible {
+  outline: 0;
+}
+
+.auth-password-control button[aria-pressed="true"] {
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.password-eye-icon {
+  width: 1.18rem;
+  height: 1.18rem;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .auth-password-control button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.auth-password-field small {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
