@@ -108,7 +108,7 @@ const environmentTasks = [
       "Menyiapkan ronde, kanal reaksi, pengaruh, dan respons pemerintah.",
   },
   {
-    title: "Lingkungan siap",
+    title: "Validasi kesiapan simulasi",
     operation: "READINESS VALIDATION",
     description: "Memeriksa cakupan persona dan kesiapan konfigurasi.",
   },
@@ -126,6 +126,15 @@ const quickPersonaTickMs = import.meta.env.MODE === "test" ? 5 : 850;
 const quickEventTickMs = import.meta.env.MODE === "test" ? 5 : 1000;
 const quickReportTickMs = import.meta.env.MODE === "test" ? 5 : 500;
 const quickPresentationVersion = 2;
+
+type AvailableRuntimeGraph = Extract<ApiRuntimeGraph, { available: true }>;
+
+function normalizeEmbeddedRuntimeGraph(
+  graph: ApiSimulationSnapshot["runtime_graph"],
+): AvailableRuntimeGraph | null {
+  if (!graph || graph.available === false) return null;
+  return { ...graph, available: true };
+}
 
 function initialQuickPresentation(session: WorkflowSession): WorkflowSession {
   return {
@@ -2066,6 +2075,12 @@ export default function SimulationWorkflowPage() {
       ? hydrateSession(simulationId, resolvedDemo)
       : createWorkflowSession(simulationId, "Simulasi kebijakan"),
   );
+  const resolvedDemoRef = useRef(resolvedDemo);
+  const currentStepRef = useRef(session.currentStep);
+  useEffect(() => {
+    resolvedDemoRef.current = resolvedDemo;
+    currentStepRef.current = session.currentStep;
+  }, [resolvedDemo, session.currentStep]);
   const presentationData = useEffectEvent(() => ({
     demo: resolvedDemo,
     project,
@@ -2115,6 +2130,64 @@ export default function SimulationWorkflowPage() {
     );
   }, [isQuickDemo, session, simulationId]);
 
+  const applyRuntimeGraph = useCallback(
+    (graph: Extract<ApiRuntimeGraph, { available: true }>) => {
+      runtimeGraphRef.current = graph;
+      setRuntimeMappingStatus(graph.mapping_status);
+      const graphNodes = graph.nodes.flatMap((node, index) => {
+        const id = node.id ?? node.uuid;
+        if (!id) return [];
+        return [
+          {
+            id,
+            label: node.label ?? node.name ?? id,
+            type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Entity",
+            summary:
+              node.summary ??
+              node.description ??
+              "Entitas hasil ekstraksi runtime.",
+            x: 100 + (index % 5) * 150,
+            y: 80 + Math.floor(index / 5) * 100,
+            citations: [],
+          },
+        ];
+      });
+      const nodeIds = new Set(graphNodes.map((node) => node.id));
+      const graphEdges = graph.edges.flatMap((edge, index) => {
+        const source = edge.source ?? edge.source_node_uuid;
+        const target = edge.target ?? edge.target_node_uuid;
+        if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target))
+          return [];
+        return [
+          {
+            id: edge.id ?? edge.uuid ?? `runtime-edge-${index}`,
+            source,
+            target,
+            type:
+              edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
+            citations: [],
+          },
+        ];
+      });
+      setRuntimeDemo((current) => ({
+        ...(current ?? resolvedDemoRef.current),
+        id: `${simulationId}-runtime`,
+        title: `${resolvedDemoRef.current.title} · Memori runtime`,
+        graphNodes,
+        graphEdges,
+      }));
+      if (
+        !graphSourceChosen.current &&
+        !autoSelectedRuntime.current &&
+        currentStepRef.current >= 2
+      ) {
+        autoSelectedRuntime.current = true;
+        setGraphSource("runtime");
+      }
+    },
+    [simulationId],
+  );
+
   const applyBackendSnapshot = useCallback(
     (snapshot: Awaited<ReturnType<typeof getSimulation>>) => {
       backendSnapshotRef.current = snapshot;
@@ -2129,6 +2202,10 @@ export default function SimulationWorkflowPage() {
         relationTypes:
           snapshot.ontology?.relation_types?.map((type) => type.name) ?? [],
       });
+      const embeddedGraph = normalizeEmbeddedRuntimeGraph(
+        snapshot.runtime_graph,
+      );
+      if (embeddedGraph) applyRuntimeGraph(embeddedGraph);
       setSession((current) => {
         const mapped = mapBackendSnapshot(snapshot, simulationId, current);
         setResolvedDemo(mapped.demo);
@@ -2172,7 +2249,7 @@ export default function SimulationWorkflowPage() {
       setBackendLoading(false);
       setBackendLoaded(true);
     },
-    [location.search, simulationId],
+    [applyRuntimeGraph, location.search, simulationId],
   );
   const loadBackend = useCallback(async () => {
     try {
@@ -2184,63 +2261,6 @@ export default function SimulationWorkflowPage() {
       setBackendLoading(false);
     }
   }, [applyBackendSnapshot, publicQuickDemo, simulationId]);
-  const applyRuntimeGraph = useCallback(
-    (graph: Extract<ApiRuntimeGraph, { available: true }>) => {
-      runtimeGraphRef.current = graph;
-      setRuntimeMappingStatus(graph.mapping_status);
-      const graphNodes = graph.nodes.flatMap((node, index) => {
-        const id = node.id ?? node.uuid;
-        if (!id) return [];
-        return [
-          {
-            id,
-            label: node.label ?? node.name ?? id,
-            type: node.type ?? node.entity_type ?? node.labels?.[0] ?? "Entity",
-            summary:
-              node.summary ??
-              node.description ??
-              "Entitas hasil ekstraksi runtime.",
-            x: 100 + (index % 5) * 150,
-            y: 80 + Math.floor(index / 5) * 100,
-            citations: [],
-          },
-        ];
-      });
-      const nodeIds = new Set(graphNodes.map((node) => node.id));
-      const graphEdges = graph.edges.flatMap((edge, index) => {
-        const source = edge.source ?? edge.source_node_uuid;
-        const target = edge.target ?? edge.target_node_uuid;
-        if (!source || !target || !nodeIds.has(source) || !nodeIds.has(target))
-          return [];
-        return [
-          {
-            id: edge.id ?? edge.uuid ?? `runtime-edge-${index}`,
-            source,
-            target,
-            type:
-              edge.type ?? edge.relation_type ?? edge.fact_type ?? "RELATED_TO",
-            citations: [],
-          },
-        ];
-      });
-      setRuntimeDemo((current) => ({
-        ...(current ?? resolvedDemo),
-        id: `${simulationId}-runtime`,
-        title: `${resolvedDemo.title} · Memori runtime`,
-        graphNodes,
-        graphEdges,
-      }));
-      if (
-        !graphSourceChosen.current &&
-        !autoSelectedRuntime.current &&
-        session.currentStep >= 2
-      ) {
-        autoSelectedRuntime.current = true;
-        setGraphSource("runtime");
-      }
-    },
-    [resolvedDemo, session.currentStep, simulationId],
-  );
   const loadRuntimeGraph = useCallback(async () => {
     if (localMode || publicQuickDemo) return;
     try {
@@ -2873,6 +2893,13 @@ export default function SimulationWorkflowPage() {
     graphSource === "policy"
       ? session.steps[1].status === "processing"
       : runtimeMappingStatus === "running";
+  const runtimeGraphPending =
+    session.steps[2].status === "locked" ||
+    session.steps[2].status === "ready" ||
+    session.steps[2].status === "processing" ||
+    session.steps[2].status === "paused" ||
+    session.simulation.status === "running" ||
+    session.simulation.status === "paused";
   const chooseGraphSource = (source: "policy" | "runtime") => {
     if (source === "runtime" && !runtimeDemo) return;
     graphSourceChosen.current = true;
@@ -2932,7 +2959,9 @@ export default function SimulationWorkflowPage() {
                   Graf runtime{" "}
                   {runtimeDemo
                     ? `${runtimeDemo.graphNodes.length}/${runtimeDemo.graphEdges.length}`
-                    : "memuat"}
+                    : runtimeGraphPending
+                      ? "memuat"
+                      : "tidak tersedia"}
                 </button>
               </div>
             )}

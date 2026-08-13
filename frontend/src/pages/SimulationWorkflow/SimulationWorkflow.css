@@ -652,9 +652,9 @@
 }
 .workflow-task > header {
   display: grid;
-  grid-template-columns: 34px 1fr auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0px;
+  column-gap: 12px;
 }
 .workflow-task h3 {
   margin: 0;

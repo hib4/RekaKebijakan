@@ -93,6 +93,12 @@ export type ApiRuntimeGraph = ({
   edges: ApiGraphEdgeDto[];
 } & ApiGraphStreamMetadata)) & ApiGraphStreamMetadata;
 
+export type ApiEmbeddedRuntimeGraph =
+  | ApiRuntimeGraph
+  | (Omit<Extract<ApiRuntimeGraph, { available: true }>, "available"> & {
+      available?: true;
+    });
+
 export type ApiPersonaDto = {
   id: string;
   name?: string;
@@ -210,6 +216,7 @@ export type ApiSimulationSnapshot = {
     node_count?: number;
     edge_count?: number;
   };
+  runtime_graph?: ApiEmbeddedRuntimeGraph;
   environment?: ApiStageDto & {
     personas?: ApiPersonaDto[];
     persona_count?: number;

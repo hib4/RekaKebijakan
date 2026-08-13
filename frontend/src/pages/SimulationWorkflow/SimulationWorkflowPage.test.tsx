@@ -41,6 +41,36 @@ function snapshot(currentStage: "graph" | "environment" | "simulation" | "report
   };
 }
 
+function embeddedRuntimeGraph(): NonNullable<ApiSimulationSnapshot["runtime_graph"]> {
+  return {
+    graph_id: "runtime-quick-demo",
+    graph_kind: "runtime",
+    source_revision: 1,
+    mapping_status: "completed",
+    node_count: 2,
+    edge_count: 1,
+    nodes: [
+      { id: "runtime-a", label: "Persona A", type: "Persona" },
+      { id: "runtime-b", label: "Isu B", type: "PolicyIssue" },
+    ],
+    edges: [
+      { id: "runtime-edge", source: "runtime-a", target: "runtime-b", type: "LINKS_TO" },
+    ],
+  };
+}
+
+function saveQuickGraphPresentation(simulationId: string) {
+  const presentation = createWorkflowSession(simulationId, "Registrasi Digital UMKM");
+  presentation.currentStep = 2;
+  presentation.viewMode = "graph";
+  presentation.steps[1] = { status: "completed", progress: 100, activeTask: null };
+  presentation.steps[2] = { status: "ready", progress: 0, activeTask: null };
+  sessionStorage.setItem(
+    quickPresentationSessionKey(simulationId),
+    JSON.stringify({ version: 2, session: presentation }),
+  );
+}
+
 function renderWorkflow(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
@@ -479,6 +509,48 @@ describe("SimulationWorkflowPage live mode", () => {
     await waitFor(() => expect(graph.querySelectorAll(".graph-edges line")).toHaveLength(1));
   });
 
+  it("hydrates the public quick-demo runtime graph from its bundled snapshot", async () => {
+    const quick = snapshot("report");
+    quick.workflow_mode = "quick_demo";
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
+    quick.runtime_graph = embeddedRuntimeGraph();
+    saveQuickGraphPresentation("demo-registrasi-umkm");
+    server.use(
+      http.get("/backend/api/public/quick-demo", () => HttpResponse.json(quick)),
+    );
+    const user = userEvent.setup();
+
+    renderWorkflow("/simulation/demo-registrasi-umkm?step=environment&mode=graph");
+
+    const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 2/1" });
+    expect(runtimeButton).toBeEnabled();
+    await user.click(runtimeButton);
+    expect(runtimeButton).toHaveClass("active");
+    expect(screen.getByText("GRAF RUNTIME OASIS / ZEP")).toBeInTheDocument();
+  });
+
+  it("prefers the authenticated quick-demo runtime graph bundled in the snapshot", async () => {
+    const quick = snapshot("report");
+    quick.workflow_mode = "quick_demo";
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
+    quick.runtime_graph = embeddedRuntimeGraph();
+    saveQuickGraphPresentation("quick-runtime");
+    server.use(
+      http.get("/backend/api/simulations/quick-runtime", () => HttpResponse.json(quick)),
+      http.get("/backend/api/simulations/quick-runtime/runtime-graph", () =>
+        HttpResponse.json({ available: false }),
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderWorkflow("/simulation/quick-runtime?step=environment&mode=graph");
+
+    const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 2/1" });
+    expect(runtimeButton).toBeEnabled();
+    await user.click(runtimeButton);
+    expect(runtimeButton).toHaveClass("active");
+  });
+
   it("keeps the policy graph visible while the runtime graph is pending", async () => {
     server.use(
       http.get("/backend/api/simulations/live-pending-graph", () => HttpResponse.json(snapshot("simulation"))),
@@ -489,6 +561,20 @@ describe("SimulationWorkflowPage live mode", () => {
 
     expect(await screen.findByRole("button", { name: "Graf kebijakan" })).toHaveClass("active");
     expect(screen.getByRole("button", { name: "Graf runtime memuat" })).toBeDisabled();
+    expect(screen.getByText("GRAF PENGETAHUAN KEBIJAKAN")).toBeInTheDocument();
+  });
+
+  it("marks a missing runtime graph unavailable after the workflow is terminal", async () => {
+    server.use(
+      http.get("/backend/api/simulations/live-without-runtime", () => HttpResponse.json(snapshot("report"))),
+      http.get("/backend/api/simulations/live-without-runtime/runtime-graph", () =>
+        HttpResponse.json({ available: false }),
+      ),
+    );
+
+    renderWorkflow("/simulation/live-without-runtime?step=environment&mode=graph");
+
+    expect(await screen.findByRole("button", { name: "Graf runtime tidak tersedia" })).toBeDisabled();
     expect(screen.getByText("GRAF PENGETAHUAN KEBIJAKAN")).toBeInTheDocument();
   });
 
