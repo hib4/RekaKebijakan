@@ -1,27 +1,62 @@
-# RekaKebijakan
+# RekaKebijakan Frontend
 
-Landing page prototype for RekaKebijakan, a public policy early-stage simulation platform for GEMASTIK 2026.
+The RekaKebijakan frontend is a React, TypeScript, and Vite app for running policy simulations, viewing reports, and interacting with evidence-based results.
 
-## Running the project
+## Run Locally
 
-```bash
+```sh
 bun install
 bun run dev
 ```
 
-To create a production build:
+Open `http://localhost:5173`.
 
-```bash
+Production build:
+
+```sh
 bun run build
 bun run preview
 ```
 
-The frontend uses `VITE_API_URL=/backend` by default. During development, Vite proxies that path to the FastAPI service at `http://localhost:5001`; the production Nginx configuration keeps the same `/backend` path. This same-origin path allows the browser to send the authentication cookie on all API requests. Copy `.env.example` to `.env` only when you need to override this path.
+From the repository root, run the local production full stack with:
 
-Authentication uses `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, and `GET /api/auth/me`. Dashboard, project, report, and simulation routes require an authenticated cookie session. Local workspace and workflow prototype data are namespaced by the authenticated user ID.
+```sh
+make full-up
+```
 
-Public routes are `/`, `/login`, and `/register`. Registration requires a name, email, password of at least 6 characters, and matching password confirmation.
+Nginx serves the frontend at `http://localhost:5173` and proxies API requests to the backend.
 
-IDs beginning with `demo-` always use local demonstration data and timers. Backend-created quick demos keep using backend workflow data and interactions. The pilot project discussion form remains a prototype interaction and does not send or save data.
+## API Configuration
 
-From the repository root, `make full-up` builds the production frontend image and serves it through Nginx at `http://localhost:5173`. Nginx provides SPA route fallback and proxies `/backend/*` to the FastAPI container.
+The frontend uses `VITE_API_URL=/backend` by default.
+
+- During development, Vite proxies `/backend` to FastAPI at `http://localhost:5001`.
+- In production Docker, Nginx keeps the `/backend` path and proxies it to the backend container.
+- This same-origin path is required so the browser sends the authentication cookie.
+
+Copy `.env.example` to `.env` only when you need to change the API path.
+
+## Authentication and Routes
+
+Auth endpoints used by the frontend:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+Public routes:
+
+- `/`
+- `/login`
+- `/register`
+
+Dashboard, project, simulation, and report routes require a signed-in session. IDs that start with `demo-` continue to use local demo data.
+
+## Verification
+
+```sh
+bun run lint
+bun run build
+bun run test
+```

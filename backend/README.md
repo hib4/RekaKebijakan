@@ -1,10 +1,8 @@
 # RekaKebijakan Backend
 
-FastAPI, Pydantic, PostgreSQL, and local/Firebase file storage implementation of the policy workflow. It uses local email/password accounts.
+The RekaKebijakan backend is a FastAPI API for authentication, document upload, policy simulation workflows, evidence-based reports, and follow-up interactions. Main data is stored in PostgreSQL; source documents are stored locally or in Firebase Storage.
 
-The backend uses a Python application factory and service-oriented structure tailored to policy simulation. PostgreSQL-backed jobs provide leased, retryable task execution, while the grounded deterministic provider supports local use without mandatory AI services.
-
-From the repository root, `make up` builds and starts PostgreSQL and the API. Use `make full-up` to include the frontend. PostgreSQL data and uploaded documents use separate persistent volumes.
+## Run Locally
 
 ```sh
 python -m venv .venv
@@ -13,43 +11,70 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Uploaded PDF, DOCX, Markdown, and text documents are stored below `DATA_DIR/uploads` by default, or in Firebase Storage when `STORAGE_BACKEND=firebase`; extracted text and workflow state are durable in PostgreSQL. Set `JOB_DELAY=0` for fast tests. In-progress jobs recover when the app starts.
+`python run.py` starts Uvicorn on port `5001`.
 
-Run the automated tests with `pytest`. The suite covers authentication and authorization, all document formats, deterministic generation, durable job recovery, validation, simulation controls, and the complete upload-to-report-to-interaction API workflow.
+From the repository root, Docker options are available:
 
-Frontend aliases use `/api/simulations/<id>/stages/<stage>/start`, `/pause`, `/resume`, and `/interactions`. Canonical project, graph, environment, run/event/control, report/evidence, and interaction resources are also exposed.
-
-`python run.py` starts Uvicorn on port 5001. Keep `workers=1`: workflow execution currently uses process-local worker threads. A multi-worker deployment requires leased database jobs or an external queue even though durable state lives in PostgreSQL.
+```sh
+make up       # backend + PostgreSQL
+make full-up  # backend + PostgreSQL + frontend
+```
 
 ## Configuration
 
-Copy `.env.example` to `.env` to override defaults. `DATABASE_URL` must be a SQLAlchemy PostgreSQL URL using the psycopg driver. Registration is open and automatically creates a seven-day opaque session in the HTTP-only `rk_session` cookie. `SESSION_COOKIE_NAME`, `SESSION_TTL_SECONDS`, and `SESSION_COOKIE_SECURE` control cookie deployment settings. Set `SESSION_COOKIE_SECURE=true` behind HTTPS.
+Copy `.env.example` to `.env` to change default values.
 
-Set `STORAGE_BACKEND=firebase`, `FIREBASE_STORAGE_BUCKET`, and `FIREBASE_STORAGE_PREFIX` to store uploaded source files in Firebase Storage. Authentication uses Application Default Credentials, so set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON path. In Docker Compose, set `FIREBASE_CREDENTIALS_HOST_PATH` to the host JSON path; it is mounted read-only at `/app/secrets/firebase-service-account.json`.
+Important settings:
 
-Compose runs Alembic through a one-shot migration service before the API and worker start. All database timestamps use PostgreSQL `TIMESTAMP WITH TIME ZONE` and application code supplies timezone-aware UTC values. Workflow state and job configuration use `JSONB`.
+- `DATABASE_URL`: PostgreSQL URL using the `psycopg` driver.
+- `CORS_ORIGINS`: allowed frontend origins.
+- `SESSION_COOKIE_NAME`, `SESSION_TTL_SECONDS`, `SESSION_COOKIE_SECURE`: session cookie settings.
+- `STORAGE_BACKEND`: `local` or `firebase`.
+- `POLICY_PROVIDER`: `deterministic` or `openai`.
 
-## Analysis providers
+Registration uses email and password, then creates a seven-day session in an HTTP-only cookie. Workflow endpoints can only access projects owned by the signed-in user.
 
-`POLICY_PROVIDER=deterministic` is the default. It derives ontology terms, graph issues, personas, simulation events, reports, interviews, and graph-memory feedback from stored document chunks with reproducible output and structured citations.
+## Storage and Documents
 
-Set `POLICY_PROVIDER=openai`, `LLM_API_KEY`, and optionally `LLM_BASE_URL`/`LLM_MODEL` to use an OpenAI-compatible provider for ontology and report generation. Source IDs returned by a model are never trusted; citation provenance is resolved and validated against PostgreSQL document chunks.
+By default, PDF, DOCX, Markdown, and TXT files are stored in `DATA_DIR/uploads`. Extracted text, workflow state, jobs, and evidence metadata are stored in PostgreSQL.
 
-Documents are split into deterministic, content-hashed chunks. Graph nodes, report sections, risks, and interaction answers expose structured evidence. Internal storage paths are not returned by project or evidence APIs.
+For Firebase Storage, set:
 
-The API only enqueues workflow stages in normal deployments. `worker.py` claims jobs with PostgreSQL `FOR UPDATE SKIP LOCKED`, leases, heartbeats, retries, and stale-revision checks. Tests use the embedded worker for speed.
+```sh
+STORAGE_BACKEND=firebase
+FIREBASE_STORAGE_BUCKET=<bucket-name>
+GOOGLE_APPLICATION_CREDENTIALS=<service-account-json-path>
+```
 
-## OASIS runtime
+In Docker Compose, use `FIREBASE_CREDENTIALS_HOST_PATH` so the credential file is mounted into the container.
 
-Direct CAMEL/OASIS execution is enabled and selected by default. `LLM_API_KEY` and `ZEP_API_KEY` are required unless `OASIS_ENABLED=false` and `DEFAULT_SIMULATION_ENGINE=deterministic` are configured. The worker remains authoritative for leases and retries while the backend-owned runtime provides the simulation workflow. Tests disable direct OASIS and remain deterministic/network-free.
+## Providers and Simulation
 
-`GET /health` reports process liveness. `GET /ready` also verifies that PostgreSQL accepts queries and is used by the container health check.
+`POLICY_PROVIDER=deterministic` generates ontology, graphs, events, reports, interviews, and feedback locally with reproducible output.
 
-`CORS_ORIGINS` must list explicit browser origins; wildcard origins are rejected because credentialed CORS is enabled. Unsafe authenticated browser requests are accepted only from those origins. The defaults allow the local Vite origins. Health endpoints, OpenAPI documentation, and `/api/auth/*` are public; all project, simulation, run, report, and interaction endpoints require authentication and expose only resources owned by the current user.
+For an OpenAI-compatible provider, set `POLICY_PROVIDER=openai`, `LLM_API_KEY`, and optionally `LLM_BASE_URL` or `LLM_MODEL`.
 
-Auth endpoints are `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout`. Install `.[llm]` only when implementing an OpenAI-compatible provider; the current engine intentionally remains deterministic and offline.
+The CAMEL/OASIS runtime is enabled by default and requires `LLM_API_KEY` and `ZEP_API_KEY`. For local mode without external services, set:
 
-## Test
+```sh
+OASIS_ENABLED=false
+DEFAULT_SIMULATION_ENGINE=deterministic
+```
+
+## Worker and Health Checks
+
+Workflow stages normally enter the job queue. `worker.py` claims jobs from PostgreSQL with leases, heartbeats, retries, and revision checks so processing can recover after a restart.
+
+Public endpoints:
+
+- `GET /health`: check the API process.
+- `GET /ready`: check the API and PostgreSQL connection.
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+
+## Tests
 
 ```sh
 .venv/bin/python -m pytest -vv

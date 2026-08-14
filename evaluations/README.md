@@ -1,9 +1,25 @@
-# Formal evaluation
+# Formal Evaluation
 
-Fixtures under `fixtures/v1/` are deterministic and contain the source set, required concepts, and a report represented as atomic claims. The evaluator performs no network calls and reports:
+This folder contains deterministic test data for checking RekaKebijakan report quality without network calls.
 
-- `concept_recall`: required concepts present in report claim text.
-- `citation_validity`: citation references that identify a fixture source.
+Data under `fixtures/v1/` includes:
+
+- source files,
+- required concepts,
+- a report represented as atomic claims.
+
+The evaluator reports:
+
+- `concept_recall`: required concepts found in report claim text.
+- `citation_validity`: citations that reference a valid fixture source.
 - `citation_coverage`: evidence-requiring claims with at least one valid citation.
 
-Run from `backend/` with `python -m app.evaluation`. The command emits one JSON object and fails when any aggregate metric is below `--fail-threshold` (default `EVALUATION_FAIL_THRESHOLD=0.8`). A fixture file or directory can be supplied with `--fixtures`.
+Run from the `backend/` folder:
+
+```sh
+python -m app.evaluation
+```
+
+The command emits one JSON object and fails if any aggregate metric is below `--fail-threshold`. The default threshold comes from `EVALUATION_FAIL_THRESHOLD` or `0.8`.
+
+A specific test data file or directory can be passed with `--fixtures`.
