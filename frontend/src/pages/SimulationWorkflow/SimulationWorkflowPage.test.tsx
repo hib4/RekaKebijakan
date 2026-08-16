@@ -130,15 +130,15 @@ describe("SimulationWorkflowPage live mode", () => {
     renderWorkflow("/simulation/live-layout?step=report&mode=graph");
 
     expect(await screen.findByRole("heading", { name: "Susun laporan kebijakan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Graf" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Ruang kerja" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Graph" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("region", { name: "Konsol sistem" })).not.toBeInTheDocument();
 
     const stepper = screen.getByRole("navigation", { name: "Tahap workflow" });
     await user.click(within(stepper).getByRole("button", { name: /Simulasi/ }));
 
-    expect(screen.getByRole("button", { name: "Graf" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Graf" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Graph" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Graph" })).toBeEnabled();
   });
 
   it("uses normal navigation from Report to Interaction and leaves Step 05 ready", async () => {
@@ -168,7 +168,7 @@ describe("SimulationWorkflowPage live mode", () => {
     await user.click(reportButton);
 
     expect(await screen.findByRole("heading", { name: "Susun laporan kebijakan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ruang kerja" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Workbench" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("requires confirmation before starting a ready simulation", async () => {
