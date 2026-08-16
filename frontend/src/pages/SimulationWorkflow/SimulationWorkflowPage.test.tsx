@@ -60,7 +60,7 @@ function embeddedRuntimeGraph(): NonNullable<ApiSimulationSnapshot["runtime_grap
 }
 
 function saveQuickGraphPresentation(simulationId: string) {
-  const presentation = createWorkflowSession(simulationId, "Registrasi Digital UMKM");
+  const presentation = createWorkflowSession(simulationId, "Makan Bergizi Gratis (MBG)");
   presentation.currentStep = 2;
   presentation.viewMode = "graph";
   presentation.steps[1] = { status: "completed", progress: 100, activeTask: null };
@@ -116,7 +116,7 @@ describe("SimulationWorkflowPage live mode", () => {
     renderWorkflow("/simulation/live-123");
 
     expect(await screen.findByRole("heading", { name: "Program Backend" })).toBeInTheDocument();
-    expect(screen.queryByText("Registrasi Digital UMKM")).not.toBeInTheDocument();
+    expect(screen.queryByText("Makan Bergizi Gratis (MBG)")).not.toBeInTheDocument();
     expect(storageRead).not.toHaveBeenCalled();
     expect(storageWrite).not.toHaveBeenCalled();
   });
@@ -204,15 +204,15 @@ describe("SimulationWorkflowPage live mode", () => {
         time: "00:45",
         channel: "twitter",
         persona: "Ibu Sari",
-        group: "Pelaku UMKM",
+        group: "Orang tua dan siswa",
         type: "QUOTE_POST",
         statement: "Kebijakan ini perlu masa transisi.",
         stance: "Khawatir",
         concerns: ["Transisi"],
         action_args: {
           quote_content: "Kebijakan ini perlu masa transisi.",
-          original_author_name: "Dinas Koperasi",
-          original_content: "Registrasi dimulai bulan depan.",
+          original_author_name: "Badan Gizi Nasional",
+          original_content: "Mekanisme koreksi data diperbarui bulan depan.",
         },
       }],
     };
@@ -224,8 +224,8 @@ describe("SimulationWorkflowPage live mode", () => {
 
     expect(await screen.findByRole("heading", { name: "Linimasa aktivitas sintetis" })).toBeInTheDocument();
     expect(screen.getByText("Kutipan")).toBeInTheDocument();
-    expect(screen.getByText("Dinas Koperasi")).toBeInTheDocument();
-    expect(screen.getByText("Registrasi dimulai bulan depan.")).toBeInTheDocument();
+    expect(screen.getByText("Badan Gizi Nasional")).toBeInTheDocument();
+    expect(screen.getByText("Mekanisme koreksi data diperbarui bulan depan.")).toBeInTheDocument();
     expect(screen.getByLabelText(/Ibu Sari, Kutipan, ronde 2/)).toBeInTheDocument();
   });
 
@@ -283,8 +283,8 @@ describe("SimulationWorkflowPage live mode", () => {
   it("uses backend answers for quick demo interactions", async () => {
     const quick = snapshot("interaction");
     quick.workflow_mode = "quick_demo";
-    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
-    quick.demo_bundle_id = "registrasi-digital-umkm-v1";
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "makan-bergizi-gratis-v1" };
+    quick.demo_bundle_id = "makan-bergizi-gratis-v1";
     const presentation = createWorkflowSession("quick-chat", "Program Backend");
     presentation.currentStep = 5;
     presentation.viewMode = "workbench";
@@ -512,15 +512,15 @@ describe("SimulationWorkflowPage live mode", () => {
   it("hydrates the public quick-demo runtime graph from its bundled snapshot", async () => {
     const quick = snapshot("report");
     quick.workflow_mode = "quick_demo";
-    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "makan-bergizi-gratis-v1" };
     quick.runtime_graph = embeddedRuntimeGraph();
-    saveQuickGraphPresentation("demo-registrasi-umkm");
+    saveQuickGraphPresentation("demo-mbg");
     server.use(
       http.get("/backend/api/public/quick-demo", () => HttpResponse.json(quick)),
     );
     const user = userEvent.setup();
 
-    renderWorkflow("/simulation/demo-registrasi-umkm?step=environment&mode=graph");
+    renderWorkflow("/simulation/demo-mbg?step=environment&mode=graph");
 
     const runtimeButton = await screen.findByRole("button", { name: "Graf runtime 2/1" });
     expect(runtimeButton).toBeEnabled();
@@ -532,7 +532,7 @@ describe("SimulationWorkflowPage live mode", () => {
   it("prefers the authenticated quick-demo runtime graph bundled in the snapshot", async () => {
     const quick = snapshot("report");
     quick.workflow_mode = "quick_demo";
-    quick.workflow = { mode: "quick_demo", demo_bundle_id: "registrasi-digital-umkm-v1" };
+    quick.workflow = { mode: "quick_demo", demo_bundle_id: "makan-bergizi-gratis-v1" };
     quick.runtime_graph = embeddedRuntimeGraph();
     saveQuickGraphPresentation("quick-runtime");
     server.use(
@@ -619,7 +619,7 @@ describe("SimulationWorkflowPage live mode", () => {
     const quick = snapshot("report");
     quick.current_stage = "graph";
     quick.workflow_mode = "quick_demo";
-    quick.demo_bundle_id = "registrasi-digital-umkm-v1";
+    quick.demo_bundle_id = "makan-bergizi-gratis-v1";
     quick.stages!.graph = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
     quick.stages!.environment = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
     quick.stages!.simulation = { status: "completed", progress: 100, execution_kind: "accelerated_fixture" };
@@ -633,37 +633,37 @@ describe("SimulationWorkflowPage live mode", () => {
         round: 1,
         time: "2026-08-06T09:00:00+07:00",
         channel: "twitter",
-        persona: "Sari Wulandari",
-        group: "Pelaku usaha",
+        persona: "Ibu Rina",
+        group: "Orang tua dan siswa",
         type: "CREATE_POST",
-        statement: "Pelaku usaha membutuhkan kepastian masa transisi.",
+        statement: "Orang tua membutuhkan kepastian respons keluhan makanan.",
         stance: "Netral",
-        concerns: ["Masa transisi"],
-        risk_narrative: "Ketidakpastian dapat menunda partisipasi.",
-        influence_source: "Pengumuman kebijakan",
+        concerns: ["Keamanan pangan"],
+        risk_narrative: "Keluhan mutu dapat menurunkan kepercayaan.",
+        influence_source: "Kanal pengaduan",
       }, {
         id: "quick-event-2",
         round: 1,
         time: "2026-08-06T09:00:01+07:00",
         channel: "reddit",
         persona: "Ratna Prameswari",
-        group: "Pemerintah daerah",
+        group: "BGN",
         type: "CREATE_POST",
-        statement: "Registrasi dibuka bertahap melalui meja bantuan kecamatan.",
+        statement: "Ekspansi MBG perlu ditahan sampai data sasaran, kapasitas wilayah, dan audit pengadaan memenuhi ambang minimum.",
         stance: "Positif",
-        concerns: ["Akses layanan"],
-        risk_narrative: "Pelaku usaha membutuhkan pendampingan lokal.",
-        influence_source: "Publikasi pemerintah daerah",
+        concerns: ["Tata kelola"],
+        risk_narrative: "Program membutuhkan akuntabilitas yang konsisten.",
+        influence_source: "Publikasi BGN",
       }],
     };
     quick.report = {
       status: "completed",
       progress: 100,
-      title: "Laporan Simulasi Registrasi Digital UMKM",
+      title: "Laporan Simulasi Makan Bergizi Gratis (MBG)",
       sections: [{
         id: "summary",
         title: "Ringkasan Eksekutif",
-        paragraphs: ["Respons membaik setelah kepastian masa transisi dan layanan bergerak diumumkan."],
+      paragraphs: ["Risiko tetap tinggi karena prasyarat ekspansi, audit pengadaan, dan bukti dampak belum mengikat."],
         citations: [{ source_type: "event", source_id: "quick-event-1" }],
       }],
       risks: [],
@@ -713,7 +713,7 @@ describe("SimulationWorkflowPage live mode", () => {
     expect(reportStep).toBeEnabled();
     expect(stageCalls).toBe(0);
     await user.click(screen.getByRole("button", { name: "Susun laporan →" }));
-    expect(await screen.findByText("Respons membaik setelah kepastian masa transisi dan layanan bergerak diumumkan.")).toBeInTheDocument();
+    expect(await screen.findByText("Risiko tetap tinggi karena prasyarat ekspansi, audit pengadaan, dan bukti dampak belum mengikat.")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Buka interaksi →" })).toBeInTheDocument();
     expect(stageCalls).toBe(0);
   });

@@ -40,7 +40,7 @@ function first(framing: Record<string, string[]>, key: string, fallback: string)
 }
 
 export function intakeToDemoCase(intake: ProjectIntake): DemoCase {
-  const base = demoCases["demo-registrasi-umkm"];
+  const base = demoCases["demo-mbg"];
   const stakeholderNames = intake.framing["Kelompok terdampak"]?.filter((item) => item.trim()).slice(0, 3) ?? [];
   const groups = [...stakeholderNames, "Pelaksana layanan", "Organisasi masyarakat", intake.institution].slice(0, 6);
   while (groups.length < 6) groups.push(`Kelompok stakeholder ${groups.length + 1}`);

@@ -151,24 +151,80 @@ export const demoCases: Record<string, DemoCase> = {
   },
 };
 
-demoCases["demo-registrasi-umkm"] = {
-  ...demoCases["demo-penyaluran-pupuk"],
-  id: "demo-registrasi-umkm",
-  title: "Registrasi Digital UMKM",
-  question: "Bagaimana sosialisasi registrasi digital memengaruhi kekhawatiran tentang biaya, pajak, dan penggunaan data usaha?",
-  reportTitle: "Analisis Risiko Registrasi Digital UMKM Berbasis Simulasi Skenario",
+demoCases["demo-mbg"] = {
+  id: "demo-mbg",
+  title: "Makan Bergizi Gratis (MBG)",
+  question: "Seberapa kuat alasan untuk menunda ekspansi MBG jika risiko salah sasaran, pengadaan, kesiapan wilayah, dan biaya peluang belum terjawab?",
+  graphNodes: [
+    { id: "issue", label: "Risiko ekspansi MBG", type: "PolicyIssue", x: 385, y: 190, summary: "Isu utama mengenai ekspansi cepat, salah sasaran, pengadaan, kapasitas wilayah, dan biaya peluang." },
+    { id: "bgn", label: "Badan Gizi Nasional", type: "Institution", x: 675, y: 115, summary: "Pengampu kebijakan yang perlu membuktikan dampak dan kesiapan ekspansi.", group: "BGN" },
+    { id: "regional", label: "Pemerintah daerah", type: "Stakeholder", x: 245, y: 72, summary: "Pelaksana wilayah yang menanggung beban koreksi data dan pengawasan lokal.", group: "Pemerintah daerah" },
+    { id: "school", label: "Sekolah", type: "Stakeholder", x: 105, y: 145, summary: "Satuan pendidikan yang berisiko menerima beban administrasi tambahan.", group: "Sekolah" },
+    { id: "sppg", label: "SPPG & pemasok lokal", type: "PersonaGroup", x: 205, y: 320, summary: "Pelaksana produksi dan pengadaan yang rentan pada pembayaran terlambat serta konsentrasi pemasok.", group: "SPPG dan pemasok lokal" },
+    { id: "health", label: "Tenaga kesehatan/gizi", type: "Stakeholder", x: 640, y: 300, summary: "Pemantau yang menuntut bukti dampak gizi, bukan hanya jumlah porsi tersalur.", group: "Tenaga kesehatan/gizi" },
+    { id: "civil", label: "Masyarakat sipil & media", type: "Stakeholder", x: 470, y: 68, summary: "Pemantau konflik kepentingan, biaya peluang, dan transparansi anggaran.", group: "Masyarakat sipil & media" },
+    { id: "clause", label: "Prasyarat ekspansi", type: "RegulationClause", x: 745, y: 220, summary: "Ambang validitas data, kapasitas SPPG, audit pengadaan, dan bukti dampak." },
+    { id: "concern", label: "Biaya peluang dan salah sasaran", type: "PublicConcern", x: 330, y: 365, summary: "Kekhawatiran bahwa anggaran besar tidak menjangkau sasaran prioritas dan menggeser program lain." },
+    { id: "risk", label: "Ekspansi terlalu cepat", type: "RiskNarrative", x: 500, y: 350, summary: "Narasi bahwa MBG berubah menjadi proyek logistik mahal sebelum prasyarat kebijakan terpenuhi." },
+    { id: "evidence", label: "Audit dan evaluasi independen", type: "EvidenceSource", x: 60, y: 265, summary: "Bukti yang dibutuhkan: exclusion error, kesiapan wilayah, penerima kontrak, biaya peluang, dan dampak gizi." },
+  ],
+  graphEdges: [
+    { id: "e1", source: "issue", target: "school", type: "AFFECTS" },
+    { id: "e2", source: "issue", target: "regional", type: "IMPLEMENTED_BY" },
+    { id: "e3", source: "sppg", target: "civil", type: "INFLUENCES" },
+    { id: "e4", source: "civil", target: "bgn", type: "REFERENCES" },
+    { id: "e5", source: "bgn", target: "clause", type: "IMPLEMENTED_BY" },
+    { id: "e6", source: "school", target: "concern", type: "RAISES_CONCERN" },
+    { id: "e7", source: "concern", target: "risk", type: "INFLUENCES" },
+    { id: "e8", source: "health", target: "risk", type: "MITIGATES" },
+    { id: "e9", source: "regional", target: "school", type: "SUPPORTS" },
+    { id: "e10", source: "evidence", target: "issue", type: "REFERENCES" },
+    { id: "e11", source: "health", target: "school", type: "INFLUENCES" },
+  ],
+  personas: [
+    { id: "p1", name: "Pak Dedi", group: "BGN", role: "Analis tata kelola nasional", stance: "Netral", concern: "Tekanan ekspansi dan pembuktian dampak kebijakan", topics: ["ekspansi", "evaluasi", "akuntabilitas"], count: 5 },
+    { id: "p2", name: "Ibu Rina", group: "Pemerintah daerah", role: "Koordinator pelaksanaan daerah", stance: "Kritis", concern: "Mandat pelaksanaan tanpa kapasitas dan anggaran memadai", topics: ["beban daerah", "kesiapan wilayah", "data"], count: 5 },
+    { id: "p3", name: "Ibu Lestari", group: "Sekolah", role: "Kepala sekolah", stance: "Kritis", concern: "Beban administrasi dan gangguan pembelajaran", topics: ["administrasi", "pelaporan", "waktu belajar"], count: 5 },
+    { id: "p4", name: "Pak Bima", group: "SPPG dan pemasok lokal", role: "Pengelola layanan dan pemasok lokal", stance: "Kritis", concern: "Risiko pengadaan, pembayaran terlambat, dan konsentrasi pemasok", topics: ["pengadaan", "pembayaran", "rantai pasok"], count: 5 },
+    { id: "p5", name: "Dr. Maya", group: "Tenaga kesehatan/gizi", role: "Pemantau dampak gizi", stance: "Kritis", concern: "Bukti dampak gizi lemah dan biaya peluang kesehatan", topics: ["bukti dampak", "gizi", "biaya peluang"], count: 5 },
+    { id: "p6", name: "Mbak Tara", group: "Masyarakat sipil & media", role: "Pemantau anggaran publik", stance: "Kritis", concern: "Transparansi anggaran, konflik kepentingan, dan biaya peluang", topics: ["anggaran", "konflik kepentingan", "biaya peluang"], count: 5 },
+  ],
+  events: [
+    { id: "ev1", round: 1, time: "00:18", channel: "Forum Publik", persona: "Pak Dedi", group: "BGN", type: "Pernyataan", statement: "Tujuan gizi MBG penting, tetapi desain saat ini terlalu bergantung pada asumsi bahwa skala besar otomatis menghasilkan dampak.", stance: "Netral", concerns: ["Ekspansi", "Bukti dampak"], riskNarrative: "Ekspansi terlalu cepat", influenceSource: "Policy brief MBG" },
+    { id: "ev2", round: 1, time: "00:31", channel: "Komunitas Kebijakan", persona: "Ibu Rina", group: "Pemerintah daerah", type: "Kritik desain", statement: "Daerah khawatir mandat pelaksanaan turun lebih cepat daripada dukungan anggaran, data, dan kapasitas pengawasan.", stance: "Kritis", concerns: ["Beban daerah", "Kapasitas"], riskNarrative: "Ekspansi mendahului kapasitas wilayah", influenceSource: "Mandat pelaksanaan" },
+    { id: "ev3", round: 2, time: "00:52", channel: "Forum Publik", persona: "Mbak Tara", group: "Masyarakat sipil & media", type: "Penguatan narasi", statement: "Tanpa transparansi kontrak dan penerima manfaat akhir, risiko konflik kepentingan tetap tinggi.", stance: "Kritis", concerns: ["Transparansi", "Konflik kepentingan"], riskNarrative: "Akuntabilitas pengadaan lemah", influenceSource: "Diskusi publik" },
+    { id: "ev4", round: 2, time: "01:14", channel: "Komunitas Kebijakan", persona: "Ibu Lestari", group: "Sekolah", type: "Tanggapan kritis", statement: "Pendataan dan pelaporan MBG berisiko mengalihkan waktu sekolah dari fungsi utama pembelajaran.", stance: "Kritis", concerns: ["Administrasi", "Pembelajaran"], riskNarrative: "Beban pelaksana tidak terlihat", influenceSource: "Data sekolah" },
+    { id: "ev5", round: 3, time: "01:42", channel: "Forum Publik", persona: "Pak Bima", group: "SPPG dan pemasok lokal", type: "Kritik kapasitas", statement: "Kontrak baru sebaiknya ditunda di wilayah yang belum memiliki kepastian pembayaran dan aturan pengadaan terbuka.", stance: "Kritis", concerns: ["Pengadaan", "Pembayaran"], riskNarrative: "Ekspansi mendahului kapasitas wilayah", influenceSource: "Peta kapasitas wilayah" },
+    { id: "ev6", round: 4, time: "02:18", channel: "Komunitas Kebijakan", persona: "Dr. Maya", group: "Tenaga kesehatan/gizi", type: "Pengaruh kritis", statement: "Program harus membuktikan dampak dibanding intervensi alternatif seperti suplementasi, sanitasi, atau edukasi gizi.", stance: "Kritis", concerns: ["Bukti dampak", "Biaya peluang"], riskNarrative: "Bukti dampak gizi lemah", influenceSource: "Evaluasi independen" },
+    { id: "ev7", round: 4, time: "02:41", channel: "Forum Publik", persona: "Mbak Tara", group: "Masyarakat sipil & media", type: "Perubahan sikap", statement: "Publikasi agregat saja tidak cukup jika penerima kontrak, audit pemasok, dan wilayah yang ditunda tidak dibuka.", stance: "Kritis", concerns: ["Audit", "Anggaran"], riskNarrative: "Akuntabilitas pengadaan lemah", influenceSource: "Dashboard evaluasi" },
+    { id: "ev8", round: 5, time: "03:05", channel: "Komunitas Kebijakan", persona: "Pak Dedi", group: "BGN", type: "Respons kebijakan", statement: "Review merekomendasikan penahanan ekspansi sampai data sasaran, kapasitas wilayah, dan audit pengadaan memenuhi ambang minimum.", stance: "Kritis", concerns: ["Penundaan", "Evaluasi"], riskNarrative: "Ekspansi terlalu cepat", influenceSource: "Jejak event simulasi" },
+  ],
+  risks: [
+    { id: "r1", title: "Program tidak tepat sasaran", level: "Tinggi", trend: "Meningkat", evidence: "Exclusion error, data sasaran yang sulit dikoreksi, dan variasi kondisi wilayah muncul lintas ronde." },
+    { id: "r2", title: "Ekspansi mendahului kapasitas wilayah", level: "Tinggi", trend: "Stabil", evidence: "Mandat pusat, beban sekolah, dan kapasitas SPPG tetap tidak seimbang meskipun ada klarifikasi." },
+    { id: "r3", title: "Akuntabilitas pengadaan lemah", level: "Tinggi", trend: "Meningkat", evidence: "Transparansi anggaran, konflik kepentingan, audit pemasok, dan biaya peluang tetap menjadi keberatan utama." },
+  ],
+  reportTitle: "Analisis Risiko Makan Bergizi Gratis Berbasis Simulasi Skenario",
+  reportSections: [
+    { id: "executive", title: "Ringkasan Eksekutif", content: ["Simulasi menunjukkan argumen kontra yang kuat: MBG berisiko menjadi proyek logistik mahal jika ekspansi didorong sebelum data sasaran, kapasitas wilayah, audit pengadaan, dan bukti dampak memadai.", "Risiko tertinggi muncul pada salah sasaran, ekspansi mendahului kapasitas, akuntabilitas pengadaan, dan biaya peluang terhadap intervensi gizi atau pendidikan lain.", "Klarifikasi teknis belum cukup menurunkan keberatan; sebagian risiko tetap tinggi atau meningkat karena prasyarat belum mengikat keputusan ekspansi."] },
+    { id: "response", title: "Pergeseran Respons Stakeholder", content: ["Daerah, sekolah, SPPG, tenaga gizi, dan masyarakat sipil bergerak ke posisi kritis karena beban dan risiko desain lebih jelas sepanjang simulasi.", "BGN tetap mencoba mempertahankan tujuan program, tetapi respons akhir tetap mengarah pada penahanan ekspansi, bukan sekadar perbaikan teknis.", "Tenaga kesehatan/gizi menjadi aktor penyangga kontra karena menuntut bukti dampak dibanding intervensi alternatif."] },
+    { id: "narrative", title: "Risiko Narasi Utama", content: ["Narasi bahwa ekspansi terlalu cepat menyebar ketika data sasaran, kesiapan wilayah, penerima kontrak, dan biaya peluang tidak dapat diverifikasi.", "Risiko meningkat ketika informasi resmi hanya menonjolkan skala penyaluran tanpa membuka exclusion error, konflik pengadaan, dan hasil evaluasi independen.", "Narasi tandingan tidak cukup berupa klaim manfaat; perlu prasyarat ekspansi yang dapat membatalkan atau menunda pelaksanaan di wilayah belum siap."] },
+    { id: "indirect", title: "Dampak Tidak Langsung", content: ["Ketidakjelasan desain meningkatkan beban administrasi sekolah dan tekanan koordinasi pada pemerintah daerah.", "SPPG berpotensi menjadi titik tekanan jika target ekspansi mendahului kapasitas rantai pasok, kepastian pembayaran, dan audit kontrak.", "Dampak tidak langsung juga terlihat pada biaya peluang anggaran untuk sanitasi, suplementasi, edukasi gizi, dan penguatan sekolah."] },
+    { id: "recommendation", title: "Rekomendasi Kebijakan", content: ["Tahan ekspansi di wilayah yang belum memenuhi ambang validitas data, kapasitas SPPG, dukungan sekolah, audit pengadaan, dan bukti dampak.", "Publikasikan dashboard yang membuka cakupan sasaran, exclusion error, realisasi anggaran, penerima kontrak, audit pemasok, wilayah ditunda, dan indikator dampak gizi.", "Uji pilot dampak independen sebelum klaim keberhasilan dipakai untuk membenarkan perluasan anggaran nasional."] },
+    { id: "evidence", title: "Jejak Bukti Simulasi", content: ["Temuan mengacu pada 8 event simulasi, 6 kelompok stakeholder, 30 persona sintetis, dan 3 narasi risiko yang ditinjau sepanjang 5 ronde.", "Jejak ini merupakan keluaran simulasi berbasis asumsi skenario dan bukan representasi opini masyarakat sebenarnya.", "Setiap rekomendasi kontra perlu divalidasi dengan data sasaran, kontrak pengadaan, biaya peluang, evaluasi gizi, dan observasi pelaksanaan sebelum dijadikan keputusan final."] },
+  ],
 };
 
 export const suggestedQuestions = [
-  "Mengapa petani menunjukkan kekhawatiran tinggi?",
+  "Mengapa ekspansi MBG berisiko terlalu cepat?",
   "Narasi risiko apa yang paling cepat menyebar?",
-  "Bagian kebijakan mana yang perlu diklarifikasi?",
-  "Apa rekomendasi revisi paling penting?",
+  "Seberapa kuat alasan untuk menunda ekspansi MBG?",
+  "Risiko anggaran dan pengadaan apa yang paling kritis?",
 ];
 
 export const mockAnswers: Record<string, string> = {
-  "Mengapa petani menunjukkan kekhawatiran tinggi?": "Kekhawatiran meningkat karena jadwal penyaluran dan definisi status stok belum konsisten pada ronde awal. Setelah penyuluh menyampaikan jadwal wilayah dan kanal pengaduan, sikap kelompok petani bergerak dari khawatir menuju netral.",
-  "Narasi risiko apa yang paling cepat menyebar?": "Narasi 'pupuk akan semakin sulit diakses' menyebar paling cepat melalui Forum Publik pada ronde kedua. Pemicu utamanya adalah perbedaan informasi stok antarkanal.",
-  "Bagian kebijakan mana yang perlu diklarifikasi?": "Klausul verifikasi penerima, waktu pembaruan stok, masa transisi, dan protokol eskalasi pengaduan memerlukan bahasa yang lebih operasional.",
-  "Apa rekomendasi revisi paling penting?": "Tambahkan jadwal penyaluran per wilayah, definisi status stok, masa transisi, serta satu kanal pengaduan dengan batas waktu respons yang jelas.",
+  "Mengapa ekspansi MBG berisiko terlalu cepat?": "Risiko terlalu cepat muncul karena target cakupan dapat mendahului validitas data sasaran, kesiapan SPPG, dukungan administrasi sekolah, audit pengadaan, dan bukti dampak gizi. Dalam simulasi, mayoritas stakeholder meminta penahanan ekspansi sampai prasyarat minimum terpenuhi.",
+  "Narasi risiko apa yang paling cepat menyebar?": "Narasi 'ekspansi terlalu cepat' menyebar paling cepat ketika data sasaran, kesiapan wilayah, penerima kontrak, dan biaya peluang tidak dapat diverifikasi publik.",
+  "Seberapa kuat alasan untuk menunda ekspansi MBG?": "Alasan terkuat adalah kombinasi exclusion error, beban sekolah/daerah, kapasitas SPPG yang belum merata, risiko konflik pengadaan, dan belum adanya bukti dampak independen yang membenarkan perluasan anggaran.",
+  "Risiko anggaran dan pengadaan apa yang paling kritis?": "Risiko paling kritis adalah transparansi penerima kontrak, konsentrasi pemasok, pembayaran terlambat, audit pemasok yang terlambat, dan biaya peluang terhadap program gizi, sanitasi, kesehatan, atau pendidikan lain.",
 };

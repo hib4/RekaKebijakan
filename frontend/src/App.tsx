@@ -89,9 +89,9 @@ function getRoundMetrics(scenario: Scenario, round: number): SimulationMetrics {
 
 const activeExperiments = [
   {
-    name: "Registrasi Digital UMKM",
+    name: "Makan Bergizi Gratis (MBG)",
     scenario: scenarios[2],
-    nodes: ["Pelaku mikro", "Dinas UMKM", "Pendamping", "Pasar"],
+    nodes: ["BGN", "SPPG", "Sekolah", "Orang tua"],
   },
   {
     name: "Standardisasi Bengkel",

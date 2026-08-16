@@ -2043,7 +2043,7 @@ export default function SimulationWorkflowPage() {
   const { simulationId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const publicQuickDemo = simulationId === "demo-registrasi-umkm";
+  const publicQuickDemo = simulationId === "demo-mbg";
   const localMode = simulationId.startsWith("demo-") && !publicQuickDemo;
   const intake = localMode ? loadProjectIntake(simulationId) : null;
   const knownDemo = localMode ? demoCases[simulationId] : undefined;
@@ -2605,7 +2605,7 @@ export default function SimulationWorkflowPage() {
               "DONE",
             );
             if (localMode) updateProjectStage(simulationId, step);
-            if (step === 4) {
+            if (step === 4 && localMode) {
               next.report.completedAt = completedAt;
               saveWorkspaceReport({
                 id: `report-${simulationId}`,

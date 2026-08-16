@@ -8,8 +8,8 @@ export const overviewMetrics = [
 export const attentionRows = [
   {
     severity: "High risk",
-    project: "Registrasi Digital UMKM",
-    finding: "Narasi 'pendaftaran akan berbayar' bertentangan dengan Pasal 7 ayat (2)",
+    project: "Makan Bergizi Gratis (MBG)",
+    finding: "Ekspansi cepat dinilai berisiko sebelum audit pengadaan, validitas data, dan bukti dampak tersedia",
     source: "Skenario awal",
     updated: "8 menit lalu",
     action: "Tinjau",
@@ -33,7 +33,7 @@ export const attentionRows = [
 ] as const;
 
 export const recentProjects = [
-  ["Registrasi Digital UMKM", "Dinas Koperasi Kota Arunika", "Simulasi berjalan", "3", "Sedang", "8 menit lalu", "Buka"],
+  ["Makan Bergizi Gratis (MBG)", "Badan Gizi Nasional", "Simulasi berjalan", "3", "Sedang", "8 menit lalu", "Buka"],
   ["Subsidi Transportasi Pelajar", "Dinas Perhubungan Kota Arunika", "Persiapan persona", "2", "Rendah", "1 jam lalu", "Lanjutkan"],
   ["Retribusi Pasar Berkeadilan", "Bappeda Kota Arunika", "Laporan tersedia", "4", "Tinggi", "Kemarin", "Lihat laporan"],
   ["Pengurangan Plastik Sekali Pakai", "Dinas Lingkungan Hidup Kota Arunika", "Draft", "1", "Belum dihitung", "3 hari lalu", "Buka"],
@@ -41,7 +41,7 @@ export const recentProjects = [
 
 export const recentActivity = [
   ["Sistem", "Laporan 'Retribusi Pasar Berkeadilan' berhasil dibuat.", "12 menit lalu"],
-  ["Anda", "Skenario 'Bantuan Keliling' ditambahkan ke Registrasi Digital UMKM.", "38 menit lalu"],
+  ["Anda", "Skenario 'Argumen Penundaan Ekspansi' ditambahkan ke Makan Bergizi Gratis (MBG).", "38 menit lalu"],
   ["Anda", "12 persona diperbarui pada proyek Subsidi Transportasi Pelajar.", "1 jam lalu"],
   ["Sistem", "Stakeholder 'Pedagang Pasar Tradisional' disetujui.", "Kemarin"],
 ] as const;

@@ -102,18 +102,18 @@ describe("project creation wizard", () => {
     expect(modeOptions[0]).toHaveAccessibleName(/Simulasi Cepat/);
     expect(modeOptions[1]).toHaveAccessibleName(/Simulasi lengkap/);
     expect(modeOptions[0]).toBeChecked();
-    expect(screen.getByLabelText("Nama proyek")).toHaveValue("Registrasi Digital UMKM");
-    expect(screen.getByLabelText("Instansi/tim")).toHaveValue("Dinas Koperasi dan UMKM");
+    expect(screen.getByLabelText("Nama proyek")).toHaveValue("Makan Bergizi Gratis (MBG)");
+    expect(screen.getByLabelText("Instansi/tim")).toHaveValue("Badan Gizi Nasional");
     expect(document.querySelector('input[type="file"]')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Mulai Simulasi Cepat →" }));
 
     await waitFor(() => expect(createProjectMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(sessionStorage.getItem("rekakebijakan-quick-presentation:quick-1")).toBeNull());
     expect(createProjectMock.mock.calls[0][0]).toMatchObject({
-      projectName: "Registrasi Digital UMKM",
+      projectName: "Makan Bergizi Gratis (MBG)",
       files: [],
       workflowMode: "quick_demo",
-      demoBundleId: "registrasi-digital-umkm-v1",
+      demoBundleId: "makan-bergizi-gratis-v1",
     });
   });
 
@@ -132,7 +132,7 @@ describe("project creation wizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Mulai Simulasi Cepat →" }));
 
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/simulation/demo-registrasi-umkm?step=graph&mode=split"));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/simulation/demo-mbg?step=graph&mode=split"));
     expect(createProjectMock).not.toHaveBeenCalled();
   });
 });

@@ -158,17 +158,17 @@ describe("project creation API client", () => {
   it("submits the Quick Demo mode and bundle without files", () => {
     vi.stubGlobal("XMLHttpRequest", FakeXMLHttpRequest);
     createProject({
-      projectName: "Registrasi Digital UMKM",
-      institution: "Dinas Koperasi dan UMKM",
-      objective: "Tinjau respons UMKM",
+      projectName: "Makan Bergizi Gratis (MBG)",
+      institution: "Badan Gizi Nasional",
+      objective: "Kritisi ekspansi MBG",
       files: [],
       workflowMode: "quick_demo",
-      demoBundleId: "registrasi-digital-umkm-v1",
+      demoBundleId: "makan-bergizi-gratis-v1",
     });
 
     const body = FakeXMLHttpRequest.latest.body as FormData;
     expect(body.get("workflow_mode")).toBe("quick_demo");
-    expect(body.get("demo_bundle_id")).toBe("registrasi-digital-umkm-v1");
+    expect(body.get("demo_bundle_id")).toBe("makan-bergizi-gratis-v1");
     expect(body.getAll("files")).toHaveLength(0);
   });
 });

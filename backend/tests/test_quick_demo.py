@@ -6,11 +6,11 @@ from app import create_app
 
 
 QUICK_DEMO = {
-    "project_name": "Demo Registrasi Digital UMKM",
-    "institution": "Dinas Koperasi",
-    "objective": "Menilai dampak registrasi digital bagi pelaku UMKM",
+    "project_name": "Demo Makan Bergizi Gratis",
+    "institution": "Badan Gizi Nasional",
+    "objective": "Mengkritisi ekspansi Program MBG",
     "workflow_mode": "quick_demo",
-    "demo_bundle_id": "registrasi-digital-umkm-v1",
+    "demo_bundle_id": "makan-bergizi-gratis-v1",
 }
 
 
@@ -43,28 +43,31 @@ def test_quick_demo_bootstraps_owned_artifacts_and_local_report(tmp_path, databa
         project_id = created.json()["id"]
         simulation_id = created.json()["simulation_id"]
         assert created.json()["project"]["workflow_mode"] == "quick_demo"
-        assert created.json()["project"]["demo_bundle_id"] == "registrasi-digital-umkm-v1"
+        assert created.json()["project"]["demo_bundle_id"] == "makan-bergizi-gratis-v1"
 
         project = client.get(f"/api/projects/{project_id}").json()
         assert project["workflow_mode"] == "quick_demo"
-        assert project["demo_bundle_id"] == "registrasi-digital-umkm-v1"
+        assert project["demo_bundle_id"] == "makan-bergizi-gratis-v1"
         assert project["documents"] == []
 
         state = client.get(f"/api/simulations/{simulation_id}").json()
         assert state["provenance"] == {
             "workflow_mode": "quick_demo",
-            "demo_bundle_id": "registrasi-digital-umkm-v1",
+            "demo_bundle_id": "makan-bergizi-gratis-v1",
             "execution_kind": "accelerated_fixture",
         }
         assert state["workflow"]["mode"] == "quick_demo"
         assert state["workflow"]["accelerated_steps"] == ["graph", "environment", "simulation"]
-        assert state["workflow"]["bundle"]["id"] == "registrasi-digital-umkm-v1"
-        assert state["workflow"]["bundle"]["title"] == "Registrasi Digital UMKM"
+        assert state["workflow"]["bundle"]["id"] == "makan-bergizi-gratis-v1"
+        assert state["workflow"]["bundle"]["title"] == "Makan Bergizi Gratis (MBG)"
         assert state["workflow"]["bundle"]["version"] == "1"
         assert len(state["workflow"]["bundle"]["content_digest"]) == 64
         assert state["graph"]["nodes"] and state["graph"]["edges"]
         issue_labels = {item["label"] for item in state["graph"]["nodes"] if item["type"] == "Issue"}
-        assert {"Registrasi digital", "Perlindungan data", "Layanan luring"} <= issue_labels
+        assert {"Risiko salah sasaran MBG", "Ekspansi mendahului kapasitas", "Akuntabilitas pengadaan"} <= issue_labels
+        risk_titles = {risk["title"] for risk in state["report"]["risks"]}
+        assert {"Program tidak tepat sasaran", "Ekspansi mendahului kapasitas wilayah"} <= risk_titles
+        assert any(risk["trend"] == "Meningkat" for risk in state["report"]["risks"])
         assert state["environment"]["personas"]
         assert state["environment"]["config"]["rounds"] == 5
         assert state["simulation"]["event_count"] == 30

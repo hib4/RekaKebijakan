@@ -18,7 +18,7 @@ export const scenarios: Scenario[] = [
     concern: 38,
     risk: "Tinggi",
     insight:
-      "Biaya registrasi dan masa transisi belum dipahami secara konsisten.",
+      "Risiko salah sasaran dan beban pusat-daerah belum dijawab secara meyakinkan.",
     personas: 18,
     evidence: 5,
     narratives: 6,
@@ -30,7 +30,7 @@ export const scenarios: Scenario[] = [
     concern: 25,
     risk: "Sedang",
     insight:
-      "Pelaku UMKM menerima perubahan, tetapi masih membutuhkan pendampingan.",
+      "Daerah, sekolah, dan SPPG menolak ekspansi tanpa prasyarat kesiapan yang mengikat.",
     personas: 14,
     evidence: 7,
     narratives: 4,
@@ -42,7 +42,7 @@ export const scenarios: Scenario[] = [
     concern: 16,
     risk: "Rendah",
     insight:
-      "Akses bantuan langsung menurunkan kekhawatiran kelompok berliterasi digital rendah.",
+      "Audit pengadaan dan bukti dampak independen menjadi syarat sebelum ekspansi dinilai layak.",
     personas: 12,
     evidence: 8,
     narratives: 3,

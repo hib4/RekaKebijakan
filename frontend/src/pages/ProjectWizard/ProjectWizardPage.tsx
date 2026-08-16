@@ -19,11 +19,11 @@ const workflow = [
 const acceptedExtensions = new Set(["pdf", "md", "txt", "docx"]);
 const maxFiles = 20;
 const maxFileBytes = 16 * 1024 * 1024;
-const quickDemoBundleId = "registrasi-digital-umkm-v1";
+const quickDemoBundleId = "makan-bergizi-gratis-v1";
 const quickDemoMetadata = {
-  projectName: "Registrasi Digital UMKM",
-  institution: "Dinas Koperasi dan UMKM",
-  objective: "Bagaimana respons pelaku UMKM terhadap kewajiban registrasi digital, dan narasi risiko apa yang perlu diklarifikasi?",
+  projectName: "Makan Bergizi Gratis (MBG)",
+  institution: "Badan Gizi Nasional",
+  objective: "Seberapa kuat alasan untuk menunda ekspansi MBG jika risiko salah sasaran, pengadaan, kesiapan wilayah, dan biaya peluang belum terjawab?",
 };
 type WorkflowMode = "full_simulation" | "quick_demo";
 
@@ -128,8 +128,8 @@ export default function ProjectWizardPage() {
     requestRef.current = controller;
     idempotencyKeyRef.current ??= globalThis.crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
     if (isGuest && workflowMode === "quick_demo") {
-      clearQuickPresentationSession("demo-registrasi-umkm");
-      navigate("/simulation/demo-registrasi-umkm?step=graph&mode=split");
+      clearQuickPresentationSession("demo-mbg");
+      navigate("/simulation/demo-mbg?step=graph&mode=split");
       return;
     }
     try {
@@ -183,7 +183,7 @@ export default function ProjectWizardPage() {
           <div className="workflow-mode-options">
             <label className={workflowMode === "quick_demo" ? "selected" : ""}>
               <input type="radio" name="workflow-mode" value="quick_demo" checked={workflowMode === "quick_demo"} onChange={() => selectWorkflowMode("quick_demo")} disabled={submitting} />
-              <span><b>Simulasi Cepat <em>Direkomendasikan</em></b><small>Jelajahi skenario Registrasi Digital UMKM.</small></span>
+              <span><b>Simulasi Cepat <em>Direkomendasikan</em></b><small>Review kritis kebijakan nasional Makan Bergizi Gratis.</small></span>
             </label>
             <label className={workflowMode === "full_simulation" ? "selected" : ""}>
               <input type="radio" name="workflow-mode" value="full_simulation" checked={workflowMode === "full_simulation"} onChange={() => selectWorkflowMode("full_simulation")} disabled={submitting} />
@@ -202,7 +202,7 @@ export default function ProjectWizardPage() {
             {files.length === 0 ? <><strong aria-hidden="true">↑</strong><button className="project-upload-picker" type="button" onClick={() => inputRef.current?.click()} disabled={submitting}>Tarik dokumen ke sini atau pilih berkas</button><span id="project-file-help">Maksimal 20 berkas PDF, DOCX, MD, atau TXT; masing-masing hingga 16 MB.</span></> : <><div className="project-file-list">{files.map((file) => <span key={`${file.name}-${file.size}-${file.lastModified}`}>{file.name}<button type="button" disabled={submitting} aria-label={`Hapus ${file.name}`} onClick={() => { setFiles((current) => current.filter((item) => item !== file)); setFileError(""); markFormChanged(); }}>×</button></span>)}</div><button className="project-upload-picker add-more" type="button" onClick={() => inputRef.current?.click()} disabled={submitting || files.length >= maxFiles}>Tambah berkas</button></>}
           </div>
           <p id="project-file-error" className="file-rejection" role="alert">{fileError}</p>
-        </section> : <section className="quick-demo-source" aria-label="Sumber Simulasi Cepat"><b>Registrasi Digital UMKM</b><p>Telusuri graf kebijakan, persona sintetis, dinamika respons, laporan, dan interaksi dalam satu alur.</p></section>}
+        </section> : <section className="quick-demo-source" aria-label="Sumber Simulasi Cepat"><b>Makan Bergizi Gratis (MBG)</b><p>Uji argumen kontra terkait ekspansi cepat, salah sasaran, beban pelaksana, risiko pengadaan, dan biaya peluang anggaran.</p></section>}
         <section className="create-console-section">
           <header><b>TUJUAN SIMULASI</b><span>PERTANYAAN ANALISIS</span></header>
           <textarea value={objective} onChange={(event) => { setObjective(event.target.value); markFormChanged(); }} rows={7} required disabled={submitting || workflowMode === "quick_demo"} placeholder="Jelaskan hal yang ingin diuji melalui simulasi skenario..." />

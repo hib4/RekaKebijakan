@@ -30,9 +30,9 @@ export const projectSummary = [
 
 export const policyProjects: PolicyProject[] = [
   {
-    id: "registrasi-digital-umkm",
-    name: "Registrasi Digital UMKM",
-    institution: "Dinas Koperasi Kota Arunika",
+    id: "makan-bergizi-gratis",
+    name: "Makan Bergizi Gratis (MBG)",
+    institution: "Badan Gizi Nasional",
     status: "Simulasi berjalan",
     scenarios: 3,
     lastSimulation: "Ronde 3 dari 5",
@@ -128,7 +128,7 @@ export const projectRiskOptions = [
 
 export const projectInstitutionOptions = [
   "Semua institusi",
-  "Dinas Koperasi Kota Arunika",
+  "Badan Gizi Nasional",
   "Dinas Perhubungan Kota Arunika",
   "Bappeda Kota Arunika",
   "Dinas Lingkungan Hidup Kota Arunika",

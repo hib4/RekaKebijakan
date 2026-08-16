@@ -109,8 +109,8 @@ class WorkflowService:
         workflow_mode = project.get("workflow_mode", "full_simulation")
         demo_bundle_id = project.get("demo_bundle_id")
         if workflow_mode == "quick_demo":
-            if demo_bundle_id != "registrasi-digital-umkm-v1":
-                raise ValueError("Quick demo requires demo_bundle_id registrasi-digital-umkm-v1")
+            if demo_bundle_id != "makan-bergizi-gratis-v1":
+                raise ValueError("Quick demo requires demo_bundle_id makan-bergizi-gratis-v1")
             if files:
                 raise ValueError("Quick demo tidak menerima unggahan dokumen")
         elif workflow_mode == "full_simulation":
@@ -261,12 +261,12 @@ class WorkflowService:
     def public_quick_demo(self) -> dict:
         ontology, graph, environment, simulation, runtime_graph, report = self._quick_demo_artifacts()
         state = upgrade_state({
-            "id": "demo-registrasi-umkm",
-            "simulation_id": "demo-registrasi-umkm",
+            "id": "demo-mbg",
+            "simulation_id": "demo-mbg",
             "status": "ready",
             "current_stage": "report",
             "workflow_mode": "quick_demo",
-            "demo_bundle_id": "registrasi-digital-umkm-v1",
+            "demo_bundle_id": "makan-bergizi-gratis-v1",
             "workflow": {
                 "mode": "quick_demo",
                 "accelerated_steps": ["graph", "environment", "simulation"],
@@ -274,19 +274,19 @@ class WorkflowService:
             },
             "provenance": {
                 "workflow_mode": "quick_demo",
-                "demo_bundle_id": "registrasi-digital-umkm-v1",
+                "demo_bundle_id": "makan-bergizi-gratis-v1",
                 "execution_kind": "accelerated_fixture",
             },
             "project": {
-                "id": "registrasi-digital-umkm-v1",
-                "name": "Registrasi Digital UMKM",
-                "project_name": "Registrasi Digital UMKM",
-                "institution": "Dinas Koperasi dan UMKM",
-                "objective": "Menilai respons pelaku UMKM terhadap registrasi digital dan mengidentifikasi narasi risiko yang perlu diklarifikasi.",
-                "question": "Menilai respons pelaku UMKM terhadap registrasi digital dan mengidentifikasi narasi risiko yang perlu diklarifikasi.",
+                "id": "makan-bergizi-gratis-v1",
+                "name": "Makan Bergizi Gratis (MBG)",
+                "project_name": "Makan Bergizi Gratis (MBG)",
+                "institution": "Badan Gizi Nasional",
+                "objective": "Mengkritisi desain tata kelola nasional MBG terhadap risiko salah sasaran, ekspansi terlalu cepat, akuntabilitas pengadaan, dan biaya peluang anggaran.",
+                "question": "Mengkritisi desain tata kelola nasional MBG terhadap risiko salah sasaran, ekspansi terlalu cepat, akuntabilitas pengadaan, dan biaya peluang anggaran.",
                 "language": "id",
                 "workflow_mode": "quick_demo",
-                "demo_bundle_id": "registrasi-digital-umkm-v1",
+                "demo_bundle_id": "makan-bergizi-gratis-v1",
             },
             "ontology": ontology,
             "graph": graph,

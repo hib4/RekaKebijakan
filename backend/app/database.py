@@ -53,7 +53,7 @@ projects = Table(
     CheckConstraint("status IN ('draft','active','archived','pending_delete','deleted')", name="projects_status_valid"),
     CheckConstraint("workflow_mode IN ('quick_demo','full_simulation')", name="projects_workflow_mode_valid"),
     CheckConstraint(
-        "(workflow_mode = 'quick_demo' AND demo_bundle_id = 'registrasi-digital-umkm-v1') OR "
+        "(workflow_mode = 'quick_demo' AND demo_bundle_id = 'makan-bergizi-gratis-v1') OR "
         "(workflow_mode = 'full_simulation' AND demo_bundle_id IS NULL)",
         name="projects_demo_bundle_valid",
     ),

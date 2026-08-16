@@ -6,115 +6,117 @@ from typing import Any
 from .provider_contracts import ReportOutput
 
 
-QUICK_DEMO_BUNDLE_ID = "registrasi-digital-umkm-v1"
-QUICK_DEMO_BUNDLE_TITLE = "Registrasi Digital UMKM"
+QUICK_DEMO_BUNDLE_ID = "makan-bergizi-gratis-v1"
+QUICK_DEMO_BUNDLE_TITLE = "Makan Bergizi Gratis (MBG)"
 QUICK_DEMO_SOURCE = """
-Pemerintah daerah akan menerapkan registrasi digital bagi pelaku UMKM untuk
-memperbarui data usaha, mempermudah akses bantuan, dan menghubungkan perizinan
-dengan layanan pembiayaan. Pelaksanaan dimulai dengan sosialisasi selama tiga
-bulan, dilanjutkan masa transisi enam bulan sebelum registrasi menjadi syarat
-utama untuk mengakses program bantuan baru.
+Badan Gizi Nasional menyelenggarakan Program Makan Bergizi Gratis (MBG) melalui
+Satuan Pelayanan Pemenuhan Gizi (SPPG), sekolah, pemerintah daerah, penyedia
+pangan, tenaga kesehatan, dan mekanisme pengawasan publik. Program diarahkan
+untuk memperbaiki pemenuhan gizi peserta didik dan kelompok sasaran, tetapi
+desain skala nasionalnya memunculkan pertanyaan serius mengenai kesiapan tata
+kelola, pembiayaan, pengadaan, dan dampak nyata dibanding biaya peluangnya.
 
-Pelaku usaha mikro menghadapi hambatan literasi digital, kepemilikan perangkat,
-konektivitas, biaya adaptasi, dan kekhawatiran mengenai penggunaan data pribadi.
-Layanan luring di kantor kecamatan dan pendampingan koperasi tetap tersedia
-selama masa transisi. Pemerintah daerah menyiapkan meja bantuan, nomor pengaduan,
-pelatihan gratis, serta prosedur koreksi data tanpa biaya.
+Desain kebijakan MBG perlu menjawab lima kritik utama sebelum ekspansi
+dipercepat: apakah sasaran penerima manfaat cukup tepat dan tidak menyingkirkan
+kelompok prioritas, apakah peran pusat-daerah realistis, apakah kapasitas SPPG
+dan rantai pasok tidak dipaksakan melampaui kesiapan wilayah, apakah pembiayaan
+dan pengadaan bebas dari konflik kepentingan, serta apakah indikator dampaknya
+lebih kuat daripada sekadar jumlah porsi tersalurkan.
 
-Koperasi, pendamping UMKM, penyedia teknologi, akademisi, organisasi masyarakat
-sipil, dan media lokal dilibatkan untuk memantau akses, keamanan data, waktu
-layanan, serta dampak terhadap usaha perempuan, pedagang pasar, usaha rumahan,
-dan pelaku usaha di wilayah dengan konektivitas rendah. Evaluasi bulanan akan
-menentukan kebutuhan perpanjangan masa transisi dan pengecualian sementara.
+Simulasi ini meninjau rancangan tata kelola nasional MBG sebagai policy review
+yang kritis. Kelompok pelaksana pusat, pemerintah daerah, sekolah, SPPG dan
+pemasok lokal, tenaga kesehatan/gizi, serta masyarakat sipil/media menguji
+argumen untuk menahan ekspansi, memperketat prasyarat, dan mengalihkan sebagian
+anggaran bila bukti dampak serta kesiapan implementasi belum memadai.
 """.strip()
 
 GROUP_PROFILES = {
-    "Pemerintah daerah": {
+    "BGN dan pelaksana pusat": {
         "names": ["Ratna Prameswari", "Dedi Kurniawan", "Nina Ardianti", "Agus Santoso", "Farah Maulida"],
-        "role": "Pengelola layanan UMKM daerah",
-        "concern": "Kesiapan layanan dan konsistensi informasi",
-        "topics": ["masa transisi", "meja bantuan", "koreksi data"],
+        "role": "Koordinator kebijakan gizi nasional",
+        "concern": "Tekanan ekspansi dan pembuktian dampak kebijakan",
+        "topics": ["tekanan ekspansi", "bukti dampak", "akuntabilitas nasional"],
     },
-    "Pelaku usaha": {
+    "Pemerintah daerah": {
         "names": ["Sari Wulandari", "Bambang Riyadi", "Nur Aini", "Hendra Gunawan", "Lilis Setiawati"],
-        "role": "Pemilik usaha mikro",
-        "concern": "Biaya adaptasi dan akses perangkat",
-        "topics": ["biaya adaptasi", "akses perangkat", "bantuan usaha"],
+        "role": "Koordinator pelaksanaan dan pengawasan daerah",
+        "concern": "Mandat pelaksanaan yang tidak sebanding dengan kapasitas dan anggaran daerah",
+        "topics": ["beban daerah", "kesiapan wilayah", "mandat tanpa sumber daya"],
     },
-    "Warga terdampak": {
+    "Sekolah": {
         "names": ["Yuni Hartati", "Rizal Akbar", "Murniati", "Taufik Hidayat", "Dewi Lestari"],
-        "role": "Pelanggan dan anggota keluarga pelaku usaha",
-        "concern": "Akses layanan luring dan waktu tunggu",
-        "topics": ["layanan luring", "konektivitas", "waktu layanan"],
+        "role": "Satuan layanan penerima dan pencatat pelaksanaan",
+        "concern": "Beban administratif sekolah dan gangguan terhadap fungsi pembelajaran",
+        "topics": ["beban sekolah", "data siswa", "waktu pembelajaran"],
     },
-    "Akademisi": {
+    "SPPG dan pemasok lokal": {
         "names": ["Dr. Maya Kusuma", "Rafi Pradana", "Intan Permata", "Bagus Wicaksono", "Rina Oktaviani"],
-        "role": "Peneliti kebijakan ekonomi digital",
-        "concern": "Indikator evaluasi dan kesenjangan akses",
-        "topics": ["indikator evaluasi", "inklusi digital", "kualitas data"],
+        "role": "Pelaksana produksi makanan dan rantai pasok lokal",
+        "concern": "Risiko pengadaan tergesa-gesa, pembayaran terlambat, dan konsentrasi pemasok",
+        "topics": ["risiko pengadaan", "pembayaran", "konsentrasi pemasok"],
     },
-    "Masyarakat sipil": {
+    "Tenaga kesehatan dan gizi": {
         "names": ["Alya Ramadhani", "Fikri Anwar", "Siska Melati", "Joko Saputra", "Nadia Putri"],
-        "role": "Pendamping hak digital dan UMKM",
-        "concern": "Perlindungan data dan mekanisme pengaduan",
-        "topics": ["perlindungan data", "persetujuan", "pengaduan"],
+        "role": "Pemantau kesehatan dan kecukupan gizi",
+        "concern": "Lemahnya bukti dampak gizi dan risiko program berhenti pada logistik makanan",
+        "topics": ["bukti dampak", "gizi sasaran", "biaya peluang kesehatan"],
     },
-    "Media lokal": {
+    "Masyarakat sipil dan media": {
         "names": ["Andi Prasetyo", "Mega Puspita", "Reza Firmansyah", "Tari Anggraini", "Ilham Nugraha"],
-        "role": "Jurnalis ekonomi daerah",
-        "concern": "Kejelasan informasi dan verifikasi klaim",
-        "topics": ["informasi publik", "verifikasi", "dampak lapangan"],
+        "role": "Pemantau akuntabilitas layanan publik",
+        "concern": "Transparansi anggaran, konflik kepentingan, dan biaya peluang program publik lain",
+        "topics": ["anggaran", "konflik kepentingan", "biaya peluang"],
     },
 }
 
 ROUND_THEMES = [
-    "Pengumuman awal dan pemahaman persyaratan",
-    "Hambatan akses dan kekhawatiran data",
-    "Penyebaran pengalaman lapangan",
-    "Klarifikasi layanan dan langkah mitigasi",
-    "Evaluasi respons dan perubahan sikap",
+    "Pembacaan kritis tujuan dan asumsi kebijakan",
+    "Uji risiko salah sasaran dan beban pelaksana",
+    "Uji kapasitas, pengadaan, dan biaya peluang",
+    "Tekanan atas pengawasan dan bukti dampak",
+    "Rekomendasi penahanan ekspansi dan revisi desain",
 ]
 
 STATEMENTS = [
     [
-        "Registrasi dibuka bertahap; meja bantuan kecamatan dan kanal pengaduan mulai beroperasi pekan ini.",
-        "Saya mendukung pendataan yang lebih rapi, tetapi pedagang kecil perlu tahu biaya dan dokumen apa saja yang diminta.",
-        "Warga di pinggiran kota masih bertanya apakah pendaftaran bisa diselesaikan tanpa ponsel pintar.",
-        "Keberhasilan tahap awal perlu diukur dari tingkat penyelesaian, waktu layanan, dan kesenjangan antarwilayah.",
-        "Informasi persetujuan penggunaan data harus tampil sebelum pelaku usaha mengirim formulir.",
-        "Banyak pertanyaan masuk tentang tenggat, sanksi, dan keberlanjutan layanan luring selama transisi.",
+        "Tujuan gizi MBG penting, tetapi desain saat ini terlalu bergantung pada asumsi bahwa skala besar otomatis menghasilkan dampak.",
+        "Daerah khawatir mandat pelaksanaan turun lebih cepat daripada dukungan anggaran, data, dan kapasitas pengawasan.",
+        "Sekolah menilai pendataan dan pelaporan MBG berisiko mengalihkan waktu dari fungsi utama pembelajaran.",
+        "SPPG dan pemasok lokal melihat risiko pengadaan tergesa-gesa yang dapat mengunci pasar pada pemasok besar.",
+        "Tanpa indikator dampak gizi yang kuat, program bisa berhenti sebagai operasi logistik mahal, bukan intervensi kesehatan.",
+        "Publik mempertanyakan apakah anggaran sebesar ini lebih efektif dibanding penguatan layanan gizi, sanitasi, dan sekolah yang sudah ada.",
     ],
     [
-        "Dinas menambah jadwal layanan bergerak untuk pasar tradisional dan wilayah dengan konektivitas rendah.",
-        "Unggah dokumen beberapa kali gagal dan biaya fotokopi serta perjalanan mulai terasa bagi usaha harian.",
-        "Antrean di kecamatan lebih panjang pada pagi hari karena petugas membantu koreksi nomor identitas usaha.",
-        "Data awal menunjukkan hambatan terbesar bukan penolakan, melainkan perangkat, jaringan, dan bantuan langsung.",
-        "Pelaku usaha perlu memperoleh penjelasan siapa yang dapat mengakses data dan berapa lama data disimpan.",
-        "Laporan gangguan unggah dan antrean mulai ramai, tetapi lokasi meja bantuan belum dipublikasikan secara konsisten.",
+        "Koreksi data yang disiapkan BGN belum menjawab risiko exclusion error bagi anak rentan di sekolah kecil dan wilayah sulit akses.",
+        "Daerah menolak dijadikan penanggung jawab lapangan jika daftar sasaran, anggaran operasional, dan kewenangan koreksi tetap terpusat.",
+        "Sekolah membutuhkan kanal koreksi, tetapi juga menolak beban administrasi tambahan tanpa tenaga dan sistem khusus.",
+        "SPPG menilai fluktuasi jumlah penerima dapat menghasilkan pemborosan, tekanan pembayaran, dan kompromi mutu bahan.",
+        "Tenaga gizi memperingatkan sasaran prioritas bisa tersamar dalam angka cakupan nasional yang terlihat besar.",
+        "Media menilai narasi skala nasional menutupi pertanyaan dasar: siapa yang tidak menerima, siapa yang mengawasi, dan siapa yang diuntungkan.",
     ],
     [
-        "Panduan satu halaman dan daftar lokasi pendamping kini dibagikan melalui kelurahan, koperasi, dan pasar.",
-        "Pendamping koperasi membantu saya menyelesaikan registrasi, tetapi pemilik usaha rumahan lain belum mendapat informasi.",
-        "Kabar bahwa bantuan lama langsung dihentikan ternyata tidak benar, namun klarifikasi resminya terlambat menyebar.",
-        "Perbedaan informasi antarpetugas berisiko menurunkan kepercayaan meskipun kebijakan transisinya cukup inklusif.",
-        "Kami menerima aduan tentang formulir persetujuan yang terlalu umum dan meminta penjelasan tujuan setiap data.",
-        "Cerita keberhasilan pendampingan mulai muncul bersamaan dengan keluhan tentang kualitas jaringan dan respons petugas.",
+        "Pemantauan kapasitas yang diusulkan BGN datang terlambat jika target ekspansi sudah ditetapkan sebelum wilayah diuji.",
+        "Daerah meminta ekspansi dihentikan di wilayah yang belum memiliki peta kapasitas dapur, distribusi, dan pengawasan.",
+        "Sekolah menilai kesiapan infrastruktur penerimaan makanan tidak boleh diasumsikan hanya karena jumlah siswa tersedia.",
+        "Pemasok lokal khawatir aturan pengadaan yang tidak transparan akan mendorong konsentrasi kontrak dan konflik kepentingan.",
+        "Tenaga gizi menilai standar menu nasional berisiko mengabaikan kebutuhan lokal, alergi, dan variasi gizi sasaran.",
+        "Diskusi publik bergeser ke pertanyaan lebih keras: apakah kapasitas diciptakan secara nyata atau hanya dikejar untuk memenuhi target politik.",
     ],
     [
-        "Dinas menegaskan tidak ada sanksi selama masa transisi dan menerbitkan standar waktu penyelesaian tiga hari kerja.",
-        "Kepastian tanpa sanksi membantu, tetapi jadwal pelatihan perlu tersedia setelah jam berdagang.",
-        "Layanan bergerak mengurangi perjalanan, meski warga masih membutuhkan bukti tertulis setelah koreksi data.",
-        "Standar layanan baru dapat diuji dengan mempublikasikan waktu tunggu, kegagalan unggah, dan penyelesaian aduan.",
-        "Perubahan formulir persetujuan dan opsi menghapus lampiran yang salah merupakan langkah perbaikan yang penting.",
-        "Klarifikasi mulai menekan rumor, tetapi pelaksanaan di setiap kecamatan perlu dibandingkan secara terbuka.",
+        "Panel evaluasi BGN belum cukup jika indikator output tetap lebih dominan daripada bukti dampak gizi dan biaya peluang.",
+        "Daerah meminta hasil evaluasi mengikat keputusan ekspansi; wilayah yang gagal prasyarat harus ditunda, bukan diberi target baru.",
+        "Sekolah menolak pelaporan yang hanya memindahkan risiko administratif dari pusat ke satuan pendidikan.",
+        "SPPG meminta audit pengadaan dilakukan sebelum kontrak diperluas karena koreksi setelah kontrak berjalan sering terlambat.",
+        "Tenaga gizi menilai program harus berani membuktikan dampak dibanding intervensi alternatif seperti suplementasi, sanitasi, atau edukasi gizi.",
+        "Masyarakat sipil meminta dashboard publik yang membuka anggaran, penerima kontrak, keluhan, hasil audit, dan wilayah yang ditunda.",
     ],
     [
-        "Evaluasi bulan pertama menunjukkan peningkatan penyelesaian setelah layanan bergerak dan panduan ringkas diterapkan.",
-        "Saya lebih siap mendaftar setelah ada pendampingan dan kepastian masa transisi, meski dukungan perangkat tetap dibutuhkan.",
-        "Akses luring membuat proses lebih adil; berikutnya warga membutuhkan jadwal tetap dan nomor tiket pengaduan.",
-        "Sikap membaik ketika mitigasi dapat diverifikasi, tetapi indikator kelompok rentan harus terus dipisahkan.",
-        "Risiko privasi menurun setelah penjelasan diperbaiki, namun audit akses data tetap perlu diumumkan berkala.",
-        "Percakapan bergeser dari penolakan umum menuju pengawasan mutu layanan, biaya, dan perlindungan data.",
+        "Review kebijakan merekomendasikan penahanan ekspansi nasional sampai validitas data, kapasitas wilayah, dan audit pengadaan memenuhi ambang minimum.",
+        "Daerah hanya siap mendukung jika kewenangan koreksi, pendanaan operasional, dan hak menunda pelaksanaan wilayah dibuat eksplisit.",
+        "Sekolah meminta tugas administrasi MBG tidak dijalankan tanpa tenaga tambahan, sistem pelaporan, dan batas beban kerja yang jelas.",
+        "SPPG dan pemasok lokal meminta kontrak baru ditunda di wilayah yang belum memiliki kepastian pembayaran dan aturan pengadaan terbuka.",
+        "Tenaga gizi meminta pilot dampak yang independen sebelum klaim keberhasilan dipakai untuk membenarkan perluasan anggaran.",
+        "Percakapan bergeser dari koreksi teknis menuju argumen kontra: ekspansi cepat berisiko mengubah tujuan gizi menjadi proyek logistik mahal.",
     ],
 ]
 
@@ -127,11 +129,11 @@ ACTION_TYPES = [
 ]
 
 STANCES = [
-    ["Mendukung", "Netral", "Kritis", "Netral", "Kritis", "Netral"],
-    ["Mendukung", "Kritis", "Kritis", "Netral", "Kritis", "Kritis"],
-    ["Mendukung", "Netral", "Netral", "Kritis", "Kritis", "Netral"],
-    ["Mendukung", "Netral", "Mendukung", "Mendukung", "Netral", "Netral"],
-    ["Mendukung", "Mendukung", "Mendukung", "Mendukung", "Netral", "Mendukung"],
+    ["Netral", "Kritis", "Kritis", "Kritis", "Kritis", "Kritis"],
+    ["Netral", "Kritis", "Kritis", "Kritis", "Kritis", "Kritis"],
+    ["Kritis", "Kritis", "Kritis", "Kritis", "Kritis", "Kritis"],
+    ["Netral", "Kritis", "Kritis", "Kritis", "Kritis", "Kritis"],
+    ["Kritis", "Kritis", "Kritis", "Kritis", "Kritis", "Kritis"],
 ]
 
 
@@ -170,12 +172,12 @@ def _action_args(action: str, statement: str, previous: dict | None, concern: st
         return {
             "quote_content": statement,
             "original_content": previous["statement"] if previous else concern,
-            "original_author_name": previous["persona"] if previous else "Pelaku UMKM",
+            "original_author_name": previous["persona"] if previous else "Pemerintah daerah",
         }
     if action == "REPOST":
         return {
             "original_content": previous["statement"] if previous else statement,
-            "original_author_name": previous["persona"] if previous else "Pendamping UMKM",
+            "original_author_name": previous["persona"] if previous else "Pelaksana MBG",
         }
     if action == "SEARCH_POSTS":
         return {"query": concern.lower()}
@@ -320,7 +322,7 @@ def _build_runtime_graph(graph: dict, environment: dict) -> dict:
                 "type": "PARTICIPATES_IN",
             })
     return {
-        "graph_id": "runtime-registrasi-digital-umkm",
+        "graph_id": "runtime-makan-bergizi-gratis",
         "graph_kind": "runtime",
         "source_revision": graph["revision"],
         "mapping_status": "completed",
@@ -354,9 +356,9 @@ def _build_report(simulation: dict) -> dict:
     ]
     citations = [_event_citation(event) for event in supporting]
     return {
-        "id": "report-registrasi-digital-umkm",
+        "id": "report-makan-bergizi-gratis",
         "version": 1,
-        "title": "Laporan Simulasi Registrasi Digital UMKM",
+        "title": "Laporan Simulasi Makan Bergizi Gratis (MBG)",
         "generated_by": "deterministic-local",
         "sections": [
             {
@@ -364,16 +366,15 @@ def _build_report(simulation: dict) -> dict:
                 "title": "Ringkasan Eksekutif",
                 "paragraphs": [
                     f"Simulasi mencatat {len(events)} aktivitas dalam lima ronde. "
-                    f"Sebanyak {len(critical)} aktivitas menunjukkan sikap kritis, terutama pada akses perangkat, "
-                    "biaya adaptasi, perlindungan data, dan konsistensi layanan.",
-                    "Respons membaik setelah kepastian masa transisi, layanan bergerak, standar waktu layanan, "
-                    "dan perbaikan formulir persetujuan diumumkan.",
+                    f"Sebanyak {len(critical)} aktivitas menunjukkan sikap kritis, terutama pada validitas data sasaran, "
+                    "koordinasi pusat-daerah, kapasitas SPPG/rantai pasok, dan akuntabilitas pengadaan.",
+                    "Klarifikasi desain belum cukup menurunkan keberatan karena prasyarat ekspansi, audit pengadaan, "
+                    "dan bukti dampak independen belum menjadi syarat yang mengikat.",
                     "Arah respons publik tidak berubah karena satu pengumuman tunggal, melainkan karena rangkaian "
-                    "klarifikasi yang dapat diverifikasi: lokasi pendamping, tidak adanya sanksi selama transisi, "
-                    "bukti koreksi data, dan komitmen membuka kanal pengaduan.",
-                    "Implikasi kebijakan utamanya adalah kebutuhan menjaga dua lintasan layanan secara bersamaan: "
-                    "jalur digital untuk mempercepat pembaruan data dan jalur pendampingan tatap muka untuk menjaga "
-                    "akses pelaku usaha yang belum siap secara perangkat, literasi, atau konektivitas.",
+                    "klarifikasi yang dapat diverifikasi: dashboard evaluasi, audit pengadaan, peta kapasitas wilayah, "
+                    "dan indikator dampak gizi.",
+                    "Implikasi kebijakan utamanya adalah perlunya menahan ekspansi di wilayah belum siap dan menguji apakah "
+                    "anggaran MBG lebih efektif dibanding intervensi gizi, sanitasi, dan pendidikan yang lebih terarah.",
                 ],
                 "citations": citations[:2],
             },
@@ -381,48 +382,41 @@ def _build_report(simulation: dict) -> dict:
                 "id": "dinamika",
                 "title": "Dinamika Respons",
                 "paragraphs": [
-                    "Percakapan bergerak dari pertanyaan tentang persyaratan menuju pengalaman kegagalan unggah, "
-                    "antrean, dan akses luring. Pada ronde ketiga, pengalaman pendampingan mulai mengurangi rumor, "
-                    "namun perbedaan informasi antarpetugas masih menekan kepercayaan.",
+                    "Percakapan bergerak dari dukungan umum terhadap tujuan MBG menuju keberatan terhadap data sasaran, "
+                    "pembagian kewenangan, kapasitas SPPG, konflik pengadaan, dan lemahnya bukti dampak. Pada ronde ketiga, "
+                    "peta kapasitas wilayah justru memperjelas bahwa beberapa lokasi belum layak dipaksa mengikuti ekspansi.",
                     f"Pada ronde akhir, {sum(event['stance'] == 'Mendukung' for event in final_round)} dari "
                     f"{len(final_round)} kelompok menunjukkan sikap mendukung.",
-                    "Kelompok pemerintah daerah dan pelaku usaha merespons positif ketika standar layanan dibuat "
-                    "lebih konkret, sementara masyarakat sipil dan akademisi tetap menjaga tekanan pada bukti, "
-                    "indikator kelompok rentan, serta tata kelola data.",
-                    "Media lokal berperan sebagai penguat sinyal risiko: ketika lokasi meja bantuan belum konsisten, "
-                    "percakapan publik menyoroti antrean dan rumor sanksi; ketika klarifikasi diterbitkan, fokus bergeser "
-                    "ke mutu layanan, biaya adaptasi, dan konsistensi pelaksanaan antar kecamatan.",
+                    "BGN menjadi satu-satunya kelompok yang masih mencoba mempertahankan arah program, sementara daerah, sekolah, "
+                    "SPPG, tenaga gizi, masyarakat sipil, dan media menuntut prasyarat yang lebih keras.",
+                    "Media berperan sebagai penguat sinyal risiko: ketika indikator evaluasi belum mengikat, percakapan publik "
+                    "menyoroti pemborosan, salah sasaran, konflik kepentingan, dan biaya peluang anggaran.",
                 ],
                 "citations": citations[1:4],
             },
             {
-                "id": "akses",
-                "title": "Akses dan Inklusi",
+                "id": "sasaran",
+                "title": "Ketepatan Sasaran dan Kapasitas Pelaksanaan",
                 "paragraphs": [
-                    "Layanan bergerak dan meja bantuan kecamatan mengurangi hambatan perjalanan dan perangkat. "
-                    "Jadwal setelah jam berdagang, bukti koreksi tertulis, serta nomor tiket pengaduan tetap "
-                    "dibutuhkan agar manfaatnya merata.",
-                    "Kanal luring perlu dipertahankan sebagai bagian inti desain layanan, bukan sekadar kompensasi "
-                    "sementara. Tanpa jadwal tetap, antrean terukur, dan dukungan koperasi, kelompok usaha rumahan "
-                    "serta wilayah berkoneksi rendah masih berisiko tertinggal.",
-                    "Segmentasi dukungan juga perlu lebih rinci. Pedagang pasar membutuhkan jam layanan yang tidak "
-                    "mengganggu waktu berdagang, usaha rumahan membutuhkan informasi melalui kanal kelurahan dan koperasi, "
-                    "sedangkan wilayah pinggiran membutuhkan layanan bergerak dengan jadwal yang diumumkan lebih awal.",
+                    "Mekanisme koreksi data penerima manfaat, peta kapasitas SPPG, dan indikator kesiapan sekolah belum layak "
+                    "diperlakukan sebagai pelengkap; ketiganya harus menjadi syarat sebelum wilayah masuk ekspansi.",
+                    "Koordinasi pusat-daerah menjadi titik lemah utama. Tanpa hak daerah untuk menunda atau mengoreksi pelaksanaan, "
+                    "risiko lapangan hanya dipindahkan dari pusat ke sekolah dan pemerintah daerah.",
+                    "Segmentasi evaluasi juga masih lemah. Sekolah menanggung administrasi, SPPG menanggung risiko pembayaran, "
+                    "sedangkan tenaga gizi belum mendapat bukti bahwa dampak gizi lebih kuat daripada intervensi alternatif.",
                 ],
                 "citations": citations[0:3],
             },
             {
-                "id": "data",
-                "title": "Perlindungan Data dan Kepercayaan",
+                "id": "akuntabilitas",
+                "title": "Akuntabilitas Pembiayaan dan Evaluasi Publik",
                 "paragraphs": [
-                    "Penjelasan tujuan penggunaan data dan opsi memperbaiki lampiran menurunkan kekhawatiran. "
-                    "Audit akses data dan publikasi penyelesaian aduan diperlukan untuk mempertahankan kepercayaan.",
-                    "Materi persetujuan sebaiknya ditulis dalam bahasa ringkas, memisahkan data wajib dan opsional, "
-                    "serta menjelaskan siapa yang dapat mengakses data usaha. Mekanisme hapus atau koreksi lampiran "
-                    "perlu ditampilkan sebelum pengguna mengirim formulir.",
-                    "Kepercayaan akan lebih mudah dipertahankan jika pemerintah daerah menerbitkan ringkasan tata kelola "
-                    "data: tujuan pengumpulan, masa simpan, hak koreksi, kontak pengaduan, dan mekanisme audit internal. "
-                    "Ringkasan ini harus tersedia di laman digital dan meja bantuan luring.",
+                    "Penjelasan standar pengadaan, audit pemasok, dan penggunaan anggaran belum cukup. Tanpa transparansi kontrak "
+                    "dan penerima manfaat akhir, risiko konflik kepentingan tetap tinggi.",
+                    "Komunikasi kebijakan sebaiknya memisahkan output penyaluran, kualitas layanan, dampak gizi, dan akuntabilitas "
+                    "anggaran. Data pribadi siswa tetap perlu dilindungi agar transparansi tidak membuka informasi sensitif.",
+                    "Kepercayaan hanya mungkin dipulihkan jika BGN menerbitkan ringkasan pengawasan yang membuka cakupan sasaran, "
+                    "kesiapan wilayah, realisasi anggaran, penerima kontrak, keluhan, hasil audit, dan wilayah yang ditunda.",
                 ],
                 "citations": citations[2:5],
             },
@@ -430,43 +424,42 @@ def _build_report(simulation: dict) -> dict:
                 "id": "rekomendasi",
                 "title": "Prioritas Tindak Lanjut",
                 "paragraphs": [
-                    "Pertahankan layanan luring selama masa transisi, publikasikan standar layanan per kecamatan, "
-                    "sediakan pelatihan di luar jam usaha, dan pisahkan indikator akses untuk kelompok rentan.",
-                    "Terbitkan laporan bulanan mengenai waktu tunggu, kegagalan unggah, koreksi data, dan penyelesaian "
-                    "pengaduan sebelum registrasi menjadi syarat bantuan baru.",
-                    "Prioritaskan tiga metrik keputusan untuk evaluasi bulan berikutnya: persentase registrasi selesai "
-                    "tanpa kunjungan ulang, waktu median koreksi data, dan proporsi aduan yang menerima nomor tiket. "
-                    "Jika salah satu memburuk, masa transisi perlu diperpanjang secara terbatas di wilayah terdampak.",
-                    "Bentuk tim respons mingguan yang menggabungkan dinas, kecamatan, koperasi, dan perwakilan pendamping. "
-                    "Tim ini bertugas meninjau keluhan berulang, memperbarui FAQ publik, dan memutuskan apakah materi "
-                    "sosialisasi perlu disesuaikan untuk kelompok usaha atau wilayah tertentu.",
+                    "Tahan ekspansi nasional di wilayah yang belum memenuhi kriteria kesiapan, validitas data penerima manfaat, "
+                    "kapasitas SPPG, audit pengadaan, dan dukungan administrasi sekolah.",
+                    "Terbitkan laporan berkala mengenai cakupan sasaran, realisasi anggaran, proses pengadaan, keluhan, "
+                    "kualitas layanan, dan indikator dampak gizi.",
+                    "Prioritaskan tiga metrik keputusan untuk evaluasi bulan berikutnya: exclusion error penerima manfaat, "
+                    "persentase wilayah dengan kapasitas SPPG memadai, dan bukti dampak gizi independen. Jika salah satu "
+                    "tidak memenuhi ambang minimum, ekspansi harus ditunda.",
+                    "Bentuk forum review berkala yang menggabungkan BGN, pemerintah daerah, sekolah, SPPG/pemasok, tenaga kesehatan, "
+                    "dan pengawas publik. Forum ini bertugas meninjau tradeoff desain, memperbarui pedoman, dan menentukan prioritas koreksi.",
                 ],
                 "citations": citations[3:5],
             },
         ],
         "risks": [
             {
-                "id": "risk-access",
-                "title": "Kesenjangan akses digital",
+                "id": "risk-targeting",
+                "title": "Program tidak tepat sasaran",
                 "level": "Tinggi",
-                "trend": "Menurun",
-                "evidence": "Hambatan perangkat, jaringan, perjalanan, dan waktu layanan muncul lintas ronde.",
+                "trend": "Meningkat",
+                "evidence": "Risiko exclusion error, data sasaran yang sulit dikoreksi, dan variasi kondisi wilayah muncul lintas ronde.",
                 "citations": citations[:2],
             },
             {
-                "id": "risk-data",
-                "title": "Ketidakjelasan penggunaan data",
-                "level": "Sedang",
-                "trend": "Menurun",
-                "evidence": "Kekhawatiran berkurang setelah formulir persetujuan dan koreksi data diperjelas.",
+                "id": "risk-governance",
+                "title": "Ekspansi mendahului kapasitas wilayah",
+                "level": "Tinggi",
+                "trend": "Stabil",
+                "evidence": "Mandat pusat, beban sekolah, dan kapasitas SPPG tetap tidak seimbang meskipun ada klarifikasi.",
                 "citations": citations[2:4],
             },
             {
-                "id": "risk-service",
-                "title": "Ketidakkonsistenan layanan kecamatan",
-                "level": "Sedang",
-                "trend": "Stabil",
-                "evidence": "Perbedaan informasi dan mutu pelaksanaan masih membutuhkan pemantauan terbuka.",
+                "id": "risk-accountability",
+                "title": "Akuntabilitas pembiayaan dan pengadaan lemah",
+                "level": "Tinggi",
+                "trend": "Meningkat",
+                "evidence": "Transparansi anggaran, konflik kepentingan, audit pemasok, dan biaya peluang tetap menjadi keberatan utama.",
                 "citations": citations[1:5],
             },
         ],
@@ -480,10 +473,10 @@ def build_quick_demo(provider: Any) -> tuple[dict, dict, dict, dict, dict, dict]
         "id": QUICK_DEMO_BUNDLE_ID,
         "name": QUICK_DEMO_BUNDLE_TITLE,
         "project_name": QUICK_DEMO_BUNDLE_TITLE,
-        "institution": "Dinas Koperasi dan UMKM",
+        "institution": "Badan Gizi Nasional",
         "objective": (
-            "Menilai respons pelaku UMKM terhadap registrasi digital dan "
-            "mengidentifikasi narasi risiko yang perlu diklarifikasi."
+            "Mengkritisi desain tata kelola nasional MBG terhadap risiko salah sasaran, "
+            "ekspansi terlalu cepat, akuntabilitas pengadaan, dan biaya peluang anggaran."
         ),
     }
     chunk = {
@@ -497,13 +490,24 @@ def build_quick_demo(provider: Any) -> tuple[dict, dict, dict, dict, dict, dict]
     ontology = provider.ontology(project, [chunk])
     graph = provider.graph(project, ontology, [chunk])
 
+    stakeholder_details = [
+        (group, profile["role"])
+        for group, profile in GROUP_PROFILES.items()
+    ]
+    for node, (label, summary) in zip(
+        (item for item in graph["nodes"] if item["type"] == "Stakeholder"),
+        stakeholder_details,
+        strict=True,
+    ):
+        node.update(label=label, summary=summary)
+
     issue_details = [
-        ("Registrasi digital", "Persyaratan, tahapan, dan tenggat registrasi usaha."),
-        ("Akses perangkat", "Ketersediaan perangkat untuk pelaku usaha mikro."),
-        ("Konektivitas", "Kualitas jaringan di pasar dan wilayah pinggiran."),
-        ("Perlindungan data", "Persetujuan, akses, penyimpanan, dan koreksi data."),
-        ("Biaya adaptasi", "Biaya waktu, perjalanan, dokumen, dan perangkat."),
-        ("Layanan luring", "Ketersediaan pendampingan dan alternatif tatap muka."),
+        ("Risiko salah sasaran MBG", "Exclusion error, inclusion error, dan lemahnya mekanisme koreksi penerima manfaat."),
+        ("Beban pusat-daerah-sekolah", "Mandat pelaksanaan yang tidak sebanding dengan kapasitas, anggaran, dan tenaga administrasi."),
+        ("Ekspansi mendahului kapasitas", "Kesiapan SPPG, pemasok lokal, logistik, pembayaran, dan pengawasan wilayah."),
+        ("Akuntabilitas pengadaan", "Transparansi anggaran, konsentrasi kontrak, konflik kepentingan, dan audit pemasok."),
+        ("Biaya peluang anggaran", "Tradeoff MBG terhadap intervensi gizi, sanitasi, kesehatan, dan pendidikan lain."),
+        ("Bukti dampak gizi lemah", "Kesenjangan antara jumlah porsi tersalurkan dan hasil gizi yang dapat diverifikasi."),
     ]
     for node, (label, summary) in zip(
         (item for item in graph["nodes"] if item["type"] == "Issue"),
