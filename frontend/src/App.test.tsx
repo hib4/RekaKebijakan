@@ -102,6 +102,39 @@ describe("application routing", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("lets visitors run the landing demo before opening the full workflow", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    renderApp("/");
+
+    await user.click(
+      await screen.findByRole("button", { name: /Jalankan demo singkat/ }),
+    );
+    expect(screen.getByText("Demo selesai ditinjau")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Lihat workflow lengkap/ }),
+    );
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/projects/new",
+    );
+  });
+
   it("toggles password visibility from icon buttons without coupling register fields", async () => {
     const user = userEvent.setup();
     renderApp("/register");

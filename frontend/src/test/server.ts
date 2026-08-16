@@ -8,6 +8,9 @@ export const server = setupServer(
       { status: 401 },
     ),
   ),
+  http.get("/backend/api/public/quick-demo", () =>
+    HttpResponse.json({}),
+  ),
   http.get("/backend/api/simulations/:simulationId/stream", () =>
     HttpResponse.json({ message: "Stream tidak tersedia dalam test ini" }, { status: 404 }),
   ),

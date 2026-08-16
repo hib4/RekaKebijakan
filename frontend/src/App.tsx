@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { problems, processSteps } from "./data/content";
 import type { Scenario } from "./data/scenarios";
@@ -15,6 +15,7 @@ import ScenarioBuilderPage from "./pages/ScenarioBuilder/ScenarioBuilderPage";
 import SimulationMonitorPage from "./pages/SimulationMonitor/SimulationMonitorPage";
 import ProvenancePage from "./pages/Provenance/ProvenancePage";
 import Header, { Brand } from "./components/Header/Header";
+import { LandingSimulationPreview } from "./components/LandingSimulationPreview/LandingSimulationPreview";
 import AuthPage from "./pages/Auth/AuthPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import "./App.css";
@@ -210,17 +211,6 @@ function LandingPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [caraKerjaVisible, setCaraKerjaVisible] = useState(false);
   const [autoPlay, setAutoPlay] = useState(true);
-  const [scenarioIndex, setScenarioIndex] = useState(0);
-  const [round, setRound] = useState(1);
-  const [hasRun, setHasRun] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const simulationTimer = useRef<number | null>(null);
-  const scenario = scenarios[scenarioIndex];
-  const metrics = useMemo(
-    () => getRoundMetrics(scenario, round),
-    [scenario, round],
-  );
   useEffect(() => {
     if (pathname !== "/") {
       const resetTimer = window.setTimeout(() => {
@@ -243,13 +233,6 @@ function LandingPage() {
     observer.observe(element);
     return () => observer.disconnect();
   }, [pathname]);
-  useEffect(
-    () => () => {
-      if (simulationTimer.current)
-        window.clearInterval(simulationTimer.current);
-    },
-    [],
-  );
   useEffect(() => {
     if (!caraKerjaVisible || !autoPlay || activeStep >= processSteps.length - 1) {
       return;
@@ -264,53 +247,6 @@ function LandingPage() {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [activeStep, caraKerjaVisible, autoPlay]);
-  const stopSimulationTimer = () => {
-    if (simulationTimer.current) {
-      window.clearInterval(simulationTimer.current);
-      simulationTimer.current = null;
-    }
-  };
-  const chooseScenario = (index: number) => {
-    stopSimulationTimer();
-    setScenarioIndex(index);
-    setHasRun(false);
-    setIsRunning(false);
-    setRound(1);
-    setEvidenceOpen(false);
-  };
-  const updateRound = (value: number) => {
-    stopSimulationTimer();
-    setRound(value);
-    setHasRun(false);
-    setIsRunning(false);
-  };
-  const runSimulation = () => {
-    stopSimulationTimer();
-    setHasRun(false);
-    setIsRunning(true);
-    setEvidenceOpen(false);
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setRound(5);
-      setIsRunning(false);
-      setHasRun(true);
-      return;
-    }
-
-    setRound(1);
-    simulationTimer.current = window.setInterval(() => {
-      setRound((currentRound) => {
-        if (currentRound >= 4) {
-          stopSimulationTimer();
-          setIsRunning(false);
-          setHasRun(true);
-          return 5;
-        }
-
-        return currentRound + 1;
-      });
-    }, 1000);
-  };
   return (
     <div id="utama">
       <Header />
@@ -432,165 +368,18 @@ function LandingPage() {
           <div className="shell">
             <p className="eyebrow">03 / SIMULASI INTERAKTIF</p>
             <h2 id="sim-title" className="display">
-              Ubah skenario. Bandingkan dampaknya.
+              Jalankan demo. Ikuti temuannya.
             </h2>
             <p className="section-description">
-              Bandingkan rancangan awal dengan skenario revisi untuk melihat
-              indikasi perubahan dukungan, kekhawatiran, dan risiko narasi.
+              Coba simulasi singkat kebijakan Makan Bergizi Gratis dan lihat
+              bagaimana respons persona, risiko, serta jejak bukti berkembang.
             </p>
             <p className="demo-note">
-              Data pada bagian ini merupakan data demonstrasi dengan tingkat
-              sosialisasi yang dapat dibaca sebagai konteks skenario.
+              Demo terkurasi selama lima ronde. Tidak memerlukan akun.
             </p>
-            <div className="simulation-grid">
-              <section
-                className="simulation-controls"
-                aria-label="Kontrol simulasi"
-              >
-                <p className="label">SKENARIO KEBIJAKAN</p>
-                <div className="scenario-list">
-                  {scenarios.map((item, index) => (
-                    <button
-                      className={scenarioIndex === index ? "selected" : ""}
-                      key={item.id}
-                      onClick={() => chooseScenario(index)}
-                    >
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      {item.name}
-                    </button>
-                  ))}
-                </div>
-                <label className="round-control" htmlFor="round">
-                  <span>JUMLAH RONDE</span>
-                  <b>{round} dari 5</b>
-                  <input
-                    id="round"
-                    type="range"
-                    min="1"
-                    max="5"
-                    value={round}
-                    onChange={(event) =>
-                      updateRound(Number(event.target.value))
-                    }
-                  />
-                  <small>Atur ronde untuk meninjau progres eksperimen.</small>
-                  <small>Tingkat sosialisasi ditinjau sebagai konteks simulasi.</small>
-                </label>
-                <button
-                  className="button primary run"
-                  onClick={runSimulation}
-                  disabled={isRunning}
-                >
-                  {isRunning ? "Simulasi berjalan" : "Jalankan simulasi"}{" "}
-                  <b>→</b>
-                </button>
-              </section>
-              <section
-                className="simulation-results"
-                aria-label="Hasil simulasi"
-              >
-                <div className="result-heading">
-                  <div>
-                    <p className="label">HASIL SKENARIO</p>
-                    <h3>{scenario.name}</h3>
-                  </div>
-                  <span className={`risk risk-${metrics.risk.toLowerCase()}`}>
-                    Risiko narasi {metrics.risk}
-                  </span>
-                </div>
-                <div className="result-bars">
-                  <div>
-                    <div>
-                      <span>Dukungan</span>
-                      <b>{metrics.support}%</b>
-                    </div>
-                    <div className="bar">
-                      <i
-                        className="support"
-                        style={{ width: `${metrics.support}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <div>
-                      <span>Kekhawatiran</span>
-                      <b>{metrics.concern}%</b>
-                    </div>
-                    <div className="bar">
-                      <i
-                        className="concern"
-                        style={{ width: `${metrics.concern}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="result-progress">
-                  <span>Ronde saat ini</span>
-                  <div>
-                    {rounds.map((item) => (
-                      <i className={item <= round ? "done" : ""} key={item}>
-                        {item}
-                      </i>
-                    ))}
-                  </div>
-                  <b>
-                    {isRunning
-                      ? "Simulasi sedang berjalan"
-                      : hasRun
-                        ? "Eksperimen selesai"
-                        : "Menunggu simulasi"}
-                  </b>
-                </div>
-                <article className="insight">
-                  <p className="label">INDIKASI UTAMA</p>
-                  <p>{metrics.insight}</p>
-                </article>
-                <div className="result-counts">
-                  <div>
-                    <b>{metrics.personas}</b>
-                    <span>Persona terdampak</span>
-                  </div>
-                  <div>
-                    <b>{metrics.evidence}</b>
-                    <span>Bukti tertaut</span>
-                  </div>
-                  <div>
-                    <b>{metrics.narratives}</b>
-                    <span>Narasi terdeteksi</span>
-                  </div>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() => setEvidenceOpen(!evidenceOpen)}
-                  aria-expanded={evidenceOpen}
-                >
-                  Lihat dasar temuan <b>{evidenceOpen ? "−" : "+"}</b>
-                </button>
-                {evidenceOpen && (
-                  <div className="evidence-panel">
-                    <p className="label">JEJAK TEMUAN</p>
-                    <div>
-                      <b>Pasal 7 ayat (2)</b>
-                      <span>
-                        Pendaftaran tidak dikenakan biaya selama masa transisi.
-                      </span>
-                    </div>
-                    <div>
-                      <b>Catatan persona</b>
-                      <span>
-                        Kelompok berliterasi digital rendah meminta pendampingan
-                        tatap muka.
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <p className="sr-only" aria-live="polite">
-                  Skenario {scenario.name}, ronde {round}. Dukungan{" "}
-                  {metrics.support} persen, kekhawatiran {metrics.concern}{" "}
-                  persen, risiko narasi {metrics.risk}.
-                </p>
-              </section>
-            </div>
+            <LandingSimulationPreview
+              onOpenWorkflow={() => navigate("/projects/new")}
+            />
           </div>
         </section>
         <section className="surface section" id="keunggulan">
